@@ -3,13 +3,16 @@ package com.dwinovo.animus;
 import com.dwinovo.animus.entity.AnimusEntity;
 import com.dwinovo.animus.entity.InitEntity;
 import com.dwinovo.animus.network.AnimusNetwork;
+import com.dwinovo.animus.platform.NeoForgeAnimusConfig;
 import com.dwinovo.animus.platform.NeoForgeNetworkChannel;
 import com.dwinovo.animus.platform.Services;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
@@ -27,12 +30,18 @@ public class AnimusMod {
                             .sized(0.6f, 0.9f)
                             .build(InitEntity.ANIMUS_KEY));
 
-    public AnimusMod(IEventBus eventBus) {
+    public AnimusMod(IEventBus eventBus, ModContainer container) {
         ENTITY_TYPES.register(eventBus);
         InitEntity.ANIMUS = ANIMUS_HOLDER::get;
 
         eventBus.addListener(AnimusMod::registerAttributes);
         eventBus.addListener(AnimusMod::registerPayloads);
+
+        // Register the TOML config spec — NeoForge handles file creation +
+        // hot-reload from this point on. SPEC is built lazily in the
+        // NeoForgeAnimusConfig static initialiser so referencing it here is
+        // safe (no I/O happens until the world loads).
+        container.registerConfig(ModConfig.Type.COMMON, NeoForgeAnimusConfig.SPEC);
 
         // Queue payload registrations into NeoForgeNetworkChannel; the queue
         // flushes when RegisterPayloadHandlersEvent fires (see below).

@@ -1,6 +1,7 @@
 package com.dwinovo.animus.platform;
 
 import com.dwinovo.animus.Constants;
+import com.dwinovo.animus.platform.services.IAnimusConfig;
 import com.dwinovo.animus.platform.services.INetworkChannel;
 import com.dwinovo.animus.platform.services.IPlatformHelper;
 
@@ -10,6 +11,7 @@ public class Services {
 
     public static final IPlatformHelper PLATFORM = load(IPlatformHelper.class);
     public static final INetworkChannel NETWORK = load(INetworkChannel.class);
+    public static final IAnimusConfig CONFIG = load(IAnimusConfig.class);
 
     public static <T> T load(Class<T> clazz) {
 
