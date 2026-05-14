@@ -1,6 +1,10 @@
 package com.dwinovo.animus.anim.compile;
 
 import com.dwinovo.animus.Constants;
+import com.dwinovo.animus.anim.api.AnimationLibrary;
+import com.dwinovo.animus.anim.api.ModelLibrary;
+import com.dwinovo.animus.anim.api.RenderControllerLibrary;
+import com.dwinovo.animus.anim.baked.BakeStamp;
 import com.dwinovo.animus.anim.baked.BakedAnimation;
 import com.dwinovo.animus.anim.baked.BakedModel;
 import com.dwinovo.animus.anim.baked.BakedRenderController;
@@ -68,6 +72,37 @@ public final class ConfigModelLoader {
         Map<Identifier, BakedRenderController> renderControllers = loadRenderControllers(
                 configDir.resolve(BedrockResourceLoader.RENDER_CONTROLLER_PATH_PREFIX), stamp);
         return new Result(models, animations, renderControllers);
+    }
+
+    /** Stats returned by {@link #rescan} — used by the GUI to show a confirmation toast. */
+    public record RescanStats(int models, int animations, int renderControllers) {
+        public static final RescanStats EMPTY = new RescanStats(0, 0, 0);
+    }
+
+    /**
+     * Re-scan {@code configDir} and atomically replace the {@code animus_user}
+     * namespace in all three baked-asset libraries — vanilla {@code animus}
+     * entries stay untouched. Used by the model-chooser GUI's "refresh"
+     * button so authors iterating on custom models don't have to trigger a
+     * full ResourceManager reload.
+     */
+    public static RescanStats rescan(Path configDir) {
+        if (configDir == null || !Files.isDirectory(configDir)) {
+            ModelLibrary.replaceNamespace(CONFIG_NAMESPACE, Map.of());
+            AnimationLibrary.replaceNamespace(CONFIG_NAMESPACE, Map.of());
+            RenderControllerLibrary.replaceNamespace(CONFIG_NAMESPACE, Map.of());
+            return RescanStats.EMPTY;
+        }
+        long stamp = BakeStamp.next();
+        Result result = scan(configDir, stamp);
+        ModelLibrary.replaceNamespace(CONFIG_NAMESPACE, result.models());
+        AnimationLibrary.replaceNamespace(CONFIG_NAMESPACE, result.animations());
+        RenderControllerLibrary.replaceNamespace(CONFIG_NAMESPACE, result.renderControllers());
+        ConfigTextureLoader.scan(configDir);
+        Constants.LOG.info("[animus-anim] config rescan: {} models, {} animations, {} render_controllers (stamp {})",
+                result.models().size(), result.animations().size(), result.renderControllers().size(), stamp);
+        return new RescanStats(result.models().size(),
+                result.animations().size(), result.renderControllers().size());
     }
 
     private static Map<Identifier, BakedModel> loadModels(Path modelsDir, long stamp) {

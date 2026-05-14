@@ -89,17 +89,6 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
      */
     private static final float TRIGGER_STOP_FADE_SEC = 0.15f;
 
-    protected final Identifier modelKey;
-    protected final Identifier textureLocation;
-    protected final Identifier defaultLoopKey;
-    /**
-     * Lookup key into {@link com.dwinovo.animus.anim.api.RenderControllerLibrary}.
-     * Resolves to a {@code BakedRenderController} whose {@code part_visibility}
-     * rules drive bone visibility via Molang. Same path as {@link #modelKey} by
-     * default — {@code hachiware} model + {@code hachiware} render_controller.
-     */
-    protected final Identifier renderControllerKey;
-
     private final ModelRenderer mesh = new ModelRenderer();
     private final Quaternionf rotBuf = new Quaternionf();
     private final MolangContext molangCtx = new MolangContext();
@@ -140,15 +129,9 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
      */
     private final Map<String, List<BoneVisibilityRule>> visibilityRules = new HashMap<>();
 
-    protected AnimusEntityRenderer(EntityRendererProvider.Context ctx, String name) {
+    protected AnimusEntityRenderer(EntityRendererProvider.Context ctx) {
         super(ctx);
         this.shadowRadius = DEFAULT_SHADOW_RADIUS;
-        this.modelKey = Identifier.fromNamespaceAndPath(Constants.MOD_ID, name);
-        this.textureLocation = Identifier.fromNamespaceAndPath(Constants.MOD_ID,
-                "textures/entities/" + name + ".png");
-        this.defaultLoopKey = Identifier.fromNamespaceAndPath(Constants.MOD_ID,
-                name + "/" + DEFAULT_LOOP_NAME);
-        this.renderControllerKey = Identifier.fromNamespaceAndPath(Constants.MOD_ID, name);
 
         // Default MoLang inputs.
         addInputProvider(new BasicMolangInputProvider());
@@ -231,8 +214,10 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
      * crash the renderer.
      */
     protected final void addLoopingController(String name, BlendMode blendMode, String animationName) {
-        Identifier key = animKey(animationName);
-        addController(new ControllerConfig(name, blendMode, 0f, (state, ctx) -> AnimationLibrary.get(key)));
+        // Resolve the animation key lazily against the per-frame state.modelKey
+        // — entities can switch models at runtime, so the key isn't known here.
+        addController(new ControllerConfig(name, blendMode, 0f,
+                (state, ctx) -> AnimationLibrary.get(animKey(state.modelKey, animationName))));
     }
 
     /**
@@ -319,8 +304,15 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
     @Override
     public void extractRenderState(T entity, AnimusRenderState state, float partialTick) {
         super.extractRenderState(entity, state, partialTick);
-        state.modelKey = modelKey;
-        state.texture = textureLocation;
+
+        // Resolve the model identity from the entity (synced server → client),
+        // falling back to the marker-interface default when the entity hasn't
+        // overridden getModelKey. Every other render key (texture, render
+        // controller, default-loop animation) is derived from this one.
+        Identifier resolvedModelKey = entity instanceof AnimusAnimated animated
+                ? animated.getModelKey() : AnimusAnimated.DEFAULT_MODEL_KEY;
+        state.modelKey = resolvedModelKey;
+        state.texture  = textureFor(resolvedModelKey);
 
         // Body rotation copied from LivingEntity — vanilla LivingEntityRenderState
         // owns this normally but EntityRenderer.extractRenderState does not.
@@ -357,7 +349,7 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
             animator.setPhaseSeed(entity.getUUID().getLeastSignificantBits(), nowNs);
 
             // Drop any controller still holding a pre-reload BakedAnimation.
-            BakedModel currentModel = ModelLibrary.get(modelKey);
+            BakedModel currentModel = ModelLibrary.get(state.modelKey);
             if (currentModel != null) {
                 animator.clearStale(currentModel.bakeStamp);
             }
@@ -385,8 +377,8 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
      */
     private void evaluateVisibilityRules(AnimusRenderState state, BakedModel model) {
         com.dwinovo.animus.anim.baked.BakedRenderController rc =
-                renderControllerKey == null ? null
-                : com.dwinovo.animus.anim.api.RenderControllerLibrary.get(renderControllerKey);
+                state.modelKey == null ? null
+                : com.dwinovo.animus.anim.api.RenderControllerLibrary.get(state.modelKey);
         boolean hasJava = hasVisibilityRules();
         boolean hasMolang = rc != null && !rc.rules.isEmpty();
 
@@ -419,22 +411,28 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
      */
     protected BakedAnimation resolveMainAnimation(AnimusRenderState state, AnimContext ctx) {
         if (state.walkSpeed > 0.15f) {
-            BakedAnimation walk = AnimationLibrary.get(animKey("walk"));
+            BakedAnimation walk = AnimationLibrary.get(animKey(state.modelKey, "walk"));
             if (walk != null) return walk;
         }
-        return AnimationLibrary.get(defaultLoopKey);
+        return AnimationLibrary.get(animKey(state.modelKey, DEFAULT_LOOP_NAME));
     }
 
-    /** Resolve {@code <modelKey>:<animName>} — the global animation library key for this pet. */
-    protected final Identifier animKey(String name) {
+    /** Resolve {@code <modelKey>:<animName>} — the global animation library key. */
+    public static Identifier animKey(Identifier modelKey, String name) {
         return Identifier.fromNamespaceAndPath(modelKey.getNamespace(),
                 modelKey.getPath() + "/" + name);
     }
 
+    /** Derive the texture path for a given model identifier. */
+    public static Identifier textureFor(Identifier modelKey) {
+        return Identifier.fromNamespaceAndPath(modelKey.getNamespace(),
+                "textures/entities/" + modelKey.getPath() + ".png");
+    }
+
     /** First animation in the candidate list that exists in the library, or {@code null}. */
-    protected final BakedAnimation firstAvailable(Iterable<String> names) {
+    protected final BakedAnimation firstAvailable(Identifier modelKey, Iterable<String> names) {
         for (String name : names) {
-            BakedAnimation animation = AnimationLibrary.get(animKey(name));
+            BakedAnimation animation = AnimationLibrary.get(animKey(modelKey, name));
             if (animation != null) return animation;
         }
         return null;

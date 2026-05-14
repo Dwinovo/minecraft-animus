@@ -30,4 +30,16 @@ public final class RenderControllerLibrary {
     public static void replaceAll(Map<Identifier, BakedRenderController> next) {
         controllers = new ConcurrentHashMap<>(next);
     }
+
+    /**
+     * Replace entries belonging to a single namespace. See
+     * {@link ModelLibrary#replaceNamespace} for the rationale — the refresh
+     * button rescans only the player's config directory.
+     */
+    public static void replaceNamespace(String namespace, Map<Identifier, BakedRenderController> entries) {
+        Map<Identifier, BakedRenderController> next = new ConcurrentHashMap<>(controllers);
+        next.keySet().removeIf(id -> namespace.equals(id.getNamespace()));
+        next.putAll(entries);
+        controllers = next;
+    }
 }

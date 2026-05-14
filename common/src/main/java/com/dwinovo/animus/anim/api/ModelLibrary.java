@@ -30,4 +30,18 @@ public final class ModelLibrary {
         Map<Identifier, BakedModel> snapshot = new ConcurrentHashMap<>(next);
         models = snapshot;
     }
+
+    /**
+     * Replace the entries belonging to a single namespace, leaving all other
+     * namespaces intact. Used by the refresh button in the model chooser to
+     * re-scan {@code <gameDir>/config/animus/models/} (namespace
+     * {@code animus_user}) without re-reading the vanilla {@code animus}
+     * resources.
+     */
+    public static void replaceNamespace(String namespace, Map<Identifier, BakedModel> entries) {
+        Map<Identifier, BakedModel> next = new ConcurrentHashMap<>(models);
+        next.keySet().removeIf(id -> namespace.equals(id.getNamespace()));
+        next.putAll(entries);
+        models = next;
+    }
 }

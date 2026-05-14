@@ -29,4 +29,16 @@ public final class AnimationLibrary {
     public static void replaceAll(Map<Identifier, BakedAnimation> next) {
         animations = new ConcurrentHashMap<>(next);
     }
+
+    /**
+     * Replace entries belonging to a single namespace. See
+     * {@link ModelLibrary#replaceNamespace} for the rationale — the refresh
+     * button rescans only the player's config directory.
+     */
+    public static void replaceNamespace(String namespace, Map<Identifier, BakedAnimation> entries) {
+        Map<Identifier, BakedAnimation> next = new ConcurrentHashMap<>(animations);
+        next.keySet().removeIf(id -> namespace.equals(id.getNamespace()));
+        next.putAll(entries);
+        animations = next;
+    }
 }
