@@ -13,10 +13,11 @@ import net.minecraft.world.level.Level;
  *
  * <h2>State table</h2>
  * <pre>
- * untamed       + food                   → {@link #handleTame}    (30% chance, consume 1)
- * tamed + owner + food                   → {@link #handleFeed}    (+4 HP if not max)
- * tamed + owner + sneak + main hand      → {@link #handleOpenChooser} (model GUI)
- * otherwise                              → PASS (vanilla mob interact)
+ * untamed       + food                                   → {@link #handleTame}    (30% chance, consume 1)
+ * tamed + owner + food                                   → {@link #handleFeed}    (+4 HP if not max)
+ * tamed + owner + sneak + main hand                      → {@link #handleOpenChooser} (model GUI)
+ * tamed + owner + main hand + no food + not sneaking     → {@link #handleOpenPrompt}  (LLM prompt GUI)
+ * otherwise                                              → PASS (vanilla mob interact)
  * </pre>
  *
  * <p>Non-owners can never tame an already-tamed Animus, can never open its
@@ -62,8 +63,11 @@ public final class AnimusInteractHandler {
         if (isTame && isOwner && isFood) {
             return handleFeed(level, entity, player, hand);
         }
-        if (isTame && isOwner && isSneaking && hand == InteractionHand.MAIN_HAND) {
-            return handleOpenChooser(level, entity);
+        if (isTame && isOwner && hand == InteractionHand.MAIN_HAND) {
+            if (isSneaking) {
+                return handleOpenChooser(level, entity);
+            }
+            return handleOpenPrompt(level, entity);
         }
         return InteractionResult.PASS;
     }
@@ -108,6 +112,14 @@ public final class AnimusInteractHandler {
         if (level.isClientSide()) {
             // Client-only screen class; the dedicated server JVM never sees this.
             com.dwinovo.animus.client.screen.ChooseModelScreen.open(entity);
+        }
+        return InteractionResult.SUCCESS;
+    }
+
+    private static InteractionResult handleOpenPrompt(Level level, AnimusEntity entity) {
+        if (level.isClientSide()) {
+            // Client-only screen class; dedicated server never loads it.
+            com.dwinovo.animus.client.screen.PromptScreen.open(entity);
         }
         return InteractionResult.SUCCESS;
     }

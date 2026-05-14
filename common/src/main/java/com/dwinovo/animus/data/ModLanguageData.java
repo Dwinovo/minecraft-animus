@@ -62,6 +62,13 @@ public final class ModLanguageData {
         // Built-in model display strings.
         public static final String MODEL_HACHIWARE_NAME        = "animus.model.hachiware.name";
         public static final String MODEL_HACHIWARE_DESCRIPTION = "animus.model.hachiware.description";
+
+        // Owner prompt GUI labels.
+        public static final String GUI_PROMPT_TITLE  = "animus.gui.prompt.title";
+        public static final String GUI_PROMPT_INPUT  = "animus.gui.prompt.input";
+        public static final String GUI_PROMPT_HINT   = "animus.gui.prompt.hint";
+        public static final String GUI_PROMPT_SEND   = "animus.gui.prompt.send";
+        public static final String GUI_PROMPT_CANCEL = "animus.gui.prompt.cancel";
     }
 
     /** Loader-side providers funnel both English and Simplified Chinese through here. */
@@ -90,6 +97,12 @@ public final class ModLanguageData {
 
         adder.add(Keys.MODEL_HACHIWARE_NAME,        "Hachiware");
         adder.add(Keys.MODEL_HACHIWARE_DESCRIPTION, "Default model — a small black-and-white feline character.");
+
+        adder.add(Keys.GUI_PROMPT_TITLE,  "Talk to Animus");
+        adder.add(Keys.GUI_PROMPT_INPUT,  "Prompt");
+        adder.add(Keys.GUI_PROMPT_HINT,   "Tell the entity what to do...");
+        adder.add(Keys.GUI_PROMPT_SEND,   "Send");
+        adder.add(Keys.GUI_PROMPT_CANCEL, "Cancel");
     }
 
     private static void addZh(Adder adder) {
@@ -109,5 +122,11 @@ public final class ModLanguageData {
 
         adder.add(Keys.MODEL_HACHIWARE_NAME,        "帕奇猫");
         adder.add(Keys.MODEL_HACHIWARE_DESCRIPTION, "默认模型——一只黑白花纹的小猫角色。");
+
+        adder.add(Keys.GUI_PROMPT_TITLE,  "对话");
+        adder.add(Keys.GUI_PROMPT_INPUT,  "输入");
+        adder.add(Keys.GUI_PROMPT_HINT,   "告诉它你想让它做什么……");
+        adder.add(Keys.GUI_PROMPT_SEND,   "发送");
+        adder.add(Keys.GUI_PROMPT_CANCEL, "取消");
     }
 }

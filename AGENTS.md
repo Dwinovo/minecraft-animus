@@ -7,12 +7,14 @@
 `minecraft-animus` 的目标是打造一个 **完全由 LLM 驱动的 Minecraft 实体**：
 
 1. 模组只包含 **一个实体**。该实体的行为不通过传统硬编码 Goal/Behavior 决定，而是由外部 LLM 决策。
-2. 使用 Minecraft 原生 **Brain 系统**（`net.minecraft.world.entity.ai.Brain`，配合 `Memory`、`Sensor`、`Activity`、`Behavior/BehaviorControl`）构建 **原子化 AI**：每个 Behavior 只做一件最小粒度的事（如「走向某坐标」「攻击某目标」「拾取最近物品」），不内嵌任何策略性判断。
-3. 将这些 **原子 Behavior 映射为 ToolCall**：每个原子 AI = 一个工具。LLM 通过工具调用来组合行为，Brain 系统负责执行与状态机层面的安全约束。
-4. 结合 **Skill** 与 **MCP**（Model Context Protocol）扩展能力：Skill 提供更高层的封装与可复用「招式」，MCP 用于把外部上下文 / 工具暴露给驱动该实体的 Agent。
-5. 感知层（Sensor → Memory）作为 LLM 的 **观测输入**：把世界状态结构化后传给 Agent，Agent 输出 ToolCall，回到 Brain 执行。
+2. 使用 vanilla **`Goal` + `GoalSelector`** 系统作为执行层：每个原子任务（如 `move_to`）= 一个 `Goal` 子类，channel 概念直接复用 `Goal.Flag {MOVE, LOOK, JUMP, TARGET}` —— selector 自然提供"同 flag 互斥、跨 flag 并行"。LLM 任务统一注册在 priority 0，自动消除抢占。
+3. 将原子任务 **映射为 ToolCall**：每个工具 = LLM 视角的 schema + Task 翻译器。Tool 和 Task 严格分离 —— Tool 描述 LLM 看到什么，Task 描述世界里发生什么。一对一不是硬约束（一个 Tool 可以发多个 Task，反之亦然）。
+4. 结合 **Skill** 与 **MCP**（Model Context Protocol）扩展能力：Skill = 编排好的任务链（对 LLM 暴露为单个 tool，内部按序执行原子 task，失败时回报具体到步），MCP 用于把外部上下文 / 工具喂给 Agent。
+5. 感知层（周期 sensor → perception 快照）作为 LLM 的 **观测输入**：先用一个 100 行的 `Perception` POJO（Phase-2 实现），不引入 vanilla Brain 的 Memory/MemoryModuleType 注册机制（成本过高）。
 
-设计原则：**Brain 是执行层 + 状态机护栏；LLM 是决策层；ToolCall 是它们之间唯一的接口。** 不要在 Behavior 里写策略，也不要在 LLM prompt 里写底层位移/路径逻辑——两边各司其职。
+设计原则：**Goal 是执行层；LLM 是决策层；ToolCall 是它们之间唯一的接口。** 不要在 Goal 里写策略，也不要在 LLM prompt 里写底层位移/路径逻辑——两边各司其职。
+
+**为什么不用 Brain**：Brain 的 Activity/Schedule/Memory 模型是为"被动 AI"（村民日程、Warden 状态机）设计的，命令式调度需要伪造 memory 状态。Goal.Flag 已经天然就是我们设计的 channel mutex。详见 [`common/.../task/LlmTaskGoal.java`](common/src/main/java/com/dwinovo/animus/task/LlmTaskGoal.java) 类注释。
 
 ## 当前进度
 
@@ -22,10 +24,12 @@
 - **`AnimusEntity` 实体已注册**：继承 `PathfinderMob` 实现 `AnimusAnimated`，Fabric + NeoForge 各自走 vanilla 注册路径（无 service 抽象，YAGNI）。
 - **双源资源加载**：默认资产走 `assets/animus/`（namespace `animus`），玩家自定义模型走 `<gameDir>/config/animus/models/`（namespace `animus_user`）。
 - **默认模型 Hachiware** 已就位（dwinovo 原创美术资产，重新许可为 CC BY-NC 4.0）。
-- 还没有 Brain、Sensor、Memory、Activity 的实现代码（下一阶段 plan）。
-- 还没有引入任何 LLM/HTTP/MCP 客户端依赖。
+- **owner + 驯服系统**：`AnimusEntity extends TamableAnimal`，食物 tag `animus:tame_foods` 控制驯服食材。蹲下右键打开换肤 GUI；普通右键打开 LLM 对话 GUI（仅 owner）。
+- **OpenAI Java SDK 4.35.0** 已通过 Shadow + relocate 打包进 mod jar（kotlin/jackson/okhttp 全 relocate 到 `com.dwinovo.animus.shade.*`，`com.openai.*` 保持原包名）。
+- **LLM 任务执行框架已搭建**（MVP 端到端跑通）：`common/.../task/`（原子任务生命周期 + GoalSelector 桥接）+ `common/.../agent/`（LLM 客户端 + tool 注册表 + agent 编排循环 + 16-turn cap + batch-dedup）+ 右键 owner Prompt GUI + `AnimusPromptPayload` C2S 包 + 跨 loader `IAnimusConfig`（Fabric JSON / NeoForge ModConfigSpec）。第一个原子工具 `move_to(x,y,z,speed)` 已注册。
+- 还没有 Sensor / Perception / 复合任务链 / streaming / 客户端任务状态可视化（下一阶段）。
 
-下一步通常是：① 把 `AnimusEntity` 接到 Brain 系统的空骨架上；② 设计 ToolCall ↔ Behavior 的桥接层；③ 引入 LLM/MCP 客户端依赖（先确认 Fabric / NeoForge 两侧 classpath 不冲突）。
+下一步通常是：① 玩家配置 API key 进 `config/animus.json` 或 `config/animus-common.toml`，启动游戏右键实体试 `move_to`；② 加更多原子工具（`look_at` / `say` / `attack`）；③ 加 Perception 层把附近玩家/方块/伤害事件喂给 LLM；④ 设计复合任务（任务链）编排 + 透明结果回报。
 
 ## 技术栈与版本
 
@@ -152,26 +156,32 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
    - 否 → 写在 `common/`。
    - 是 → 在 common 定义接口（`platform/services/`），在 `fabric/` + `neoforge/` 各加一个实现，并把全限定名写进对应的 `META-INF/services/` 文件。
 
-2. **这是 LLM 决策层、Brain 执行层、还是 ToolCall 桥接层？** 不要把三层混在一个类里。预期的分层骨架（尚未实现）：
-   - `common/.../ai/brain/` — Behavior、Sensor、Memory、Activity 定义
-   - `common/.../ai/tools/` — ToolCall schema + 执行入口（每个工具调用映射到 1~N 个 Behavior 触发或 Memory 写入）
-   - `common/.../ai/agent/` — LLM 客户端、对话循环、Skill/MCP 集成
+2. **这是 LLM 决策层、Goal 执行层、还是 Tool 桥接层？** 不要把三层混在一个类里。实际分层：
+   - `common/.../task/` — Task 抽象（`TaskRecord` / `TaskResult` / `TaskQueue`）+ `LlmTaskGoal` 基类（Goal 生命周期 ↔ 任务生命周期 1:1 桥接）
+   - `common/.../task/tasks/` — 具体原子任务实现（`MoveToTaskRecord` + `MoveToTaskGoal`）
+   - `common/.../agent/tool/` — Tool 抽象 + `ToolRegistry` + `ToolAdapter`（单点 OpenAI ↔ 内部协议转换）
+   - `common/.../agent/llm/` — `AnimusLlmClient`（async OpenAI 客户端）+ `ConvoState`（per-entity 对话）
+   - `common/.../agent/loop/` — `AgentLoop`（编排：tool_call → enqueue → drain result → next turn）
    - `common/.../entity/` — 实体类本身 + 注册（已落地：`AnimusEntity` + `InitEntity`）
 
-3. **要新建一个原子 Behavior 时**：保持单一职责。能用 `OneShot` / `Trigger` 等内置基类就别从头实现。把可调参数尽量上提到 ToolCall 的入参，而不是写死在 Behavior 里。
+3. **要新建一个原子 Task 时**：保持单一职责。`extends LlmTaskGoal<T>` 只需实现 `onStart` / `onTick` / `buildResult` 三个方法。把可调参数尽量上提到对应的 `AnimusTool.parameterSchema()` 里，而不是写死在 Task 实现里。
 
-### Brain 系统速查（实现时再查 Mojang 映射确认 API 签名）
+4. **要新建一个 Tool 时**：实现 `AnimusTool` 接口。一个 Tool 可以发多种 TaskRecord（命名 → 类型映射通过 Goal 的 `recordClass` 字段做 `instanceof` 分发，无反射）。在 [`CommonClass.registerTools`](common/src/main/java/com/dwinovo/animus/CommonClass.java) 里注册。
 
-- `Brain<E>`：实体的大脑，持有 Memory 和 Activity 状态机。
-- `MemoryModuleType<T>`：键值化的世界感知结果（如「最近的玩家」「攻击目标」「家坐标」）。**自定义 Memory 需要注册**。
-- `SensorType<S extends Sensor<?>>`：周期性把世界扫一遍写入 Memory。**自定义 Sensor 需要注册**。
-- `Activity`：行为模式分组（IDLE、WORK、FIGHT…）。Brain 在不同 Activity 间切换。
-- `BehaviorControl<E>` / `Behavior<E>`：单个原子行为。
-- 注册一般通过 `DeferredRegister` 或加载器特有的事件总线 —— 这部分需要 Service 抽象。
+### 任务框架速查
+
+- **任务生命周期**：`queue.enqueue(record)` → `Goal.canUse()` peek 匹配 → `Goal.start()` poll + 标记 RUNNING + 调 `onStart` → `Goal.tick()` 每 tick 检查 deadline + `onTick` → 子类设置终止 state → `Goal.canContinueToUse()` 返回 false → `Goal.stop()` 调 `buildResult` + 写 outbox → 下一 tick `AgentLoop.tick()` 排空 outbox → `convo.addToolResult(...)` → 下一轮 LLM。
+- **跨线程关口唯一一处**：OpenAI SDK 异步 callback 通过 `server.execute(Runnable)` 投回 tick 线程。所有 world 状态修改只在 tick 线程发生（single-writer）。
+- **超时计时**：用 `level.getGameTime()`（`/tick freeze` 和 `/tick rate` 都正确响应）。`TaskRecord.deadlineGameTime` 在 tool 翻译时算好（now + 默认 timeout）。
+- **抢占处理**：不做。所有 LLM Goal 都注册在 priority 0，selector 不会让一个 LLM Goal 抢另一个。环境事件（被攻击等）的反应留给后续 Perception 层。
+- **死循环防护**：`ConvoState.MAX_TOOL_TURN_COUNT = 16`（硬上限）+ `MAX_REPEAT_TOOL_BATCH_COUNT = 2`（连续两次相同 tool 批次就停）。LLM 返回纯文本则重置计数。
+- **OpenAI SDK 关键类**（`com.openai.*`，不 relocate）：`OpenAIClientAsync`（异步入口）、`ChatCompletionCreateParams.Builder.addTool/addMessage/addUserMessage/addSystemMessage`、`ChatCompletion.choices().get(0).message().toolCalls()` / `.content()` / `.toParam()`、`ChatCompletionToolMessageParam.builder().toolCallId(...).content(...).build()`。
 
 ### 引入外部依赖
 
 LLM 客户端、HTTP、MCP SDK 等多半需要直接 `implementation` 到 common（如果是 Java/Kotlin pure jar 且不引入加载器冲突），或者通过 jar-in-jar（fabric loom 的 `include` / neoforge moddev 的 jarJar）打包进去。**先确认依赖在 Fabric / NeoForge 两侧都没有 classpath 冲突再引入**，否则会出现「dev 能跑、正式包炸」。
+
+OpenAI SDK 的引入路径（已实践，可参考）：用 `com.gradleup.shadow` 在每个 loader 子项目里把 SDK + 全部 transitive 打成一个中间 jar，然后 merge 进 main mod jar。`kotlin` / `okhttp` / `okio` / `jackson` 必须一起 relocate（共配 `com.dwinovo.animus.shade.*`），SDK 自身 `com.openai.*` 保留原包名以便业务代码直接 `import`。具体配置见 [`fabric/build.gradle`](fabric/build.gradle) 和 [`neoforge/build.gradle`](neoforge/build.gradle) 的 `openaiShadeJar` 任务。
 
 ### 不要做的事
 

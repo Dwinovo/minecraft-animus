@@ -1,8 +1,11 @@
 package com.dwinovo.animus.entity;
 
+import com.dwinovo.animus.agent.loop.AgentLoop;
 import com.dwinovo.animus.anim.api.AnimusAnimated;
 import com.dwinovo.animus.anim.runtime.Animator;
 import com.dwinovo.animus.entity.interact.AnimusInteractHandler;
+import com.dwinovo.animus.task.TaskQueue;
+import com.dwinovo.animus.task.tasks.MoveToTaskGoal;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -11,6 +14,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.AgeableMob;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
@@ -72,6 +76,16 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     private Identifier cachedModelKey = AnimusAnimated.DEFAULT_MODEL_KEY;
     private String cachedModelKeyString = AnimusAnimated.DEFAULT_MODEL_KEY.toString();
 
+    /**
+     * Lazy server-side state. Both are constructed on first access, which
+     * happens from {@code customServerAiStep} or a {@code Goal.canUse} call
+     * — i.e. only on a {@link ServerLevel}. The client never touches them,
+     * so the lazy null-guard pattern keeps the client JVM clean even though
+     * the fields are declared in {@code common}.
+     */
+    private TaskQueue taskQueue;
+    private AgentLoop agentLoop;
+
     public AnimusEntity(EntityType<? extends AnimusEntity> type, Level level) {
         super(type, level);
     }
@@ -80,6 +94,61 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         return TamableAnimal.createMobAttributes()
                 .add(Attributes.MAX_HEALTH, 20.0)
                 .add(Attributes.MOVEMENT_SPEED, 0.25);
+    }
+
+    /**
+     * Registers every LLM-driven task as a {@code Goal} at priority 0.
+     * Equal priority neutralises vanilla's preemption logic — tasks coexist
+     * by {@link Goal.Flag channel} but never interrupt each other. See
+     * {@link com.dwinovo.animus.task.LlmTaskGoal} for the lifecycle bridge.
+     *
+     * <p>Called by the {@code Mob} constructor before {@code AnimusEntity}'s
+     * field initialisers have run. Don't access instance fields here — the
+     * Goal subclass should only store the entity reference and read state
+     * lazily from {@code canUse()} onward.
+     */
+    @Override
+    protected void registerGoals() {
+        super.registerGoals();
+        this.goalSelector.addGoal(0, new MoveToTaskGoal(this));
+    }
+
+    /** Server-side task queue. Lazily created on first access. */
+    public TaskQueue getTaskQueue() {
+        if (taskQueue == null) taskQueue = new TaskQueue();
+        return taskQueue;
+    }
+
+    /** Server-side agent loop. Lazily created on first access. */
+    public AgentLoop getAgentLoop() {
+        if (agentLoop == null) agentLoop = new AgentLoop(this);
+        return agentLoop;
+    }
+
+    /**
+     * Per-tick server hook. Vanilla calls this after {@code goalSelector.tick}
+     * and before {@code moveControl} — a clean place to drain completed
+     * tasks into the agent loop and trigger the next LLM turn if needed.
+     */
+    @Override
+    protected void customServerAiStep(ServerLevel level) {
+        super.customServerAiStep(level);
+        getAgentLoop().tick();
+    }
+
+    /**
+     * Vanilla hook fired on death / unload / chunk-unload. Flushes pending
+     * tasks so the agent loop doesn't leave dangling tool_call_ids waiting
+     * forever, and disables any further LLM activity. Idempotent: removing
+     * an entity twice doesn't double-shutdown because the loop's internal
+     * flag stays set.
+     */
+    @Override
+    public void remove(Entity.RemovalReason reason) {
+        if (agentLoop != null) {
+            agentLoop.shutdown();
+        }
+        super.remove(reason);
     }
 
     @Override
@@ -135,7 +204,12 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
 
     @Override
     public String getCurrentTask() {
-        // Stub for Phase 1 — wired up once the Brain / ToolCall plumbing lands.
+        // Surface the queue head's tool name for client-side display hooks
+        // (rendering bubble, debug overlay). Server-side only — the field is
+        // never populated client-side because TaskQueue is server-lazy.
+        if (taskQueue != null && taskQueue.hasPending()) {
+            return "busy:" + taskQueue.pendingCount();
+        }
         return "none";
     }
 

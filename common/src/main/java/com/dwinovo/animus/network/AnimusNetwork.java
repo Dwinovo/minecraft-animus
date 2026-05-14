@@ -1,5 +1,6 @@
 package com.dwinovo.animus.network;
 
+import com.dwinovo.animus.network.payload.AnimusPromptPayload;
 import com.dwinovo.animus.network.payload.SetModelPayload;
 import com.dwinovo.animus.platform.Services;
 
@@ -28,5 +29,7 @@ public final class AnimusNetwork {
     public static void register() {
         Services.NETWORK.registerClientToServer(
                 SetModelPayload.TYPE, SetModelPayload.STREAM_CODEC, SetModelPayload::handle);
+        Services.NETWORK.registerClientToServer(
+                AnimusPromptPayload.TYPE, AnimusPromptPayload.STREAM_CODEC, AnimusPromptPayload::handle);
     }
 }
