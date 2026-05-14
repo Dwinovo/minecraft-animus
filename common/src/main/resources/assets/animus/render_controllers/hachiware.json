@@ -1,0 +1,20 @@
+{
+  "format_version": "1.8.0",
+  "render_controllers": {
+    "controller.render.hachiware": {
+      "geometry": "Geometry.default",
+      "materials": [
+        { "*": "Material.default" }
+      ],
+      "textures": [
+        "Texture.default"
+      ],
+      "part_visibility": [
+        { "*": true },
+        { "guitar": "query.task == 'play_music'" },
+        { "Mouth3": "query.task == 'play_music'" },
+        { "RightHandLocator": "query.task != 'play_music'" }
+      ]
+    }
+  }
+}

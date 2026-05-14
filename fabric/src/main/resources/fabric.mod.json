@@ -17,6 +17,9 @@
     "entrypoints": {
         "main": [
             "com.dwinovo.animus.AnimusMod"
+        ],
+        "client": [
+            "com.dwinovo.animus.AnimusFabricClient"
         ]
     },
     "mixins": [

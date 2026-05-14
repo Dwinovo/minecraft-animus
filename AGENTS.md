@@ -18,10 +18,14 @@
 
 - 已从 MultiLoader-Template 克隆并完成改名：`mod_id=animus`、`mod_name=Animus`、`group=com.dwinovo.animus`、入口类 `AnimusMod`、`rootProject.name=minecraft-animus`。
 - 三个 mixin 配置文件已重命名为 `animus.mixins.json` / `animus.fabric.mixins.json` / `animus.neoforge.mixins.json`，内部 `package` 字段指向 `com.dwinovo.animus.mixin`。
-- 还没有任何实体、Brain、Sensor、Memory、Activity 的实现代码。
+- **基岩版渲染管线已搭建**（迁移自 [`minecraft-chiikawa`](https://github.com/dwinovo/minecraft-chiikawa)，作者本人重新许可，见 [NOTICE.md](NOTICE.md)）：`common/.../anim/` 下完整的 Bedrock geo/animation/molang 烘焙 + 多控制器状态机 + 不可变快照渲染。
+- **`AnimusEntity` 实体已注册**：继承 `PathfinderMob` 实现 `AnimusAnimated`，Fabric + NeoForge 各自走 vanilla 注册路径（无 service 抽象，YAGNI）。
+- **双源资源加载**：默认资产走 `assets/animus/`（namespace `animus`），玩家自定义模型走 `<gameDir>/config/animus/models/`（namespace `animus_user`）。
+- **默认模型 Hachiware** 已就位（dwinovo 原创美术资产，重新许可为 CC BY-NC 4.0）。
+- 还没有 Brain、Sensor、Memory、Activity 的实现代码（下一阶段 plan）。
 - 还没有引入任何 LLM/HTTP/MCP 客户端依赖。
 
-下一步通常是：① 在 `common` 注册第一个空实体；② 把它接到 Brain 系统的空骨架上；③ 设计 ToolCall ↔ Behavior 的桥接层；④ 引入 LLM/MCP 客户端依赖（先确认 Fabric / NeoForge 两侧 classpath 不冲突）。
+下一步通常是：① 把 `AnimusEntity` 接到 Brain 系统的空骨架上；② 设计 ToolCall ↔ Behavior 的桥接层；③ 引入 LLM/MCP 客户端依赖（先确认 Fabric / NeoForge 两侧 classpath 不冲突）。
 
 ## 技术栈与版本
 
@@ -88,6 +92,35 @@ buildSrc/    # 共享的 multiloader-common / multiloader-loader gradle 约定
 
 Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gradle.daemon=false`），第一次构建会慢，正常现象。
 
+## 渲染管线
+
+基岩版（Bedrock）模型 + 动画 + 贴图渲染管线在 `common/src/main/java/com/dwinovo/animus/anim/` 下，分层如下：
+
+| 子包 | 职责 |
+|---|---|
+| `format/` | Gson POJO（`BedrockGeoFile`）反序列化 `.geo.json` |
+| `compile/` | 烘焙管线（`ModelBaker` / `AnimationBaker` / `BedrockResourceLoader` / `ConfigModelLoader` / `ConfigTextureLoader` / `MolangCompiler`） |
+| `baked/` | 不可变烘焙数据（`BakedModel` / `BakedBone` / `BakedCube` / `BakedAnimation` / `BakedBoneChannel`）+ `BakeStamp` |
+| `molang/` | Mini-Molang AST + 求值（2 vars + 5 funcs，详见 `MolangContext` 注释） |
+| `runtime/` | 纯函数采样（`PoseSampler` / `PoseMixer`）+ per-entity 状态（`Animator`）+ `AnimContext`（占位，未来填 LLM 状态字段） |
+| `controller/` | 多控制器状态机（OVERRIDE / ADDITIVE 模式、淡入淡出、`playOnce` 触发） |
+| `render/` | EntityRenderer 基类（`AnimusEntityRenderer`）+ 顶点提交（`ModelRenderer`）+ 程序性拦截器（`BoneInterceptor` / `HeadLookInterceptor`）+ 可见性规则（`BoneVisibilityRule`） |
+
+**资源加载有两条路径**：
+
+1. **默认资产** → vanilla `ResourceManager`：
+   - `assets/animus/models/entity/<id>.json`
+   - `assets/animus/animations/<id>.json`
+   - `assets/animus/textures/entities/<id>.png`
+   - 命名空间 `animus`，Identifier 为 `animus:<id>` / `animus:<id>/<anim_name>`。
+2. **玩家自定义模型** → 文件系统：
+   - `<gameDir>/config/animus/models/{models/entity,animations,textures/entities}/<id>.{json,json,png}`
+   - 命名空间 `animus_user`，与默认互不覆盖。
+   - 贴图通过 `DynamicTexture` + `TextureManager.register` 注册，模型/动画走 `ConfigModelLoader.scan()`。
+   - `/reload` 时自动重扫。
+
+切换实体当前使用的模型（"换皮"）需要在 `AnimusEntity` 加 `EntityDataAccessor<String> MODEL_KEY` 同步字段，由 `AnimusEntityRenderer` 据此查 `ModelLibrary`。当前阶段未实现，hardcode `animus:hachiware`。
+
 ## 给 AI 代理的关键指引
 
 ### 在添加代码前先问自己
@@ -100,7 +133,7 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
    - `common/.../ai/brain/` — Behavior、Sensor、Memory、Activity 定义
    - `common/.../ai/tools/` — ToolCall schema + 执行入口（每个工具调用映射到 1~N 个 Behavior 触发或 Memory 写入）
    - `common/.../ai/agent/` — LLM 客户端、对话循环、Skill/MCP 集成
-   - `common/.../entity/` — 实体类本身 + 注册
+   - `common/.../entity/` — 实体类本身 + 注册（已落地：`AnimusEntity` + `InitEntity`）
 
 3. **要新建一个原子 Behavior 时**：保持单一职责。能用 `OneShot` / `Trigger` 等内置基类就别从头实现。把可调参数尽量上提到 ToolCall 的入参，而不是写死在 Behavior 里。
 
@@ -134,6 +167,11 @@ LLM 客户端、HTTP、MCP SDK 等多半需要直接 `implementation` 到 common
 
 `gradle.properties` 里的 `license` 字段是个自由字符串，会写到 `fabric.mod.json` 与 `neoforge.mods.toml`，在 mod 菜单里展示。当前值：`PolyForm-Noncommercial-1.0.0 (code) + CC-BY-NC-4.0 (art)`。
 
-> **新增美术/声音/模型文件时**：放到 `common/src/main/resources/assets/animus/` 下，自动归 LICENSE-ART 管。**新增代码**默认归 LICENSE 管。如果未来要引入第三方资源（CC0 贴图、字体等），单独建一个 `THIRD_PARTY_NOTICES.md` 记录其来源与许可证，避免混淆。
+> **资产 / 代码归属约定**：
+> - **代码**（`*.java` 等）默认归 [LICENSE](LICENSE)（PolyForm Noncommercial 1.0.0）管。
+> - **默认美术 / 声音 / 模型文件**归 [LICENSE-ART](LICENSE-ART)（CC BY-NC 4.0）管，放在 `common/src/main/resources/assets/animus/{models/entity,animations,textures/entities}/`。
+> - **玩家自定义资产**走运行期路径 `<gameDir>/config/animus/models/`，由玩家自带 license，**不进 git**。
+> - **迁移自 minecraft-chiikawa 的代码 + 默认 Hachiware 资产** 的重新许可声明见 [NOTICE.md](NOTICE.md)。
+> - 未来引入第三方资源（CC0 贴图、字体、社区贡献的模型等）单独建一个 `THIRD_PARTY_NOTICES.md` 记录来源与许可证，避免与我们自有资产混淆。
 
 > **区块链签名**：如果未来真要做美术资产的签名，那是「举证当时归属」的证据手段，不是法律授权——法律保护始终来自上述两份许可证。
