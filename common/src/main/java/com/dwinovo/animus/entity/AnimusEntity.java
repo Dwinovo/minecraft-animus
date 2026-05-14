@@ -6,10 +6,13 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
@@ -94,6 +97,27 @@ public class AnimusEntity extends PathfinderMob implements AnimusAnimated {
     public String getCurrentTask() {
         // Stub for Phase 1 — wired up once the Brain / ToolCall plumbing lands.
         return "none";
+    }
+
+    /**
+     * Sneaking right-click opens the model-chooser GUI on the client side;
+     * the server returns {@link InteractionResult#SUCCESS} so the swing
+     * animation plays and no other interaction handler runs. Without the
+     * sneak modifier, falls through to vanilla mob interaction.
+     *
+     * <p>The {@code ChooseModelScreen.open} call is guarded by the
+     * client-side check — the dedicated server JVM never loads the
+     * (client-only) screen class.
+     */
+    @Override
+    public InteractionResult mobInteract(Player player, InteractionHand hand) {
+        if (player.isShiftKeyDown() && hand == InteractionHand.MAIN_HAND) {
+            if (this.level().isClientSide()) {
+                com.dwinovo.animus.client.screen.ChooseModelScreen.open(this);
+            }
+            return InteractionResult.SUCCESS;
+        }
+        return super.mobInteract(player, hand);
     }
 
     @Override

@@ -4,6 +4,7 @@ import com.dwinovo.animus.anim.baked.BakedModel;
 import net.minecraft.resources.Identifier;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -22,6 +23,16 @@ public final class ModelLibrary {
 
     public static BakedModel get(Identifier id) {
         return models.get(id);
+    }
+
+    /**
+     * Immutable snapshot of all registered model identifiers. Used by the
+     * model-chooser GUI to list every model the player can pick. Returns a
+     * defensive copy so iteration is safe even if the underlying map is
+     * replaced mid-frame.
+     */
+    public static Set<Identifier> keys() {
+        return Set.copyOf(models.keySet());
     }
 
     /** Replaces the registry contents. Called by the resource loader. */
