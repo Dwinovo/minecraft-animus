@@ -15,6 +15,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.FormattedCharSequence;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
@@ -67,8 +68,10 @@ public final class ChooseModelScreen extends Screen {
     private static final int FOOTER_BUTTON_WIDTH = 60;
     private static final int FOOTER_BUTTON_GAP   = 4;
     private static final int PREVIEW_PADDING  = 4;
-    private static final int PREVIEW_SCALE    = 40;
+    private static final int PREVIEW_HEIGHT   = 80;
+    private static final int PREVIEW_SCALE    = 32;
     private static final float PREVIEW_Y_OFFSET = 0.0625f;
+    private static final int DESCRIPTION_GAP  = 6;
 
     private final AnimusEntity target;
     private final Path configDir;
@@ -227,16 +230,26 @@ public final class ChooseModelScreen extends Screen {
         int previewLeft   = left + LIST_WIDTH + PREVIEW_PADDING;
         int previewTop    = top;
         int previewRight  = left + CONTENT_WIDTH;
-        int previewBottom = top + CONTENT_HEIGHT - BUTTON_HEIGHT - PREVIEW_PADDING;
+        int previewBottom = previewTop + PREVIEW_HEIGHT;
         renderPreview(graphics, previewLeft, previewTop, previewRight, previewBottom, mouseX, mouseY);
 
         if (!Component.empty().equals(statusMessage)) {
             graphics.centeredText(this.font, statusMessage,
                     this.width / 2, top - 2, 0xFFAAAAAA);
         }
+
+        // Description sits directly under the preview, wrapped to the preview's
+        // own width so long English strings break across multiple lines instead
+        // of overflowing into the footer button row.
         if (selected != null && !Component.empty().equals(selected.description())) {
-            graphics.centeredText(this.font, selected.description(),
-                    (previewLeft + previewRight) / 2, previewBottom + 4, 0xFFAAAAAA);
+            int previewWidth = previewRight - previewLeft;
+            int centerX = (previewLeft + previewRight) / 2;
+            List<FormattedCharSequence> lines = this.font.split(selected.description(), previewWidth);
+            int lineY = previewBottom + DESCRIPTION_GAP;
+            for (FormattedCharSequence line : lines) {
+                graphics.centeredText(this.font, line, centerX, lineY, 0xFFAAAAAA);
+                lineY += this.font.lineHeight;
+            }
         }
         if (entries.isEmpty()) {
             graphics.centeredText(this.font,
