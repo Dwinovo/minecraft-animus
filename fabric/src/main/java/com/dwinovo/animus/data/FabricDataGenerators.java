@@ -19,5 +19,6 @@ public final class FabricDataGenerators implements DataGeneratorEntrypoint {
         FabricDataGenerator.Pack pack = generator.createPack();
         pack.addProvider((output, registries) -> new FabricModLanguageProvider(output, "en_us", registries));
         pack.addProvider((output, registries) -> new FabricModLanguageProvider(output, "zh_cn", registries));
+        pack.addProvider(FabricModItemTagsProvider::new);
     }
 }
