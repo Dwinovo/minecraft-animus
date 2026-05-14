@@ -29,30 +29,49 @@ import java.util.stream.Stream;
 /**
  * Second-source model loader that scans player-supplied Bedrock model files
  * from {@code <gameDir>/config/animus/models/} and bakes them into the
- * {@code animus_user} namespace. Mirrors the layout of vanilla resource packs
- * so artists can drop in / iterate on a model without packaging a resource
- * pack:
+ * {@code animus_user} namespace.
  *
+ * <h2>Layout — one directory per model</h2>
  * <pre>
  * config/animus/models/
- *   models/entity/&lt;id&gt;.json
- *   animations/&lt;id&gt;.json
- *   render_controllers/&lt;id&gt;.json
- *   textures/entities/&lt;id&gt;.png
+ *   &lt;id&gt;/
+ *     geometry.json          (required — Bedrock .geo.json)
+ *     animation.json         (optional — Bedrock animation file, may contain
+ *                            multiple animations)
+ *     render_controller.json (optional — Bedrock render_controllers schema)
+ *     manifest.json          (optional — display name / description / author)
+ *     texture.png            (required for rendering)
  * </pre>
  *
- * <p>Returns the baked models / animations / render controllers as plain maps;
- * the caller (the shared resource-reload entry point) merges them with the
- * vanilla {@code animus} namespace and replaces the global libraries in one
- * atomic swap.
+ * <p>The directory name becomes the model id: e.g.
+ * {@code config/animus/models/my_skin/} registers as
+ * {@code animus_user:my_skin}. Animations within {@code animation.json}
+ * become {@code animus_user:my_skin/<anim_name>}.
  *
  * <p>Texture loading is handled separately by {@link ConfigTextureLoader} —
  * textures must round-trip through Minecraft's {@code TextureManager} rather
  * than the model library.
+ *
+ * <h2>Why by-model instead of by-type</h2>
+ * Mod-shipped assets live under {@code assets/animus/} and follow the
+ * vanilla resource-pack convention (separate {@code models/entity/},
+ * {@code animations/}, {@code textures/entities/} top-level dirs) because
+ * vanilla's {@code ResourceManager} indexes by path prefix. The
+ * player-facing config directory has the opposite priority: a single model
+ * is one self-contained folder the user can drop in or zip up, so files
+ * stay together by model id, not by type.
  */
 public final class ConfigModelLoader {
 
     public static final String CONFIG_NAMESPACE = "animus_user";
+
+    // Per-model file names. These are the contract authors and the
+    // upcoming .animuspack importer share.
+    public static final String GEOMETRY_FILE          = "geometry.json";
+    public static final String ANIMATION_FILE         = "animation.json";
+    public static final String RENDER_CONTROLLER_FILE = "render_controller.json";
+    public static final String MANIFEST_FILE          = "manifest.json";
+    public static final String TEXTURE_FILE           = "texture.png";
 
     private static final Gson GSON = new Gson();
 
@@ -66,31 +85,38 @@ public final class ConfigModelLoader {
         public static final Result EMPTY = new Result(Map.of(), Map.of(), Map.of(), Map.of());
     }
 
-    public static Result scan(Path configDir, long stamp) {
-        if (configDir == null || !Files.isDirectory(configDir)) return Result.EMPTY;
-
-        Map<Identifier, BakedModel> models = loadModels(
-                configDir.resolve(BedrockResourceLoader.MODEL_PATH_PREFIX), stamp);
-        Map<Identifier, BakedAnimation> animations = loadAnimations(
-                configDir.resolve(BedrockResourceLoader.ANIMATION_PATH_PREFIX), models);
-        Map<Identifier, BakedRenderController> renderControllers = loadRenderControllers(
-                configDir.resolve(BedrockResourceLoader.RENDER_CONTROLLER_PATH_PREFIX), stamp);
-        Map<Identifier, BakedModelManifest> manifests = loadModelManifests(
-                configDir.resolve(BedrockResourceLoader.MODEL_MANIFEST_PATH_PREFIX), stamp);
-        return new Result(models, animations, renderControllers, manifests);
-    }
-
     /** Stats returned by {@link #rescan} — used by the GUI to show a confirmation toast. */
     public record RescanStats(int models, int animations, int renderControllers, int manifests) {
         public static final RescanStats EMPTY = new RescanStats(0, 0, 0, 0);
     }
 
+    public static Result scan(Path configDir, long stamp) {
+        if (configDir == null || !Files.isDirectory(configDir)) return Result.EMPTY;
+
+        Map<Identifier, BakedModel> models = new HashMap<>();
+        Map<Identifier, BakedAnimation> animations = new HashMap<>();
+        Map<Identifier, BakedRenderController> renderControllers = new HashMap<>();
+        Map<Identifier, BakedModelManifest> manifests = new HashMap<>();
+
+        try (Stream<Path> dirs = Files.list(configDir)) {
+            dirs.filter(Files::isDirectory)
+                .sorted()
+                .forEach(modelDir -> loadOneModel(modelDir, stamp,
+                        models, animations, renderControllers, manifests));
+        } catch (IOException ex) {
+            Constants.LOG.error("[animus-anim] failed to walk config models dir {}: {}",
+                    configDir, ex.toString());
+        }
+
+        return new Result(models, animations, renderControllers, manifests);
+    }
+
     /**
      * Re-scan {@code configDir} and atomically replace the {@code animus_user}
-     * namespace in all three baked-asset libraries — vanilla {@code animus}
-     * entries stay untouched. Used by the model-chooser GUI's "refresh"
-     * button so authors iterating on custom models don't have to trigger a
-     * full ResourceManager reload.
+     * namespace in every baked-asset library — vanilla {@code animus} entries
+     * stay untouched. Used by the model-chooser GUI's "refresh" button so
+     * authors iterating on custom models don't have to trigger a full
+     * ResourceManager reload.
      */
     public static RescanStats rescan(Path configDir) {
         if (configDir == null || !Files.isDirectory(configDir)) {
@@ -108,116 +134,80 @@ public final class ConfigModelLoader {
         ModelManifestLibrary.replaceNamespace(CONFIG_NAMESPACE, result.manifests());
         ConfigTextureLoader.scan(configDir);
         Constants.LOG.info("[animus-anim] config rescan: {} models, {} animations, {} render_controllers, {} manifests (stamp {})",
-                result.models().size(), result.animations().size(), result.renderControllers().size(),
-                result.manifests().size(), stamp);
+                result.models().size(), result.animations().size(),
+                result.renderControllers().size(), result.manifests().size(), stamp);
         return new RescanStats(result.models().size(), result.animations().size(),
                 result.renderControllers().size(), result.manifests().size());
     }
 
-    private static Map<Identifier, BakedModel> loadModels(Path modelsDir, long stamp) {
-        Map<Identifier, BakedModel> out = new HashMap<>();
-        if (!Files.isDirectory(modelsDir)) return out;
-        try (Stream<Path> walk = Files.walk(modelsDir)) {
-            walk.filter(p -> p.getFileName().toString().endsWith(BedrockResourceLoader.JSON_EXTENSION))
-                .filter(Files::isRegularFile)
-                .forEach(p -> {
-                    String shortName = stripJsonExt(modelsDir.relativize(p).toString().replace('\\', '/'));
-                    Identifier key = Identifier.fromNamespaceAndPath(CONFIG_NAMESPACE, shortName);
-                    try (BufferedReader r = Files.newBufferedReader(p)) {
-                        BedrockGeoFile file = GSON.fromJson(r, BedrockGeoFile.class);
-                        out.put(key, ModelBaker.bake(file, stamp));
-                    } catch (Exception ex) {
-                        Constants.LOG.error("[animus-anim] failed to load config geo {}: {}", p, ex.toString());
-                    }
-                });
-        } catch (IOException ex) {
-            Constants.LOG.error("[animus-anim] failed to walk config models dir {}: {}", modelsDir, ex.toString());
-        }
-        return out;
-    }
+    /**
+     * Bake every supported asset present in one model directory. Missing
+     * optional files are silently skipped; missing geometry is the only
+     * fatal case (without a model, animations / RC / manifest have nothing
+     * to bind to).
+     */
+    private static void loadOneModel(Path modelDir, long stamp,
+                                     Map<Identifier, BakedModel> models,
+                                     Map<Identifier, BakedAnimation> animations,
+                                     Map<Identifier, BakedRenderController> renderControllers,
+                                     Map<Identifier, BakedModelManifest> manifests) {
+        String id = modelDir.getFileName().toString();
+        Identifier modelKey = Identifier.fromNamespaceAndPath(CONFIG_NAMESPACE, id);
 
-    private static Map<Identifier, BakedAnimation> loadAnimations(Path animDir,
-                                                                   Map<Identifier, BakedModel> models) {
-        Map<Identifier, BakedAnimation> out = new HashMap<>();
-        if (!Files.isDirectory(animDir)) return out;
-        try (Stream<Path> walk = Files.walk(animDir)) {
-            walk.filter(p -> p.getFileName().toString().endsWith(BedrockResourceLoader.JSON_EXTENSION))
-                .filter(Files::isRegularFile)
-                .forEach(p -> {
-                    String shortName = stripJsonExt(animDir.relativize(p).toString().replace('\\', '/'));
-                    Identifier modelKey = Identifier.fromNamespaceAndPath(CONFIG_NAMESPACE, shortName);
-                    BakedModel model = models.get(modelKey);
-                    if (model == null) {
-                        Constants.LOG.warn("[animus-anim] config animation {} has no matching model {} — skipping",
-                                p, modelKey);
-                        return;
-                    }
-                    try (BufferedReader r = Files.newBufferedReader(p)) {
-                        JsonObject root = JsonParser.parseReader(r).getAsJsonObject();
-                        Map<String, BakedAnimation> anims = AnimationBaker.bake(root, model);
-                        for (Map.Entry<String, BakedAnimation> a : anims.entrySet()) {
-                            Identifier id = Identifier.fromNamespaceAndPath(CONFIG_NAMESPACE,
-                                    modelKey.getPath() + "/" + a.getKey());
-                            out.put(id, a.getValue());
-                        }
-                    } catch (Exception ex) {
-                        Constants.LOG.error("[animus-anim] failed to load config animations {}: {}", p, ex.toString());
-                    }
-                });
-        } catch (IOException ex) {
-            Constants.LOG.error("[animus-anim] failed to walk config animations dir {}: {}", animDir, ex.toString());
+        Path geoPath = modelDir.resolve(GEOMETRY_FILE);
+        if (!Files.isRegularFile(geoPath)) {
+            Constants.LOG.warn("[animus-anim] config model '{}' has no {} — skipping",
+                    id, GEOMETRY_FILE);
+            return;
         }
-        return out;
-    }
-
-    private static Map<Identifier, BakedModelManifest> loadModelManifests(Path manifestDir, long stamp) {
-        Map<Identifier, BakedModelManifest> out = new HashMap<>();
-        if (!Files.isDirectory(manifestDir)) return out;
-        try (Stream<Path> walk = Files.walk(manifestDir)) {
-            walk.filter(p -> p.getFileName().toString().endsWith(BedrockResourceLoader.JSON_EXTENSION))
-                .filter(Files::isRegularFile)
-                .forEach(p -> {
-                    String shortName = stripJsonExt(manifestDir.relativize(p).toString().replace('\\', '/'));
-                    Identifier key = Identifier.fromNamespaceAndPath(CONFIG_NAMESPACE, shortName);
-                    try (BufferedReader r = Files.newBufferedReader(p)) {
-                        BedrockModelManifest file = GSON.fromJson(r, BedrockModelManifest.class);
-                        out.put(key, ModelManifestBaker.bake(file, stamp));
-                    } catch (Exception ex) {
-                        Constants.LOG.error("[animus-anim] failed to load config model_manifest {}: {}", p, ex.toString());
-                    }
-                });
-        } catch (IOException ex) {
-            Constants.LOG.error("[animus-anim] failed to walk config model_manifests dir {}: {}", manifestDir, ex.toString());
+        BakedModel model;
+        try (BufferedReader r = Files.newBufferedReader(geoPath)) {
+            BedrockGeoFile file = GSON.fromJson(r, BedrockGeoFile.class);
+            model = ModelBaker.bake(file, stamp);
+        } catch (Exception ex) {
+            Constants.LOG.error("[animus-anim] failed to load {}/{}: {}",
+                    id, GEOMETRY_FILE, ex.toString());
+            return;
         }
-        return out;
-    }
+        models.put(modelKey, model);
 
-    private static Map<Identifier, BakedRenderController> loadRenderControllers(Path rcDir, long stamp) {
-        Map<Identifier, BakedRenderController> out = new HashMap<>();
-        if (!Files.isDirectory(rcDir)) return out;
-        try (Stream<Path> walk = Files.walk(rcDir)) {
-            walk.filter(p -> p.getFileName().toString().endsWith(BedrockResourceLoader.JSON_EXTENSION))
-                .filter(Files::isRegularFile)
-                .forEach(p -> {
-                    String shortName = stripJsonExt(rcDir.relativize(p).toString().replace('\\', '/'));
-                    Identifier key = Identifier.fromNamespaceAndPath(CONFIG_NAMESPACE, shortName);
-                    try (BufferedReader r = Files.newBufferedReader(p)) {
-                        BedrockRenderControllerFile file = GSON.fromJson(r, BedrockRenderControllerFile.class);
-                        BakedRenderController controller = RenderControllerBaker.bake(file, stamp);
-                        if (controller != null) out.put(key, controller);
-                    } catch (Exception ex) {
-                        Constants.LOG.error("[animus-anim] failed to load config render_controller {}: {}", p, ex.toString());
-                    }
-                });
-        } catch (IOException ex) {
-            Constants.LOG.error("[animus-anim] failed to walk config render_controllers dir {}: {}", rcDir, ex.toString());
+        Path animPath = modelDir.resolve(ANIMATION_FILE);
+        if (Files.isRegularFile(animPath)) {
+            try (BufferedReader r = Files.newBufferedReader(animPath)) {
+                JsonObject root = JsonParser.parseReader(r).getAsJsonObject();
+                Map<String, BakedAnimation> anims = AnimationBaker.bake(root, model);
+                for (Map.Entry<String, BakedAnimation> a : anims.entrySet()) {
+                    Identifier animId = Identifier.fromNamespaceAndPath(CONFIG_NAMESPACE,
+                            id + "/" + a.getKey());
+                    animations.put(animId, a.getValue());
+                }
+            } catch (Exception ex) {
+                Constants.LOG.error("[animus-anim] failed to load {}/{}: {}",
+                        id, ANIMATION_FILE, ex.toString());
+            }
         }
-        return out;
-    }
 
-    private static String stripJsonExt(String s) {
-        return s.endsWith(BedrockResourceLoader.JSON_EXTENSION)
-                ? s.substring(0, s.length() - BedrockResourceLoader.JSON_EXTENSION.length())
-                : s;
+        Path rcPath = modelDir.resolve(RENDER_CONTROLLER_FILE);
+        if (Files.isRegularFile(rcPath)) {
+            try (BufferedReader r = Files.newBufferedReader(rcPath)) {
+                BedrockRenderControllerFile file = GSON.fromJson(r, BedrockRenderControllerFile.class);
+                BakedRenderController rc = RenderControllerBaker.bake(file, stamp);
+                if (rc != null) renderControllers.put(modelKey, rc);
+            } catch (Exception ex) {
+                Constants.LOG.error("[animus-anim] failed to load {}/{}: {}",
+                        id, RENDER_CONTROLLER_FILE, ex.toString());
+            }
+        }
+
+        Path manifestPath = modelDir.resolve(MANIFEST_FILE);
+        if (Files.isRegularFile(manifestPath)) {
+            try (BufferedReader r = Files.newBufferedReader(manifestPath)) {
+                BedrockModelManifest file = GSON.fromJson(r, BedrockModelManifest.class);
+                manifests.put(modelKey, ModelManifestBaker.bake(file, stamp));
+            } catch (Exception ex) {
+                Constants.LOG.error("[animus-anim] failed to load {}/{}: {}",
+                        id, MANIFEST_FILE, ex.toString());
+            }
+        }
     }
 }

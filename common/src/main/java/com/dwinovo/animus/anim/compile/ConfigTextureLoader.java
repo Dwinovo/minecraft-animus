@@ -13,59 +13,54 @@ import java.nio.file.Path;
 import java.util.stream.Stream;
 
 /**
- * Loads PNG textures from {@code <gameDir>/config/animus/models/textures/entities/}
- * and registers them with Minecraft's {@code TextureManager} under the
- * {@code animus_user:textures/entities/<id>} identifier. After registration the
- * renderer can bind these textures the same way it binds vanilla pack textures,
- * since {@code TextureManager.bind} resolves both manager-registered dynamic
- * textures and ResourceManager-loaded ones through the same identifier table.
+ * Loads {@code texture.png} from each per-model directory under
+ * {@code <gameDir>/config/animus/models/<id>/} and registers each one with
+ * Minecraft's {@code TextureManager} under
+ * {@code animus_user:textures/entities/<id>.png} — the same path the
+ * renderer derives from a model key via
+ * {@link com.dwinovo.animus.anim.render.AnimusEntityRenderer#textureFor}.
  *
- * <p>This is the client-side companion of {@link ConfigModelLoader}. Bedrock
- * model files in the config tree reference their texture path through the
- * geometry/animation pair, but the texture sheet itself lives outside the
- * resource pack so this loader handles it explicitly.
+ * <p>This is the client-side companion of {@link ConfigModelLoader}.
+ * Bedrock model files in the config tree reference their texture path
+ * through the geometry / animation pair, but the texture sheet itself
+ * lives outside the resource pack so this loader handles it explicitly.
  *
- * <p>Re-uploading on every reload: each scan walks the config dir and registers
- * every texture, overwriting prior entries. Minecraft's {@code TextureManager}
- * handles the prior entry's release internally. Releasing manually after a
- * delete would be cleaner, but the leaked memory is bounded by the number of
- * config textures (usually a handful) and a full mod reload reclaims it.
+ * <p>Re-uploading on every reload: each scan walks the config dir and
+ * registers every texture, overwriting prior entries. Minecraft's
+ * {@code TextureManager} handles the prior entry's release internally.
+ * Releasing manually after a delete would be cleaner, but the leaked
+ * memory is bounded by the number of config textures (usually a handful).
  */
 public final class ConfigTextureLoader {
-
-    public static final String TEXTURE_PATH_PREFIX = "textures/entities";
-    public static final String PNG_EXTENSION = ".png";
 
     private ConfigTextureLoader() {}
 
     public static void scan(Path configDir) {
-        if (configDir == null) return;
-        Path texDir = configDir.resolve(TEXTURE_PATH_PREFIX);
-        if (!Files.isDirectory(texDir)) return;
-
-        try (Stream<Path> walk = Files.walk(texDir)) {
-            walk.filter(p -> p.getFileName().toString().endsWith(PNG_EXTENSION))
-                .filter(Files::isRegularFile)
-                .forEach(p -> register(texDir, p));
+        if (configDir == null || !Files.isDirectory(configDir)) return;
+        try (Stream<Path> dirs = Files.list(configDir)) {
+            dirs.filter(Files::isDirectory).forEach(modelDir -> {
+                Path texPath = modelDir.resolve(ConfigModelLoader.TEXTURE_FILE);
+                if (!Files.isRegularFile(texPath)) return;
+                register(modelDir.getFileName().toString(), texPath);
+            });
         } catch (IOException ex) {
-            Constants.LOG.error("[animus-anim] failed to walk config textures dir {}: {}", texDir, ex.toString());
+            Constants.LOG.error("[animus-anim] failed to walk config models dir {}: {}",
+                    configDir, ex.toString());
         }
     }
 
-    private static void register(Path texRoot, Path pngFile) {
-        String shortName = texRoot.relativize(pngFile).toString().replace('\\', '/');
-        String stem = shortName.endsWith(PNG_EXTENSION)
-                ? shortName.substring(0, shortName.length() - PNG_EXTENSION.length())
-                : shortName;
+    private static void register(String id, Path texPath) {
         Identifier rid = Identifier.fromNamespaceAndPath(
-                ConfigModelLoader.CONFIG_NAMESPACE, TEXTURE_PATH_PREFIX + "/" + stem + PNG_EXTENSION);
-        try (InputStream in = Files.newInputStream(pngFile)) {
+                ConfigModelLoader.CONFIG_NAMESPACE,
+                "textures/entities/" + id + ".png");
+        try (InputStream in = Files.newInputStream(texPath)) {
             NativeImage img = NativeImage.read(in);
             DynamicTexture tex = new DynamicTexture(rid::toString, img);
             Minecraft.getInstance().getTextureManager().register(rid, tex);
             Constants.LOG.info("[animus-anim] registered config texture {}", rid);
         } catch (Exception ex) {
-            Constants.LOG.error("[animus-anim] failed to load config texture {}: {}", pngFile, ex.toString());
+            Constants.LOG.error("[animus-anim] failed to load config texture {}: {}",
+                    texPath, ex.toString());
         }
     }
 }
