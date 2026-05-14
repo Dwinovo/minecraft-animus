@@ -238,17 +238,28 @@ public final class ChooseModelScreen extends Screen {
                     this.width / 2, top - 2, 0xFFAAAAAA);
         }
 
-        // Description sits directly under the preview, wrapped to the preview's
-        // own width so long English strings break across multiple lines instead
-        // of overflowing into the footer button row.
-        if (selected != null && !Component.empty().equals(selected.description())) {
+        // Description + author both sit under the preview, wrapped to the
+        // preview's own width so long strings break across multiple lines
+        // instead of overflowing into the footer button row. Author follows
+        // the description with a small gap; either can be absent.
+        if (selected != null) {
             int previewWidth = previewRight - previewLeft;
             int centerX = (previewLeft + previewRight) / 2;
-            List<FormattedCharSequence> lines = this.font.split(selected.description(), previewWidth);
             int lineY = previewBottom + DESCRIPTION_GAP;
-            for (FormattedCharSequence line : lines) {
-                graphics.centeredText(this.font, line, centerX, lineY, 0xFFAAAAAA);
-                lineY += this.font.lineHeight;
+
+            if (!Component.empty().equals(selected.description())) {
+                List<FormattedCharSequence> lines = this.font.split(selected.description(), previewWidth);
+                for (FormattedCharSequence line : lines) {
+                    graphics.centeredText(this.font, line, centerX, lineY, 0xFFAAAAAA);
+                    lineY += this.font.lineHeight;
+                }
+                lineY += 2; // visual gap between description and author
+            }
+
+            if (selected.author() != null) {
+                Component authorLine = Component.translatable(
+                        ModLanguageData.Keys.GUI_CHOOSE_MODEL_AUTHOR, selected.author());
+                graphics.centeredText(this.font, authorLine, centerX, lineY, 0xFF888888);
             }
         }
         if (entries.isEmpty()) {

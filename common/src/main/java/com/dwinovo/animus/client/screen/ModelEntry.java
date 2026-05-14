@@ -5,6 +5,7 @@ import com.dwinovo.animus.anim.baked.BakedModelManifest;
 import com.dwinovo.animus.data.ModLanguageData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Display row for the model-chooser GUI list. Resolves the model
@@ -22,14 +23,16 @@ import net.minecraft.resources.Identifier;
  *       (e.g. {@code my_skin})</li>
  * </ol>
  */
-public record ModelEntry(Identifier id, Component name, Component namespaceLabel, Component description) {
+public record ModelEntry(Identifier id, Component name, Component namespaceLabel,
+                         Component description, @Nullable String author) {
 
     public static ModelEntry of(Identifier id) {
         BakedModelManifest manifest = ModelManifestLibrary.get(id);
         Component name = resolveName(id, manifest);
         Component namespaceLabel = resolveNamespaceLabel(id);
         Component description = resolveDescription(manifest);
-        return new ModelEntry(id, name, namespaceLabel, description);
+        String author = manifest == null ? null : manifest.author();
+        return new ModelEntry(id, name, namespaceLabel, description, author);
     }
 
     private static Component resolveName(Identifier id, BakedModelManifest manifest) {
