@@ -3,12 +3,15 @@ package com.dwinovo.animus.anim.compile;
 import com.dwinovo.animus.Constants;
 import com.dwinovo.animus.anim.api.AnimationLibrary;
 import com.dwinovo.animus.anim.api.ModelLibrary;
+import com.dwinovo.animus.anim.api.ModelManifestLibrary;
 import com.dwinovo.animus.anim.api.RenderControllerLibrary;
 import com.dwinovo.animus.anim.baked.BakeStamp;
 import com.dwinovo.animus.anim.baked.BakedAnimation;
 import com.dwinovo.animus.anim.baked.BakedModel;
+import com.dwinovo.animus.anim.baked.BakedModelManifest;
 import com.dwinovo.animus.anim.baked.BakedRenderController;
 import com.dwinovo.animus.anim.format.BedrockGeoFile;
+import com.dwinovo.animus.anim.format.BedrockModelManifest;
 import com.dwinovo.animus.anim.format.BedrockRenderControllerFile;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -58,8 +61,9 @@ public final class ConfigModelLoader {
     /** Output of a scan; all maps may be empty but never null. */
     public record Result(Map<Identifier, BakedModel> models,
                          Map<Identifier, BakedAnimation> animations,
-                         Map<Identifier, BakedRenderController> renderControllers) {
-        public static final Result EMPTY = new Result(Map.of(), Map.of(), Map.of());
+                         Map<Identifier, BakedRenderController> renderControllers,
+                         Map<Identifier, BakedModelManifest> manifests) {
+        public static final Result EMPTY = new Result(Map.of(), Map.of(), Map.of(), Map.of());
     }
 
     public static Result scan(Path configDir, long stamp) {
@@ -71,12 +75,14 @@ public final class ConfigModelLoader {
                 configDir.resolve(BedrockResourceLoader.ANIMATION_PATH_PREFIX), models);
         Map<Identifier, BakedRenderController> renderControllers = loadRenderControllers(
                 configDir.resolve(BedrockResourceLoader.RENDER_CONTROLLER_PATH_PREFIX), stamp);
-        return new Result(models, animations, renderControllers);
+        Map<Identifier, BakedModelManifest> manifests = loadModelManifests(
+                configDir.resolve(BedrockResourceLoader.MODEL_MANIFEST_PATH_PREFIX), stamp);
+        return new Result(models, animations, renderControllers, manifests);
     }
 
     /** Stats returned by {@link #rescan} — used by the GUI to show a confirmation toast. */
-    public record RescanStats(int models, int animations, int renderControllers) {
-        public static final RescanStats EMPTY = new RescanStats(0, 0, 0);
+    public record RescanStats(int models, int animations, int renderControllers, int manifests) {
+        public static final RescanStats EMPTY = new RescanStats(0, 0, 0, 0);
     }
 
     /**
@@ -91,6 +97,7 @@ public final class ConfigModelLoader {
             ModelLibrary.replaceNamespace(CONFIG_NAMESPACE, Map.of());
             AnimationLibrary.replaceNamespace(CONFIG_NAMESPACE, Map.of());
             RenderControllerLibrary.replaceNamespace(CONFIG_NAMESPACE, Map.of());
+            ModelManifestLibrary.replaceNamespace(CONFIG_NAMESPACE, Map.of());
             return RescanStats.EMPTY;
         }
         long stamp = BakeStamp.next();
@@ -98,11 +105,13 @@ public final class ConfigModelLoader {
         ModelLibrary.replaceNamespace(CONFIG_NAMESPACE, result.models());
         AnimationLibrary.replaceNamespace(CONFIG_NAMESPACE, result.animations());
         RenderControllerLibrary.replaceNamespace(CONFIG_NAMESPACE, result.renderControllers());
+        ModelManifestLibrary.replaceNamespace(CONFIG_NAMESPACE, result.manifests());
         ConfigTextureLoader.scan(configDir);
-        Constants.LOG.info("[animus-anim] config rescan: {} models, {} animations, {} render_controllers (stamp {})",
-                result.models().size(), result.animations().size(), result.renderControllers().size(), stamp);
-        return new RescanStats(result.models().size(),
-                result.animations().size(), result.renderControllers().size());
+        Constants.LOG.info("[animus-anim] config rescan: {} models, {} animations, {} render_controllers, {} manifests (stamp {})",
+                result.models().size(), result.animations().size(), result.renderControllers().size(),
+                result.manifests().size(), stamp);
+        return new RescanStats(result.models().size(), result.animations().size(),
+                result.renderControllers().size(), result.manifests().size());
     }
 
     private static Map<Identifier, BakedModel> loadModels(Path modelsDir, long stamp) {
@@ -157,6 +166,28 @@ public final class ConfigModelLoader {
                 });
         } catch (IOException ex) {
             Constants.LOG.error("[animus-anim] failed to walk config animations dir {}: {}", animDir, ex.toString());
+        }
+        return out;
+    }
+
+    private static Map<Identifier, BakedModelManifest> loadModelManifests(Path manifestDir, long stamp) {
+        Map<Identifier, BakedModelManifest> out = new HashMap<>();
+        if (!Files.isDirectory(manifestDir)) return out;
+        try (Stream<Path> walk = Files.walk(manifestDir)) {
+            walk.filter(p -> p.getFileName().toString().endsWith(BedrockResourceLoader.JSON_EXTENSION))
+                .filter(Files::isRegularFile)
+                .forEach(p -> {
+                    String shortName = stripJsonExt(manifestDir.relativize(p).toString().replace('\\', '/'));
+                    Identifier key = Identifier.fromNamespaceAndPath(CONFIG_NAMESPACE, shortName);
+                    try (BufferedReader r = Files.newBufferedReader(p)) {
+                        BedrockModelManifest file = GSON.fromJson(r, BedrockModelManifest.class);
+                        out.put(key, ModelManifestBaker.bake(file, stamp));
+                    } catch (Exception ex) {
+                        Constants.LOG.error("[animus-anim] failed to load config model_manifest {}: {}", p, ex.toString());
+                    }
+                });
+        } catch (IOException ex) {
+            Constants.LOG.error("[animus-anim] failed to walk config model_manifests dir {}: {}", manifestDir, ex.toString());
         }
         return out;
     }

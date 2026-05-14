@@ -3,12 +3,15 @@ package com.dwinovo.animus.anim.compile;
 import com.dwinovo.animus.Constants;
 import com.dwinovo.animus.anim.api.AnimationLibrary;
 import com.dwinovo.animus.anim.api.ModelLibrary;
+import com.dwinovo.animus.anim.api.ModelManifestLibrary;
 import com.dwinovo.animus.anim.api.RenderControllerLibrary;
 import com.dwinovo.animus.anim.baked.BakeStamp;
 import com.dwinovo.animus.anim.baked.BakedAnimation;
 import com.dwinovo.animus.anim.baked.BakedModel;
+import com.dwinovo.animus.anim.baked.BakedModelManifest;
 import com.dwinovo.animus.anim.baked.BakedRenderController;
 import com.dwinovo.animus.anim.format.BedrockGeoFile;
+import com.dwinovo.animus.anim.format.BedrockModelManifest;
 import com.dwinovo.animus.anim.format.BedrockRenderControllerFile;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -49,6 +52,7 @@ public final class BedrockResourceLoader implements ResourceManagerReloadListene
     public static final String MODEL_PATH_PREFIX = "models/entity";
     public static final String ANIMATION_PATH_PREFIX = "animations";
     public static final String RENDER_CONTROLLER_PATH_PREFIX = "render_controllers";
+    public static final String MODEL_MANIFEST_PATH_PREFIX = "model_manifests";
     public static final String JSON_EXTENSION = ".json";
 
     private static final Gson GSON = new Gson();
@@ -72,32 +76,39 @@ public final class BedrockResourceLoader implements ResourceManagerReloadListene
         Map<Identifier, BakedModel> models = new HashMap<>(loadModels(manager, stamp));
         Map<Identifier, BakedAnimation> animations = new HashMap<>(loadAnimations(manager, models));
         Map<Identifier, BakedRenderController> renderControllers = new HashMap<>(loadRenderControllers(manager, stamp));
+        Map<Identifier, BakedModelManifest> manifests = new HashMap<>(loadModelManifests(manager, stamp));
 
         int vanillaModelCount = models.size();
         int vanillaAnimCount = animations.size();
         int vanillaRcCount = renderControllers.size();
+        int vanillaManifestCount = manifests.size();
 
         if (configDir != null) {
             ConfigModelLoader.Result configResult = ConfigModelLoader.scan(configDir, stamp);
             models.putAll(configResult.models());
             animations.putAll(configResult.animations());
             renderControllers.putAll(configResult.renderControllers());
+            manifests.putAll(configResult.manifests());
             ConfigTextureLoader.scan(configDir);
         }
 
         ModelLibrary.replaceAll(models);
         AnimationLibrary.replaceAll(animations);
         RenderControllerLibrary.replaceAll(renderControllers);
+        ModelManifestLibrary.replaceAll(manifests);
 
         int userModelCount = models.size() - vanillaModelCount;
         int userAnimCount = animations.size() - vanillaAnimCount;
         int userRcCount = renderControllers.size() - vanillaRcCount;
+        int userManifestCount = manifests.size() - vanillaManifestCount;
         Constants.LOG.info("[animus-anim] loaded {} baked models ({} from assets, {} from config) (stamp {})",
                 models.size(), vanillaModelCount, userModelCount, stamp);
         Constants.LOG.info("[animus-anim] loaded {} baked animations ({} from assets, {} from config) (stamp {})",
                 animations.size(), vanillaAnimCount, userAnimCount, stamp);
         Constants.LOG.info("[animus-anim] loaded {} render controllers ({} from assets, {} from config) (stamp {})",
                 renderControllers.size(), vanillaRcCount, userRcCount, stamp);
+        Constants.LOG.info("[animus-anim] loaded {} model manifests ({} from assets, {} from config) (stamp {})",
+                manifests.size(), vanillaManifestCount, userManifestCount, stamp);
     }
 
     private static Map<Identifier, BakedModel> loadModels(ResourceManager manager, long stamp) {
@@ -147,6 +158,23 @@ public final class BedrockResourceLoader implements ResourceManagerReloadListene
         return baked;
     }
 
+    private static Map<Identifier, BakedModelManifest> loadModelManifests(ResourceManager manager, long stamp) {
+        Map<Identifier, BakedModelManifest> baked = new HashMap<>();
+        Map<Identifier, Resource> resources = manager.listResources(MODEL_MANIFEST_PATH_PREFIX,
+                id -> id.getPath().endsWith(JSON_EXTENSION));
+        for (Map.Entry<Identifier, Resource> e : resources.entrySet()) {
+            Identifier rid = e.getKey();
+            Identifier manifestKey = toModelManifestKey(rid);
+            try (BufferedReader reader = e.getValue().openAsReader()) {
+                BedrockModelManifest file = GSON.fromJson(reader, BedrockModelManifest.class);
+                baked.put(manifestKey, ModelManifestBaker.bake(file, stamp));
+            } catch (Exception ex) {
+                Constants.LOG.error("[animus-anim] failed to load model_manifest {}: {}", rid, ex.toString());
+            }
+        }
+        return baked;
+    }
+
     private static Map<Identifier, BakedRenderController> loadRenderControllers(ResourceManager manager, long stamp) {
         Map<Identifier, BakedRenderController> baked = new HashMap<>();
         Map<Identifier, Resource> resources = manager.listResources(RENDER_CONTROLLER_PATH_PREFIX,
@@ -178,6 +206,11 @@ public final class BedrockResourceLoader implements ResourceManagerReloadListene
     /** Strips {@value #RENDER_CONTROLLER_PATH_PREFIX}/ prefix and .json suffix. */
     public static Identifier toRenderControllerKey(Identifier resourceId) {
         return stripPrefixAndExt(resourceId, RENDER_CONTROLLER_PATH_PREFIX);
+    }
+
+    /** Strips {@value #MODEL_MANIFEST_PATH_PREFIX}/ prefix and .json suffix. */
+    public static Identifier toModelManifestKey(Identifier resourceId) {
+        return stripPrefixAndExt(resourceId, MODEL_MANIFEST_PATH_PREFIX);
     }
 
     private static Identifier stripPrefixAndExt(Identifier resourceId, String prefix) {
