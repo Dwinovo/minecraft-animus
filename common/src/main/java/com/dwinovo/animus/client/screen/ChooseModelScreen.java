@@ -10,6 +10,7 @@ import com.dwinovo.animus.platform.Services;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.Renderable;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
@@ -55,18 +56,18 @@ import java.util.List;
  */
 public final class ChooseModelScreen extends Screen {
 
-    private static final int CONTENT_WIDTH    = 320;
-    private static final int CONTENT_HEIGHT   = 220;
-    private static final int LIST_WIDTH       = 160;
-    private static final int LIST_ROW_HEIGHT  = 22;
+    private static final int CONTENT_WIDTH    = 240;
+    private static final int CONTENT_HEIGHT   = 170;
+    private static final int LIST_WIDTH       = 110;
+    private static final int LIST_ROW_HEIGHT  = 18;
     private static final int LIST_ROW_GAP     = 2;
-    private static final int LIST_VISIBLE_ROWS = 6;
-    private static final int BUTTON_HEIGHT    = 20;
-    private static final int PAGE_BUTTON_WIDTH = 32;
-    private static final int FOOTER_BUTTON_WIDTH = 80;
+    private static final int LIST_VISIBLE_ROWS = 5;
+    private static final int BUTTON_HEIGHT    = 18;
+    private static final int PAGE_BUTTON_WIDTH = 24;
+    private static final int FOOTER_BUTTON_WIDTH = 60;
     private static final int FOOTER_BUTTON_GAP   = 4;
-    private static final int PREVIEW_PADDING  = 6;
-    private static final int PREVIEW_SCALE    = 50;
+    private static final int PREVIEW_PADDING  = 4;
+    private static final int PREVIEW_SCALE    = 40;
     private static final float PREVIEW_Y_OFFSET = 0.0625f;
 
     private final AnimusEntity target;
@@ -129,9 +130,8 @@ public final class ChooseModelScreen extends Screen {
         for (int i = rowStart; i < rowEnd; i++) {
             ModelEntry entry = entries.get(i);
             int y = listTop + (i - rowStart) * (LIST_ROW_HEIGHT + LIST_ROW_GAP);
-            Button btn = Button.builder(rowLabel(entry), b -> select(entry))
-                    .bounds(left, y, LIST_WIDTH, LIST_ROW_HEIGHT)
-                    .build();
+            SimpleButton btn = new SimpleButton(left, y, LIST_WIDTH, LIST_ROW_HEIGHT,
+                    rowLabel(entry), b -> select(entry));
             // The selection is marked inactive so it visually pops and can't
             // be re-clicked as a no-op.
             if (selected != null && selected.id().equals(entry.id())) {
@@ -144,37 +144,36 @@ public final class ChooseModelScreen extends Screen {
         int pages = totalPages();
         if (pages > 1) {
             int navY = listTop + LIST_VISIBLE_ROWS * (LIST_ROW_HEIGHT + LIST_ROW_GAP);
-            Button prev = Button.builder(Component.literal("<"), b -> {
+            SimpleButton prev = new SimpleButton(left, navY, PAGE_BUTTON_WIDTH, BUTTON_HEIGHT,
+                    Component.literal("<"), b -> {
                 if (page > 0) { page--; rebuildModelButtons(); }
-            }).bounds(left, navY, PAGE_BUTTON_WIDTH, BUTTON_HEIGHT).build();
+            });
             prev.active = page > 0;
             addRenderableWidget(prev);
 
-            Button next = Button.builder(Component.literal(">"), b -> {
+            SimpleButton next = new SimpleButton(left + LIST_WIDTH - PAGE_BUTTON_WIDTH, navY,
+                    PAGE_BUTTON_WIDTH, BUTTON_HEIGHT, Component.literal(">"), b -> {
                 if (page + 1 < totalPages()) { page++; rebuildModelButtons(); }
-            }).bounds(left + LIST_WIDTH - PAGE_BUTTON_WIDTH, navY,
-                    PAGE_BUTTON_WIDTH, BUTTON_HEIGHT).build();
+            });
             next.active = page + 1 < pages;
             addRenderableWidget(next);
         }
 
         // Footer button row: [Refresh] ... [Cancel][Apply].
         int footerY = top + CONTENT_HEIGHT - BUTTON_HEIGHT;
-        addRenderableWidget(Button.builder(
+        addRenderableWidget(new SimpleButton(left, footerY, FOOTER_BUTTON_WIDTH, BUTTON_HEIGHT,
                 Component.translatable(ModLanguageData.Keys.GUI_CHOOSE_MODEL_REFRESH),
-                this::onRefresh)
-                .bounds(left, footerY, FOOTER_BUTTON_WIDTH, BUTTON_HEIGHT).build());
+                this::onRefresh));
 
         int rightButtonsLeft = left + CONTENT_WIDTH - FOOTER_BUTTON_WIDTH * 2 - FOOTER_BUTTON_GAP;
-        addRenderableWidget(Button.builder(
+        addRenderableWidget(new SimpleButton(rightButtonsLeft, footerY, FOOTER_BUTTON_WIDTH, BUTTON_HEIGHT,
                 Component.translatable(ModLanguageData.Keys.GUI_CHOOSE_MODEL_CANCEL),
-                b -> this.onClose())
-                .bounds(rightButtonsLeft, footerY, FOOTER_BUTTON_WIDTH, BUTTON_HEIGHT).build());
-        addRenderableWidget(Button.builder(
+                b -> this.onClose()));
+        addRenderableWidget(new SimpleButton(
+                rightButtonsLeft + FOOTER_BUTTON_WIDTH + FOOTER_BUTTON_GAP, footerY,
+                FOOTER_BUTTON_WIDTH, BUTTON_HEIGHT,
                 Component.translatable(ModLanguageData.Keys.GUI_CHOOSE_MODEL_APPLY),
-                this::onApply)
-                .bounds(rightButtonsLeft + FOOTER_BUTTON_WIDTH + FOOTER_BUTTON_GAP, footerY,
-                        FOOTER_BUTTON_WIDTH, BUTTON_HEIGHT).build());
+                this::onApply));
     }
 
     private Component rowLabel(ModelEntry entry) {
@@ -256,11 +255,13 @@ public final class ChooseModelScreen extends Screen {
         AnimusEntity preview = ensurePreviewEntity(selected.id());
         if (preview == null) return;
 
-        float relMouseX = (x1 + x2) / 2.0f - mouseX;
-        float relMouseY = (y1 + y2) / 2.0f - 50 - mouseY;
+        // Pass raw mouse coordinates — extractEntityInInventoryFollowsMouse
+        // computes the relative offset internally. Doing the subtraction here
+        // flips the rotation direction (entity ends up looking away from the
+        // mouse instead of toward it).
         InventoryScreen.extractEntityInInventoryFollowsMouse(
                 graphics, x1, y1, x2, y2,
-                PREVIEW_SCALE, PREVIEW_Y_OFFSET, relMouseX, relMouseY, preview);
+                PREVIEW_SCALE, PREVIEW_Y_OFFSET, mouseX, mouseY, preview);
     }
 
     private @Nullable AnimusEntity ensurePreviewEntity(Identifier modelKey) {
