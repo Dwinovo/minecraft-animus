@@ -2,12 +2,16 @@ package com.dwinovo.animus;
 
 import com.dwinovo.animus.entity.AnimusEntity;
 import com.dwinovo.animus.entity.InitEntity;
+import com.dwinovo.animus.network.AnimusNetwork;
+import com.dwinovo.animus.platform.NeoForgeNetworkChannel;
+import com.dwinovo.animus.platform.Services;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
@@ -28,6 +32,11 @@ public class AnimusMod {
         InitEntity.ANIMUS = ANIMUS_HOLDER::get;
 
         eventBus.addListener(AnimusMod::registerAttributes);
+        eventBus.addListener(AnimusMod::registerPayloads);
+
+        // Queue payload registrations into NeoForgeNetworkChannel; the queue
+        // flushes when RegisterPayloadHandlersEvent fires (see below).
+        AnimusNetwork.register();
 
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on NeoForge.");
@@ -35,5 +44,11 @@ public class AnimusMod {
 
     private static void registerAttributes(EntityAttributeCreationEvent event) {
         event.put(ANIMUS_HOLDER.get(), AnimusEntity.createAttributes().build());
+    }
+
+    private static void registerPayloads(RegisterPayloadHandlersEvent event) {
+        if (Services.NETWORK instanceof NeoForgeNetworkChannel ch) {
+            ch.flushPending(event);
+        }
     }
 }

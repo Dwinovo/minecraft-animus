@@ -2,6 +2,7 @@ package com.dwinovo.animus;
 
 import com.dwinovo.animus.entity.AnimusEntity;
 import com.dwinovo.animus.entity.InitEntity;
+import com.dwinovo.animus.network.AnimusNetwork;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.core.Registry;
@@ -23,6 +24,8 @@ public class AnimusMod implements ModInitializer {
 
         FabricDefaultAttributeRegistry.register(animusType,
                 AnimusEntity.createAttributes().build());
+
+        AnimusNetwork.register();
 
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on Fabric.");
