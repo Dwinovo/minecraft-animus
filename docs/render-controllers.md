@@ -6,14 +6,17 @@
 
 ## 文件路径（双源加载）
 
-两个源都会被扫，加载结果挂在不同 namespace 下：
+两个源都会被扫，加载结果挂在不同 namespace 下。**两边布局约定不同**：
 
-| 源 | 路径 | namespace |
-|---|---|---|
-| **Mod 默认** | `assets/animus/render_controllers/<id>.json` | `animus` |
-| **玩家自定义** | `<gameDir>/config/animus/models/render_controllers/<id>.json` | `animus_user` |
+| 源 | 路径 | namespace | 布局 |
+|---|---|---|---|
+| **Mod 默认** | `assets/animus/render_controllers/<id>.json` | `animus` | by-type（vanilla 资源包惯例） |
+| **玩家自定义** | `<gameDir>/config/animus/models/<id>/render_controller.json` | `animus_user` | by-model（一个模型一个文件夹） |
 
-文件名去掉 `.json` 后缀就是这个 controller 的查找 key——例如 `hachiware.json` → `animus:hachiware`。
+- Mod 默认侧文件名去掉 `.json` 后缀就是 controller 的查找 key：`hachiware.json` → `animus:hachiware`。
+- 玩家自定义侧由**外层目录名**决定 key：`config/animus/models/my_skin/render_controller.json` → `animus_user:my_skin`。文件本身固定叫 `render_controller.json`（单数）。
+
+玩家自定义目录里 `render_controller.json` 是**可选**的——没有它的模型默认所有骨骼可见。详见 [AGENTS.md 渲染管线章节](../AGENTS.md) 里的完整 by-model 布局清单。
 
 ## 文件结构（完整 Bedrock schema）
 

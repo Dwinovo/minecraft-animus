@@ -124,13 +124,25 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
    - `assets/animus/animations/<id>.json`
    - `assets/animus/textures/entities/<id>.png`
    - 命名空间 `animus`，Identifier 为 `animus:<id>` / `animus:<id>/<anim_name>`。
-2. **玩家自定义模型** → 文件系统：
-   - `<gameDir>/config/animus/models/{models/entity,animations,textures/entities}/<id>.{json,json,png}`
-   - 命名空间 `animus_user`，与默认互不覆盖。
-   - 贴图通过 `DynamicTexture` + `TextureManager.register` 注册，模型/动画走 `ConfigModelLoader.scan()`。
-   - `/reload` 时自动重扫。
+2. **玩家自定义模型** → 文件系统：**一个文件夹一个模型**（by-model 布局）：
+   ```
+   <gameDir>/config/animus/models/
+     <id>/
+       geometry.json          (必需，Bedrock .geo.json)
+       animation.json         (可选，含多条动画)
+       render_controller.json (可选)
+       manifest.json          (可选，display_name / description / author)
+       texture.png            (渲染必需)
+   ```
+   - 目录名即模型 id，例如 `<id>=my_skin` 注册为 `animus_user:my_skin`，动画为 `animus_user:my_skin/<anim_name>`。
+   - 命名空间 `animus_user` 与默认 `animus` 互不覆盖。
+   - 贴图通过 `DynamicTexture` + `TextureManager.register` 注册到 `animus_user:textures/entities/<id>.png`。
+   - 模型 / 动画 / RC / manifest 走 `ConfigModelLoader.scan()`。
+   - `/reload` 或 GUI 刷新按钮（`ConfigModelLoader.rescan()`）触发——后者只重扫 `animus_user`，比全量 reload 轻。
 
-切换实体当前使用的模型（"换皮"）需要在 `AnimusEntity` 加 `EntityDataAccessor<String> MODEL_KEY` 同步字段，由 `AnimusEntityRenderer` 据此查 `ModelLibrary`。当前阶段未实现，hardcode `animus:hachiware`。
+> **为什么 assets 端是 by-type 而 config 端是 by-model**：vanilla `ResourceManager` 按 path prefix 索引（`models/entity/*.json`），所以内置端遵循 vanilla 资源包惯例；玩家面向的目录则按"一个模型一个包"组织，方便拖拽、压缩、上传分享。
+
+实体的模型选择走 `AnimusEntity.DATA_MODEL_KEY` (EntityDataAccessor&lt;String&gt;)，由蹲下右键 GUI 通过 `SetModelPayload` 修改；vanilla SynchedEntityData 自动 S→C 同步。模型切换时 `Animator.resetAll()` 清掉跨模型的 stale `BakedAnimation` 引用，防止 boneIdx 越界。
 
 ## 给 AI 代理的关键指引
 
@@ -181,7 +193,7 @@ LLM 客户端、HTTP、MCP SDK 等多半需要直接 `implementation` 到 common
 > **资产 / 代码归属约定**：
 > - **代码**（`*.java` 等）默认归 [LICENSE](LICENSE)（PolyForm Noncommercial 1.0.0）管。
 > - **默认美术 / 声音 / 模型文件**归 [LICENSE-ART](LICENSE-ART)（CC BY-NC 4.0）管，放在 `common/src/main/resources/assets/animus/{models/entity,animations,textures/entities}/`。
-> - **玩家自定义资产**走运行期路径 `<gameDir>/config/animus/models/`，由玩家自带 license，**不进 git**。
+> - **玩家自定义资产**走运行期路径 `<gameDir>/config/animus/models/<id>/`（by-model 布局，详见上方"渲染管线"章节），由玩家自带 license，**不进 git**。
 > - **迁移自 minecraft-chiikawa 的代码 + 默认 Hachiware 资产** 的重新许可声明见 [NOTICE.md](NOTICE.md)。
 > - 未来引入第三方资源（CC0 贴图、字体、社区贡献的模型等）单独建一个 `THIRD_PARTY_NOTICES.md` 记录来源与许可证，避免与我们自有资产混淆。
 
