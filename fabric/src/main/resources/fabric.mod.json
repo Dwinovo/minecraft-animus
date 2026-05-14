@@ -20,6 +20,9 @@
         ],
         "client": [
             "com.dwinovo.animus.AnimusFabricClient"
+        ],
+        "fabric-datagen": [
+            "com.dwinovo.animus.data.FabricDataGenerators"
         ]
     },
     "mixins": [

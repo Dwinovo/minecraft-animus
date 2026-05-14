@@ -85,12 +85,23 @@ buildSrc/    # 共享的 multiloader-common / multiloader-loader gradle 约定
 ./gradlew :fabric:runServer      # Fabric 专用服务端
 ./gradlew :neoforge:runClient    # 启动 NeoForge 客户端
 ./gradlew :neoforge:runServer    # NeoForge 专用服务端
-./gradlew :neoforge:runData      # NeoForge 数据生成（输出到 neoforge/src/generated/resources/）
+./gradlew :fabric:runDatagen     # Fabric 数据生成 → fabric/src/generated/resources/
+./gradlew :neoforge:runData      # NeoForge 数据生成 → neoforge/src/generated/resources/
 ```
 
-运行目录：`fabric/runs/{client,server}/`、`neoforge/runs/{client,server,data}/`。
+运行目录：`fabric/runs/{client,server,datagen}/`、`neoforge/runs/{client,server,data}/`。
 
 Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gradle.daemon=false`），第一次构建会慢，正常现象。
+
+### 数据生成（i18n / tags / 等）工作流
+
+`generated/` 目录被 `.gitignore` 排除——它是 [`ModLanguageData.java`](common/src/main/java/com/dwinovo/animus/data/ModLanguageData.java)（及未来的 tag / recipe provider）的产物。**source of truth 始终在 Java 代码里**，生成的 JSON 是中间产物。
+
+工作流：
+1. 改 `common/.../data/ModLanguageData.java`（加 key / 改翻译）；新 key 用 `ModLanguageData.Keys` 常量引用。
+2. 跑 `./gradlew :fabric:runDatagen :neoforge:runData` —— 两侧的 lang JSON 会被重新写入 `*/src/generated/resources/`。
+3. 运行 / 构建 / 发布 jar 时，generated 资源自动被 `sourceSets.main.resources` 拣进 jar。
+4. **clone 后第一次构建**：要先跑一次上面那两条 datagen 命令，否则 jar 里没 lang 资源（游戏内会显示原始 key 字符串）。
 
 ## 渲染管线
 

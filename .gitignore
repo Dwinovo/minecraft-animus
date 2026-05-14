@@ -24,3 +24,6 @@ run
 runs
 logs
 .vfox
+
+# datagen output — regenerated via ./gradlew :fabric:runDatagen + :neoforge:runData
+**/generated/
