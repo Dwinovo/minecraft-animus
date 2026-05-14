@@ -98,6 +98,22 @@ public final class Animator {
         for (ControllerInstance c : controllers) c.clearStale(currentStamp);
     }
 
+    /**
+     * Reset every controller's animation state — current / previous /
+     * triggered animations cleared, all fade timers zeroed. Used when the
+     * entity switches to a different model: the now-stale {@code BakedAnimation}s
+     * carry bone indices that belong to the previous model's skeleton and
+     * would index out-of-bounds against the new model's pose buffer.
+     *
+     * <p>The next {@link #tick} call lets each controller's handler re-pick
+     * an animation against the new model, with no cross-model crossfade
+     * (which would have been ill-defined anyway — two different skeletons
+     * can't be interpolated bone-by-bone).
+     */
+    public void resetAll() {
+        for (ControllerInstance c : controllers) c.resetAll();
+    }
+
     /** Advance every controller's state for the upcoming render pass. */
     public void tick(AnimusRenderState state, AnimContext ctx, long nowNs) {
         for (ControllerInstance c : controllers) c.tick(state, ctx, nowNs);

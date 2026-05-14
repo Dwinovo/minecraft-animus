@@ -68,6 +68,26 @@ public class AnimusEntity extends PathfinderMob implements AnimusAnimated {
         builder.define(DATA_MODEL_KEY, AnimusAnimated.DEFAULT_MODEL_KEY.toString());
     }
 
+    /**
+     * Vanilla hook fired on every {@link SynchedEntityData} change (both
+     * sides). When the model key changes, the animator's currently held
+     * {@code BakedAnimation}s become stale — their bone indices belong to
+     * the previous model's skeleton, so leaving them in place would
+     * index-out-of-bounds against the new model's pose buffer on the next
+     * frame. Reset the animator so each controller re-picks its animation
+     * fresh.
+     *
+     * <p>{@code animator} is created lazily on the client; the null guard
+     * keeps the server side (which never builds an animator) inert.
+     */
+    @Override
+    public void onSyncedDataUpdated(EntityDataAccessor<?> key) {
+        super.onSyncedDataUpdated(key);
+        if (key.equals(DATA_MODEL_KEY) && animator != null) {
+            animator.resetAll();
+        }
+    }
+
     @Override
     public Animator getAnimator() {
         if (animator == null) animator = new Animator();
