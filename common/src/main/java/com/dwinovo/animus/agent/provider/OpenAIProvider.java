@@ -164,14 +164,34 @@ public class OpenAIProvider implements LlmProvider {
     }
 
     /**
-     * Identify non-standard fields on the assistant message that must
-     * round-trip in subsequent requests. The base impl returns an empty
-     * extras object — subclasses ({@link DeepSeekProvider}) override to
-     * harvest backend-specific echo-required fields.
+     * Capture every non-standard top-level field on the assistant message
+     * into the extras bag, so it round-trips back on the next request.
+     *
+     * <p>This is the framework-level behaviour LiteLLM achieves via Pydantic's
+     * {@code provider_specific_fields} on its OpenAI parent class — every
+     * unknown field on a response gets preserved automatically. With this
+     * baseline behaviour, OpenAI-compatible backend variants
+     * ({@link DeepSeekProvider} for {@code reasoning_content}, future
+     * providers for whatever they invent) don't need to override anything
+     * to keep their extensions intact across turns.
+     *
+     * <p>Pure OpenAI responses contain only the standard fields, so this
+     * captures nothing and the extras bag stays empty — no behaviour change
+     * for standard OpenAI.
      */
     protected JsonObject extractExtras(JsonObject msg) {
-        return new JsonObject();
+        JsonObject extras = new JsonObject();
+        for (var e : msg.entrySet()) {
+            if (!STANDARD_MESSAGE_FIELDS.contains(e.getKey())) {
+                extras.add(e.getKey(), e.getValue());
+            }
+        }
+        return extras;
     }
+
+    /** Standard fields on an OpenAI assistant response message. */
+    private static final java.util.Set<String> STANDARD_MESSAGE_FIELDS = java.util.Set.of(
+            "role", "content", "tool_calls", "refusal", "audio", "function_call");
 
     // ---- streaming ----
 
@@ -222,13 +242,25 @@ public class OpenAIProvider implements LlmProvider {
     }
 
     /**
-     * Subclass extension point. Called on every chunk's {@code delta} so
-     * providers can capture non-standard streaming fields they need to
-     * round-trip on the next request. Default implementation does nothing —
-     * see {@link DeepSeekProvider} for the {@code reasoning_content} case.
+     * Streaming counterpart to {@link #extractExtras}: capture every
+     * non-standard string-typed field on the chunk's {@code delta} into
+     * the accumulator's extras buffers, so the finalised
+     * {@link AssistantTurn} round-trips them on the next request.
+     *
+     * <p>Aligned with the framework-level non-standard-field preservation
+     * we put in {@link #extractExtras}. Same rationale: pure OpenAI
+     * streams contain only standard fields, so this is a no-op for OpenAI
+     * itself; OpenAI-compat backends get their extensions
+     * (e.g. {@code reasoning_content}) preserved automatically.
      */
     protected void captureChunkExtras(JsonObject delta, StreamAccumulator acc) {
-        // no-op
+        for (var e : delta.entrySet()) {
+            if (STANDARD_DELTA_FIELDS.contains(e.getKey())) continue;
+            var el = e.getValue();
+            if (el != null && el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
+                acc.appendExtra(e.getKey(), el.getAsString());
+            }
+        }
     }
 
     /** Set of delta fields we treat as "standard" — subclasses use this for partition. */
