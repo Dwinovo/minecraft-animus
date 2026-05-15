@@ -72,9 +72,12 @@ public final class ClientAgentLoop {
 
     /** Player typed a prompt and hit Send. */
     public void submitPrompt(String text) {
+        boolean wasAborted = aborted;
         aborted = false;
         convo.addUser(text);
-        Constants.LOG.debug("[animus-agent#{}] user: {}", entityId, text);
+        Constants.LOG.info("[animus-agent#{}] user prompt ({} chars){}: {}",
+                entityId, text.length(), wasAborted ? " — reset previous abort" : "",
+                truncate(text, 200));
         tryStartTurn();
     }
 
@@ -84,13 +87,17 @@ public final class ClientAgentLoop {
      */
     public void onToolResult(String toolCallId, String resultJson) {
         if (!pendingToolCallIds.remove(toolCallId)) {
-            // Late / spurious result; ignore silently.
+            Constants.LOG.debug("[animus-agent#{}] tool_result for unknown id={} (late or spurious); ignoring",
+                    entityId, toolCallId);
             return;
         }
         convo.addToolResult(toolCallId, resultJson);
-        Constants.LOG.debug("[animus-agent#{}] tool_result id={} → {}",
-                entityId, toolCallId, resultJson);
+        Constants.LOG.info("[animus-agent#{}] tool_result id={} (pending now={}) → {}",
+                entityId, toolCallId, pendingToolCallIds.size(),
+                truncate(resultJson, 200));
         if (pendingToolCallIds.isEmpty()) {
+            Constants.LOG.debug("[animus-agent#{}] all pending tool results in — starting next turn",
+                    entityId);
             tryStartTurn();
         }
     }
@@ -98,10 +105,23 @@ public final class ClientAgentLoop {
     // ---- internals ----
 
     private void tryStartTurn() {
-        if (aborted) return;
-        if (awaitingLlmResponse) return;
-        if (!pendingToolCallIds.isEmpty()) return;
-        if (convo.snapshot().isEmpty()) return;
+        if (aborted) {
+            Constants.LOG.debug("[animus-agent#{}] tryStartTurn skipped: aborted", entityId);
+            return;
+        }
+        if (awaitingLlmResponse) {
+            Constants.LOG.debug("[animus-agent#{}] tryStartTurn skipped: awaitingLlmResponse", entityId);
+            return;
+        }
+        if (!pendingToolCallIds.isEmpty()) {
+            Constants.LOG.debug("[animus-agent#{}] tryStartTurn skipped: {} tool result(s) still pending",
+                    entityId, pendingToolCallIds.size());
+            return;
+        }
+        if (convo.snapshot().isEmpty()) {
+            Constants.LOG.debug("[animus-agent#{}] tryStartTurn skipped: empty convo", entityId);
+            return;
+        }
         if (convo.turnCount() >= ConvoState.MAX_TOOL_TURN_COUNT) {
             Constants.LOG.warn("[animus-agent#{}] turn cap ({}) reached, stopping",
                     entityId, ConvoState.MAX_TOOL_TURN_COUNT);
@@ -123,10 +143,10 @@ public final class ClientAgentLoop {
         IAnimusConfig config = Services.CONFIG;
         String systemPrompt = config.getSystemPrompt();
 
-        Constants.LOG.debug("[animus-agent#{}] LLM call turn={} msgs={} tools={}",
+        Constants.LOG.info("[animus-agent#{}] turn {}: convo={} msgs, tools={}",
                 entityId, convo.turnCount(), snapshot.size(), tools.size());
 
-        AnimusLlmClient.instance().chat(snapshot, tools, systemPrompt)
+        AnimusLlmClient.instance().chatStreaming(snapshot, tools, systemPrompt, null)
                 .whenComplete(this::bounceBackToMain);
     }
 
@@ -155,7 +175,10 @@ public final class ClientAgentLoop {
         if (!turn.hasToolCalls()) {
             // Final text reply — chain settled, fresh turn count for next prompt.
             if (!turn.content().isEmpty()) {
-                Constants.LOG.info("[animus-agent#{}] assistant: {}", entityId, turn.content());
+                Constants.LOG.info("[animus-agent#{}] assistant (final): {}",
+                        entityId, turn.content());
+            } else {
+                Constants.LOG.info("[animus-agent#{}] assistant (final, empty content)", entityId);
             }
             convo.resetTurnCount();
             return;
@@ -167,7 +190,6 @@ public final class ClientAgentLoop {
         if (convo.recordToolBatchAndCheckLoop(names)) {
             Constants.LOG.warn("[animus-agent#{}] tool batch loop detected ({}); stopping",
                     entityId, String.join(",", names));
-            // Synthetic results so the convo stays consistent if user resumes.
             for (LlmToolCall tc : turn.toolCalls()) {
                 convo.addToolResult(tc.id(),
                         "{\"success\":false,\"message\":\"aborted: tool batch loop detected\"}");
@@ -177,10 +199,12 @@ public final class ClientAgentLoop {
         }
 
         // Dispatch every tool call to the server.
+        int dispatched = 0, rejected = 0;
         for (LlmToolCall tc : turn.toolCalls()) {
             if (ToolRegistry.get(tc.name()) == null) {
-                // Unknown tool — synthesise a local failure result so we
-                // don't ship a doomed request and don't block waiting.
+                rejected++;
+                Constants.LOG.warn("[animus-agent#{}] LLM called unknown tool '{}' (id={}); auto-failing",
+                        entityId, tc.name(), tc.id());
                 convo.addToolResult(tc.id(),
                         "{\"success\":false,\"message\":\"unknown tool: " + escape(tc.name()) + "\"}");
                 continue;
@@ -188,15 +212,23 @@ public final class ClientAgentLoop {
             pendingToolCallIds.add(tc.id());
             Services.NETWORK.sendToServer(new ExecuteToolPayload(
                     entityId, tc.id(), tc.name(), tc.arguments()));
-            Constants.LOG.debug("[animus-agent#{}] dispatch tool={} id={} args={}",
-                    entityId, tc.name(), tc.id(), tc.arguments());
+            Constants.LOG.info("[animus-agent#{}] dispatch tool={} id={} args={}",
+                    entityId, tc.name(), tc.id(), truncate(tc.arguments(), 200));
+            dispatched++;
         }
+        Constants.LOG.debug("[animus-agent#{}] dispatched {}, rejected {}, pending {} after this turn",
+                entityId, dispatched, rejected, pendingToolCallIds.size());
 
-        // If every tool was rejected locally (unknown), there's nothing pending;
-        // kick the next turn so the LLM sees the synthetic failures.
+        // If every tool was rejected locally (unknown), nothing pending — kick
+        // the next turn so the LLM sees the synthetic failures.
         if (pendingToolCallIds.isEmpty()) {
             tryStartTurn();
         }
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
     private static String unwrap(Throwable t) {

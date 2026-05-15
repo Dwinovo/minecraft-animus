@@ -44,4 +44,28 @@ public final class DeepSeekProvider extends OpenAIProvider {
         }
         return extras;
     }
+
+    /**
+     * Streaming counterpart of {@link #extractExtras}: each chunk's
+     * {@code delta} may carry an incremental string fragment of
+     * {@code reasoning_content} (or any other future non-standard field).
+     * Accumulate them into the {@link StreamAccumulator}'s extras buffers
+     * so the finalised {@link com.dwinovo.animus.agent.provider.AssistantTurn AssistantTurn}
+     * round-trips them on the next request.
+     *
+     * <p>Only string-typed extras are accumulated. Non-string non-standard
+     * fields are ignored at chunk level (they'd need a per-field merge
+     * strategy we don't have yet — return when a real use case shows up).
+     */
+    @Override
+    protected void captureChunkExtras(JsonObject delta, StreamAccumulator acc) {
+        var standard = standardDeltaFields();
+        for (var e : delta.entrySet()) {
+            if (standard.contains(e.getKey())) continue;
+            var el = e.getValue();
+            if (el != null && el.isJsonPrimitive() && el.getAsJsonPrimitive().isString()) {
+                acc.appendExtra(e.getKey(), el.getAsString());
+            }
+        }
+    }
 }

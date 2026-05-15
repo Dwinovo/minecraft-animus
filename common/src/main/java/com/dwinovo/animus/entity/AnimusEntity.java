@@ -155,7 +155,15 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         if (taskQueue == null) return;
         List<TaskRecord> completed = taskQueue.drainCompleted();
         if (completed.isEmpty()) return;
-        if (!(this.getOwner() instanceof ServerPlayer owner)) return;
+        if (!(this.getOwner() instanceof ServerPlayer owner)) {
+            com.dwinovo.animus.Constants.LOG.debug(
+                    "[animus-entity#{}] dropping {} task result(s) — owner offline / not a ServerPlayer",
+                    this.getId(), completed.size());
+            return;
+        }
+        com.dwinovo.animus.Constants.LOG.debug(
+                "[animus-entity#{}] dispatching {} task result(s) to owner {}",
+                this.getId(), completed.size(), owner.getName().getString());
         for (TaskRecord rec : completed) {
             TaskResult result = rec.getResult();
             String json = result == null

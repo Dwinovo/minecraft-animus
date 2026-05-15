@@ -173,6 +173,106 @@ public class OpenAIProvider implements LlmProvider {
         return new JsonObject();
     }
 
+    // ---- streaming ----
+
+    /** Standard fields inside an OpenAI streaming {@code delta} object. */
+    private static final java.util.Set<String> STANDARD_DELTA_FIELDS = java.util.Set.of(
+            "role", "content", "tool_calls", "refusal");
+
+    @Override
+    public void accumulateChunk(JsonObject chunk, StreamAccumulator acc) {
+        acc.chunkCount++;
+
+        // Usage typically arrives in the FINAL chunk (when stream_options.include_usage:true).
+        if (chunk.has("usage") && chunk.get("usage").isJsonObject()) {
+            acc.usage = chunk.getAsJsonObject("usage");
+        }
+
+        if (!chunk.has("choices")) return;
+        JsonArray choices = chunk.getAsJsonArray("choices");
+        if (choices.isEmpty()) return;
+        JsonElement first = choices.get(0);
+        if (!first.isJsonObject()) return;
+        JsonObject choice = first.getAsJsonObject();
+
+        // finish_reason
+        if (choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()) {
+            acc.finishReason = choice.get("finish_reason").getAsString();
+        }
+
+        // delta — body of the chunk's payload
+        if (!choice.has("delta") || !choice.get("delta").isJsonObject()) return;
+        JsonObject delta = choice.getAsJsonObject("delta");
+
+        // content fragment
+        if (delta.has("content") && delta.get("content").isJsonPrimitive()) {
+            acc.content.append(delta.get("content").getAsString());
+        }
+
+        // tool_calls fragments (sparse — each delta only carries what changed)
+        if (delta.has("tool_calls") && delta.get("tool_calls").isJsonArray()) {
+            for (JsonElement el : delta.getAsJsonArray("tool_calls")) {
+                if (!el.isJsonObject()) continue;
+                accumulateToolCallDelta(el.getAsJsonObject(), acc);
+            }
+        }
+
+        // Subclass hook for backend-specific non-standard fields (reasoning_content, etc.)
+        captureChunkExtras(delta, acc);
+    }
+
+    /**
+     * Subclass extension point. Called on every chunk's {@code delta} so
+     * providers can capture non-standard streaming fields they need to
+     * round-trip on the next request. Default implementation does nothing —
+     * see {@link DeepSeekProvider} for the {@code reasoning_content} case.
+     */
+    protected void captureChunkExtras(JsonObject delta, StreamAccumulator acc) {
+        // no-op
+    }
+
+    /** Set of delta fields we treat as "standard" — subclasses use this for partition. */
+    protected static java.util.Set<String> standardDeltaFields() {
+        return STANDARD_DELTA_FIELDS;
+    }
+
+    private static void accumulateToolCallDelta(JsonObject tc, StreamAccumulator acc) {
+        int index = tc.has("index") && tc.get("index").isJsonPrimitive()
+                ? tc.get("index").getAsInt() : 0;
+        StreamAccumulator.ToolCallBuilder b = acc.toolCallAt(index);
+
+        if (tc.has("id") && tc.get("id").isJsonPrimitive() && b.id == null) {
+            b.id = tc.get("id").getAsString();
+        }
+        if (tc.has("function") && tc.get("function").isJsonObject()) {
+            JsonObject fn = tc.getAsJsonObject("function");
+            if (fn.has("name") && fn.get("name").isJsonPrimitive() && b.name == null) {
+                b.name = fn.get("name").getAsString();
+            }
+            if (fn.has("arguments") && fn.get("arguments").isJsonPrimitive()) {
+                b.arguments.append(fn.get("arguments").getAsString());
+            }
+        }
+    }
+
+    @Override
+    public AssistantTurn finalizeStream(StreamAccumulator acc) {
+        List<LlmToolCall> calls = new ArrayList<>(acc.toolCalls.size());
+        for (StreamAccumulator.ToolCallBuilder b : acc.toolCalls.values()) {
+            if (b.id == null && b.name == null && b.arguments.length() == 0) continue;
+            String id = b.id == null ? "" : b.id;
+            String name = b.name == null ? "" : b.name;
+            calls.add(new LlmToolCall(id, name, b.arguments.toString()));
+        }
+
+        JsonObject extras = new JsonObject();
+        for (var e : acc.extraBuffers.entrySet()) {
+            extras.addProperty(e.getKey(), e.getValue().toString());
+        }
+
+        return new AssistantTurn(acc.content.toString(), calls, extras);
+    }
+
     private static String stringOrEmpty(JsonElement el) {
         if (el == null || el.isJsonNull()) return "";
         if (el.isJsonPrimitive()) return el.getAsString();

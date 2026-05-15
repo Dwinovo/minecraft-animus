@@ -73,4 +73,27 @@ public interface LlmProvider {
 
     /** Decode the response body into our internal {@link AssistantTurn}. */
     AssistantTurn parseResponseBody(JsonObject body);
+
+    // ---- streaming ----
+
+    /**
+     * Whether this provider supports SSE streaming. Default true for the
+     * OpenAI-compat family; backends that only support buffered responses
+     * (rare) can override to false.
+     */
+    default boolean supportsStreaming() { return true; }
+
+    /**
+     * Apply one SSE chunk's JSON to the running {@link StreamAccumulator}.
+     * Called from the HTTP layer's chunk handler in order. Implementations
+     * must be tolerant of missing fields — backends send sparse deltas.
+     */
+    void accumulateChunk(JsonObject chunk, StreamAccumulator acc);
+
+    /**
+     * Convert a fully-accumulated streaming response into our internal
+     * {@link AssistantTurn}. Called once after the stream terminates
+     * normally.
+     */
+    AssistantTurn finalizeStream(StreamAccumulator acc);
 }

@@ -70,7 +70,14 @@ public record ExecuteToolPayload(int entityId,
 
     /** Handler invoked on the server main thread. */
     public static void handle(ExecuteToolPayload p, ServerPlayer player) {
-        if (!(player.level() instanceof ServerLevel level)) return;
+        String who = player.getName().getString();
+        Constants.LOG.debug("[animus-net] ← execute_tool from {} entity={} tool={} id={} args_chars={}",
+                who, p.entityId(), p.toolName(), p.toolCallId(), p.argumentsJson().length());
+
+        if (!(player.level() instanceof ServerLevel level)) {
+            replyError(player, p, "no server level (logged out?)");
+            return;
+        }
 
         // -- 1. resolve entity
         Entity raw = level.getEntity(p.entityId());
@@ -85,7 +92,9 @@ public record ExecuteToolPayload(int entityId,
         }
         // -- 3. distance check (server-authoritative, defends against teleport-via-tool)
         if (animus.distanceToSqr(player) > MAX_INTERACT_DISTANCE_SQR) {
-            replyError(player, p, "too far from entity");
+            replyError(player, p,
+                    "too far from entity (sqDist=" + (int) animus.distanceToSqr(player)
+                            + " > " + (int) MAX_INTERACT_DISTANCE_SQR + ")");
             return;
         }
         // -- 4. tool lookup
@@ -110,13 +119,14 @@ public record ExecuteToolPayload(int entityId,
             return;
         }
         animus.getTaskQueue().enqueue(record);
-        Constants.LOG.debug("[animus-net] {} enqueued tool={} id={} on entity {}",
-                player.getName().getString(), p.toolName(), p.toolCallId(), p.entityId());
+        Constants.LOG.info("[animus-net] ✓ enqueued tool={} id={} on entity {} for {} (queue depth now={})",
+                p.toolName(), p.toolCallId(), p.entityId(), who,
+                animus.getTaskQueue().pendingCount());
     }
 
     private static void replyError(ServerPlayer player, ExecuteToolPayload p, String message) {
-        Constants.LOG.debug("[animus-net] execute_tool rejected from {}: {}",
-                player.getName().getString(), message);
+        Constants.LOG.warn("[animus-net] ✗ execute_tool rejected from {}: tool={} id={} reason={}",
+                player.getName().getString(), p.toolName(), p.toolCallId(), message);
         String json = "{\"success\":false,\"message\":\"" + escape(message) + "\"}";
         com.dwinovo.animus.platform.Services.NETWORK.sendToPlayer(player,
                 new TaskResultPayload(p.entityId(), p.toolCallId(), json));

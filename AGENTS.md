@@ -194,6 +194,28 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
 - **LLM 路由关键类**：`HttpLlmTransport`（POST + Gson）→ `LlmProvider.buildRequestBody` / `parseResponseBody` → `AssistantTurn`（含 `content` + `toolCalls` + `extras` 透传 backend 专属字段）。Provider 选择由 `config.provider` 决定。
 - **加新 Provider**（Anthropic native / Gemini 等）：实现 `LlmProvider` 接口；如果是 OpenAI 方言只改 `parseResponseBody` 和 `extractExtras`，参考 `DeepSeekProvider`（30 行）；如果是完全不同协议，从头实现 `buildXxxMessage` + `buildRequestBody` + `parseResponseBody`，参考 `OpenAIProvider`（200 行）。然后在 `AnimusLlmClient.pickProvider` 加 case。
 
+### 调 LLM 时打开 DEBUG 日志
+
+INFO 级别已经包含足够诊断信息（每次 LLM 调用的耗时 / token / finish reason / content 摘要 / 每次 tool dispatch / tool result）。**真出问题时**打开 DEBUG 级别能看到：
+
+- HTTP 层每次请求的 `[lr-N]` id（贯穿整条链路）+ 请求字节数 + 响应字节数 + 耗时
+- 每个 SSE chunk 的解析（chunk 计数）
+- AgentLoop 每次 `tryStartTurn` 的跳过原因（aborted / awaiting / pending）
+- 服务端 ExecuteToolPayload 的每条 ← 接收日志
+- 实体 drain outbox 时 dispatch 给 owner 的统计
+
+开 DEBUG 方式：在对应 loader 的 run dir 里编辑 `log4j2.xml`，加一行：
+```xml
+<Logger name="Animus" level="DEBUG"/>
+```
+
+具体位置：
+- Fabric dev：`fabric/runs/client/config/log4j2.xml`（或玩家本地 MC `.minecraft/config/`）
+- NeoForge dev：`neoforge/runs/client/config/log4j2.xml`
+- 生产环境：MC `.minecraft/config/` 下，对应的 `log4j2.xml`
+
+每条 log 都带前缀 `[animus-llm]` / `[animus-http]` / `[animus-agent#N]` / `[animus-net]` / `[animus-entity#N]` / `[animus-config]`，便于 grep。
+
 ### 引入外部依赖
 
 **默认拒绝**。当前 mod 零第三方运行时依赖，jar 仅 ~260KB，启动快、distribution 友好。引入新库要严格论证：

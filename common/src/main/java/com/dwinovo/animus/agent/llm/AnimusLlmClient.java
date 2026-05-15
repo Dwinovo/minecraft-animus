@@ -5,7 +5,9 @@ import com.dwinovo.animus.agent.http.HttpLlmTransport;
 import com.dwinovo.animus.agent.provider.AssistantTurn;
 import com.dwinovo.animus.agent.provider.DeepSeekProvider;
 import com.dwinovo.animus.agent.provider.LlmProvider;
+import com.dwinovo.animus.agent.provider.LlmToolCall;
 import com.dwinovo.animus.agent.provider.OpenAIProvider;
+import com.dwinovo.animus.agent.provider.StreamAccumulator;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.platform.services.IAnimusConfig;
@@ -16,31 +18,33 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 /**
- * Mod-global LLM client. Wraps {@link HttpLlmTransport} (JDK
- * {@code java.net.http.HttpClient}, zero third-party deps) + a configured
- * {@link LlmProvider} (wire-format adapter). Lazy singleton — first
- * accessor triggers initialisation from {@link IAnimusConfig}.
+ * Mod-global LLM client (client-side singleton). Wraps {@link HttpLlmTransport}
+ * + a configured {@link LlmProvider}; SSE streaming is the default so
+ * users see token-by-token progress in logs (and, in the future, in a
+ * chat bubble above the entity).
  *
- * <h2>Why off-server</h2>
- * This client used to live in server-tick code; it now runs on the **client**
- * side so each player's API key drives their own conversation and their own
- * token spend. The server only executes tool calls (validated) and ships
- * results back. See {@code ClientAgentLoop} for the orchestration.
+ * <h2>Streaming flow</h2>
+ * <ol>
+ *   <li>{@link #chatStreaming} builds the request body via the provider,
+ *       sets {@code stream:true} + {@code stream_options.include_usage:true},
+ *       and dispatches to {@link HttpLlmTransport#postSse}.</li>
+ *   <li>For each SSE chunk, the provider's {@code accumulateChunk} updates
+ *       a per-call {@link StreamAccumulator}.</li>
+ *   <li>When the stream terminates, {@code finalizeStream} produces an
+ *       {@link AssistantTurn}; the future completes with it.</li>
+ *   <li>Token usage and finish reason emitted as an INFO log line.</li>
+ * </ol>
  *
- * <h2>Backend selection</h2>
- * Pick provider by {@code config.getProvider()}:
- * <ul>
- *   <li>{@code "deepseek"} — preserves {@code reasoning_content} for thinking models</li>
- *   <li>{@code "openai"} (default) — standard wire</li>
- * </ul>
- * URL = {@code config.getBaseUrl()} + {@code provider.chatCompletionsPath()}.
- * Empty base URL falls back to OpenAI's production host.
+ * <h2>Per-call request id</h2>
+ * The transport tags every request with a short {@code lr-N} id used in
+ * every related log line; users can grep one ID through the whole chain
+ * (HTTP → provider → agent loop) when debugging.
  */
 public final class AnimusLlmClient {
 
-    /** Used when config.getBaseUrl() is empty. */
     private static final String DEFAULT_OPENAI_BASE = "https://api.openai.com";
 
     private static volatile AnimusLlmClient instance;
@@ -55,14 +59,13 @@ public final class AnimusLlmClient {
         this.provider = pickProvider(config.getProvider());
         String base = config.getBaseUrl();
         if (base == null || base.isBlank()) base = DEFAULT_OPENAI_BASE;
-        // Strip trailing slash to avoid double-slash in the joined URL.
         if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
         this.fullUrl = base + provider.chatCompletionsPath();
         this.apiKey = config.getApiKey();
         String configured = config.getModel();
         this.model = (configured == null || configured.isBlank()) ? "gpt-5-2-mini" : configured;
-        Constants.LOG.info("[animus-llm] client initialised: provider={}, model={}, url={}",
-                provider.name(), model, fullUrl);
+        Constants.LOG.info("[animus-llm] client initialised: provider={}, model={}, url={}, streaming={}",
+                provider.name(), model, fullUrl, provider.supportsStreaming());
     }
 
     public static AnimusLlmClient instance() {
@@ -76,24 +79,27 @@ public final class AnimusLlmClient {
         }
     }
 
-    /** True iff config has a non-empty API key. */
     public static boolean isConfigured() {
         String key = Services.CONFIG.getApiKey();
         return key != null && !key.isBlank();
     }
 
     /**
-     * Fire one chat completion. The system prompt from config is prepended
-     * automatically — callers don't include it in {@code messages}.
+     * Streaming chat completion. Returns a future of the final
+     * {@link AssistantTurn} (built up from all SSE chunks via the provider's
+     * accumulator).
      *
-     * @return future of the parsed assistant turn; completes exceptionally
-     *         on HTTP error ({@link com.dwinovo.animus.agent.http.LlmHttpException})
-     *         or network failure (wrapped {@link java.io.IOException}).
+     * @param messages       conversation history (provider translates to wire)
+     * @param tools          tool list (provider serialises to wire shape)
+     * @param systemPrompt   prepended automatically — pass empty / null to skip
+     * @param onChunk        optional per-chunk callback (e.g. for live UI).
+     *                       Receives the raw provider chunk JSON. May be null.
      */
-    public CompletableFuture<AssistantTurn> chat(List<ConvoState.Msg> messages,
-                                                  Collection<AnimusTool> tools,
-                                                  String systemPrompt) {
-        // Translate stored messages to provider wire format.
+    public CompletableFuture<AssistantTurn> chatStreaming(List<ConvoState.Msg> messages,
+                                                           Collection<AnimusTool> tools,
+                                                           String systemPrompt,
+                                                           Consumer<JsonObject> onChunk) {
+        // -- 1. Build wire-format messages and tool list via provider.
         List<JsonObject> wire = new ArrayList<>(messages.size());
         for (ConvoState.Msg m : messages) {
             switch (m) {
@@ -102,12 +108,69 @@ public final class AnimusLlmClient {
                 case ConvoState.Msg.Tool t -> wire.add(provider.buildToolResultMessage(t.toolCallId(), t.content()));
             }
         }
-
         JsonArray toolList = provider.buildToolList(tools);
         JsonObject body = provider.buildRequestBody(model, systemPrompt, wire, toolList);
 
-        return transport.post(fullUrl, apiKey, body)
-                .thenApply(provider::parseResponseBody);
+        // -- 2. Enable streaming + usage reporting (both server-side flags).
+        body.addProperty("stream", true);
+        JsonObject streamOpts = new JsonObject();
+        streamOpts.addProperty("include_usage", true);
+        body.add("stream_options", streamOpts);
+
+        if (Constants.LOG.isDebugEnabled()) {
+            Constants.LOG.debug("[animus-llm] chat start: provider={}, model={}, msgs={}, tools={}, system_prompt_chars={}",
+                    provider.name(), model, wire.size(), toolList.size(),
+                    systemPrompt == null ? 0 : systemPrompt.length());
+        }
+
+        // -- 3. Stream the response into an accumulator.
+        long t0 = System.nanoTime();
+        StreamAccumulator acc = new StreamAccumulator();
+        return transport.postSse(fullUrl, apiKey, body, chunk -> {
+            try {
+                provider.accumulateChunk(chunk, acc);
+                if (onChunk != null) onChunk.accept(chunk);
+            } catch (RuntimeException ex) {
+                Constants.LOG.warn("[animus-llm] accumulator failed on chunk: {}", ex.getMessage());
+            }
+        }).thenApply(v -> {
+            AssistantTurn turn = provider.finalizeStream(acc);
+            logCallSummary(t0, acc, turn);
+            return turn;
+        });
+    }
+
+    private void logCallSummary(long t0, StreamAccumulator acc, AssistantTurn turn) {
+        long elapsedMs = (System.nanoTime() - t0) / 1_000_000;
+        String tokens = "?";
+        if (acc.usage != null) {
+            int in = jsonInt(acc.usage, "prompt_tokens");
+            int out = jsonInt(acc.usage, "completion_tokens");
+            int total = jsonInt(acc.usage, "total_tokens");
+            tokens = in + "/" + out + " (total " + total + ")";
+        }
+        StringBuilder toolSummary = new StringBuilder();
+        for (LlmToolCall tc : turn.toolCalls()) {
+            if (toolSummary.length() > 0) toolSummary.append(", ");
+            toolSummary.append(tc.name());
+        }
+        String contentSnippet = turn.content().isEmpty() ? "<no text>"
+                : truncate(turn.content().replace('\n', ' '), 120);
+        Constants.LOG.info(
+                "[animus-llm] chat done in {}ms, chunks={}, tokens={}, finish={}, tool_calls=[{}], content=\"{}\"",
+                elapsedMs, acc.chunkCount, tokens,
+                acc.finishReason == null ? "?" : acc.finishReason,
+                toolSummary, contentSnippet);
+    }
+
+    private static int jsonInt(JsonObject o, String key) {
+        if (o == null || !o.has(key) || o.get(key).isJsonNull()) return 0;
+        try { return o.get(key).getAsInt(); } catch (RuntimeException ex) { return 0; }
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
     public LlmProvider provider() { return provider; }
