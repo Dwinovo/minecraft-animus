@@ -31,13 +31,12 @@ import java.util.List;
 public class OpenAIProvider implements LlmProvider {
 
     public static final String NAME = "openai";
-    /** Default path; subclasses can override if needed. */
-    public static final String CHAT_PATH = "/v1/chat/completions";
+    public static final String DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
     private static final Gson GSON = new Gson();
 
     @Override public String name() { return NAME; }
-    @Override public String chatCompletionsPath() { return CHAT_PATH; }
+    @Override public String defaultBaseUrl() { return DEFAULT_BASE_URL; }
 
     @Override
     public JsonObject buildUserMessage(String content) {

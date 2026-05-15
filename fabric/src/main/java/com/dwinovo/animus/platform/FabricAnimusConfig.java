@@ -163,7 +163,7 @@ public final class FabricAnimusConfig implements IAnimusConfig {
      */
     public static final class ConfigData {
         /** Free-form note for human readers; ignored by the loader. */
-        public String _readme = "Animus mod configuration. Set 'apiKey' (required) and optionally 'baseUrl' to point at any OpenAI-compatible endpoint (DeepSeek, Ollama, vLLM, etc.). 'provider' selects the wire-format adapter: 'openai' (default) or 'deepseek' (preserves reasoning_content for thinking models). Field names are camelCase. Restart for changes to take effect.";
+        public String _readme = "Animus mod configuration. Set 'apiKey' (required). 'provider' picks the wire-format adapter AND its default base URL: openai | deepseek | moonshot (alias kimi) | minimax | volcengine (alias doubao, ark) | dashscope (alias qwen, tongyi, aliyun). Set 'baseUrl' only if you need to override the provider default (e.g. self-hosted proxy or non-default region). 'model' is whatever the backend recognises. Field names are camelCase. Restart for changes to take effect.";
         public String apiKey = "";
         public String baseUrl = "";
         public String model = "gpt-5-2-mini";

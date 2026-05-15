@@ -39,8 +39,17 @@ public final class NeoForgeAnimusConfig implements IAnimusConfig {
                 .define("base_url", "");
         MODEL = b.comment("Model id sent as the `model` field. Backend-defined.")
                 .define("model", "gpt-5-2-mini");
-        PROVIDER = b.comment("Wire-format adapter. 'openai' = standard.",
-                "'deepseek' = same shape but preserves reasoning_content for thinking models.")
+        PROVIDER = b.comment("Wire-format adapter AND default base URL selector.",
+                "openai      → api.openai.com/v1 (default; also generic OpenAI-compat fallback)",
+                "deepseek    → api.deepseek.com/beta (preserves reasoning_content for V4 thinking)",
+                "moonshot    → api.moonshot.ai/v1 (Kimi; fill_reasoning_content safety net)",
+                "  (alias: kimi)",
+                "minimax     → api.minimax.io/v1",
+                "volcengine  → ark.cn-beijing.volces.com/api/v3 (Doubao)",
+                "  (aliases: doubao, ark)",
+                "dashscope   → dashscope.aliyuncs.com/compatible-mode/v1 (Alibaba Qwen / Tongyi)",
+                "  (aliases: qwen, tongyi, aliyun)",
+                "Override 'base_url' below to use a different host (proxy / region split).")
                 .define("provider", "openai");
 
         b.pop();

@@ -38,8 +38,26 @@ public interface LlmProvider {
     /** Stable id used in config (e.g. {@code "openai"}, {@code "deepseek"}). */
     String name();
 
-    /** URL path appended to the configured {@code baseUrl}, e.g. {@code "/v1/chat/completions"}. */
-    String chatCompletionsPath();
+    /**
+     * Default API base URL for this provider, used when the user leaves
+     * {@code config.baseUrl} empty. Matches LiteLLM's
+     * {@code _get_openai_compatible_provider_info} return value: includes the
+     * version / mode prefix ({@code /v1}, {@code /beta},
+     * {@code /compatible-mode/v1}, {@code /api/v3}, ...) but **excludes**
+     * the trailing {@code /chat/completions} path — that's appended by
+     * {@code AnimusLlmClient} during URL composition.
+     *
+     * <p>Examples per provider:
+     * <ul>
+     *   <li>OpenAI → {@code https://api.openai.com/v1}</li>
+     *   <li>DeepSeek → {@code https://api.deepseek.com/beta}</li>
+     *   <li>Moonshot (Kimi) → {@code https://api.moonshot.ai/v1}</li>
+     *   <li>MiniMax → {@code https://api.minimax.io/v1}</li>
+     *   <li>Volcengine (Doubao) → {@code https://ark.cn-beijing.volces.com/api/v3}</li>
+     *   <li>DashScope (Qwen) → {@code https://dashscope.aliyuncs.com/compatible-mode/v1}</li>
+     * </ul>
+     */
+    String defaultBaseUrl();
 
     /** Build the user-role wire message for {@code content}. */
     JsonObject buildUserMessage(String content);

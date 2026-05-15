@@ -3,11 +3,15 @@ package com.dwinovo.animus.agent.llm;
 import com.dwinovo.animus.Constants;
 import com.dwinovo.animus.agent.http.HttpLlmTransport;
 import com.dwinovo.animus.agent.provider.AssistantTurn;
+import com.dwinovo.animus.agent.provider.DashScopeProvider;
 import com.dwinovo.animus.agent.provider.DeepSeekProvider;
 import com.dwinovo.animus.agent.provider.LlmProvider;
 import com.dwinovo.animus.agent.provider.LlmToolCall;
+import com.dwinovo.animus.agent.provider.MinimaxProvider;
+import com.dwinovo.animus.agent.provider.MoonshotProvider;
 import com.dwinovo.animus.agent.provider.OpenAIProvider;
 import com.dwinovo.animus.agent.provider.StreamAccumulator;
+import com.dwinovo.animus.agent.provider.VolcengineProvider;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.platform.services.IAnimusConfig;
@@ -45,7 +49,8 @@ import java.util.function.Consumer;
  */
 public final class AnimusLlmClient {
 
-    private static final String DEFAULT_OPENAI_BASE = "https://api.openai.com";
+    /** Suffix appended to base URLs that don't already end with it. */
+    private static final String CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
 
     private static volatile AnimusLlmClient instance;
 
@@ -57,15 +62,27 @@ public final class AnimusLlmClient {
 
     private AnimusLlmClient(IAnimusConfig config) {
         this.provider = pickProvider(config.getProvider());
-        String base = config.getBaseUrl();
-        if (base == null || base.isBlank()) base = DEFAULT_OPENAI_BASE;
-        if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
-        this.fullUrl = base + provider.chatCompletionsPath();
+        this.fullUrl = composeUrl(config.getBaseUrl(), provider);
         this.apiKey = config.getApiKey();
         String configured = config.getModel();
         this.model = (configured == null || configured.isBlank()) ? "gpt-5-2-mini" : configured;
         Constants.LOG.info("[animus-llm] client initialised: provider={}, model={}, url={}, streaming={}",
                 provider.name(), model, fullUrl, provider.supportsStreaming());
+    }
+
+    /**
+     * Compose the chat completions URL using LiteLLM's logic:
+     * if the user-supplied base URL is empty, use the provider's default;
+     * trim a trailing slash; if the URL doesn't already end with
+     * {@code /chat/completions}, append it. Matches the behaviour of
+     * each LiteLLM provider's {@code get_complete_url} method.
+     */
+    private static String composeUrl(String userBase, LlmProvider provider) {
+        String base = (userBase == null || userBase.isBlank())
+                ? provider.defaultBaseUrl() : userBase;
+        if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        if (base.endsWith(CHAT_COMPLETIONS_SUFFIX)) return base;
+        return base + CHAT_COMPLETIONS_SUFFIX;
     }
 
     public static AnimusLlmClient instance() {
@@ -176,10 +193,29 @@ public final class AnimusLlmClient {
     public LlmProvider provider() { return provider; }
     public String model() { return model; }
 
+    /**
+     * Map a config {@code provider} string to a concrete {@link LlmProvider}.
+     *
+     * <p>Accepted ids match LiteLLM's provider names plus a few Chinese
+     * aliases that users naturally type:
+     * <ul>
+     *   <li>{@code openai} (default fallback)</li>
+     *   <li>{@code deepseek} — DeepSeek (V4 / R1 family)</li>
+     *   <li>{@code moonshot} / {@code kimi} — Moonshot AI (Kimi)</li>
+     *   <li>{@code minimax} — MiniMax (abab / M-series)</li>
+     *   <li>{@code volcengine} / {@code doubao} / {@code ark} — Doubao via Volcengine Ark</li>
+     *   <li>{@code dashscope} / {@code qwen} / {@code tongyi} / {@code aliyun} — DashScope (Qwen)</li>
+     * </ul>
+     * Unknown values fall back to {@code openai} with a warning log.
+     */
     private static LlmProvider pickProvider(String name) {
         if (name == null) return new OpenAIProvider();
         return switch (name.toLowerCase()) {
             case DeepSeekProvider.NAME -> new DeepSeekProvider();
+            case MoonshotProvider.NAME, "kimi" -> new MoonshotProvider();
+            case MinimaxProvider.NAME -> new MinimaxProvider();
+            case VolcengineProvider.NAME, "doubao", "ark" -> new VolcengineProvider();
+            case DashScopeProvider.NAME, "qwen", "tongyi", "aliyun" -> new DashScopeProvider();
             case OpenAIProvider.NAME -> new OpenAIProvider();
             default -> {
                 Constants.LOG.warn("[animus-llm] unknown provider '{}', falling back to openai", name);

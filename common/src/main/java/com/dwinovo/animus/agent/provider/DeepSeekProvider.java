@@ -42,11 +42,10 @@ package com.dwinovo.animus.agent.provider;
 public final class DeepSeekProvider extends OpenAIProvider {
 
     public static final String NAME = "deepseek";
-
-    /** LiteLLM default: {@code https://api.deepseek.com/beta/chat/completions}. */
-    private static final String CHAT_PATH = "/beta/chat/completions";
+    /** LiteLLM default ({@code _get_openai_compatible_provider_info}). */
+    public static final String DEFAULT_BASE_URL = "https://api.deepseek.com/beta";
 
     @Override public String name() { return NAME; }
 
-    @Override public String chatCompletionsPath() { return CHAT_PATH; }
+    @Override public String defaultBaseUrl() { return DEFAULT_BASE_URL; }
 }
