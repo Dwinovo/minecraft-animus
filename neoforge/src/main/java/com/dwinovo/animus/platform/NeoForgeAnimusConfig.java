@@ -94,6 +94,49 @@ public final class NeoForgeAnimusConfig implements IAnimusConfig {
         return s.isEmpty() ? "openai" : s;
     }
 
+    // ---- mutations ----
+
+    @Override
+    public void setApiKey(String value) {
+        API_KEY.set(value == null ? "" : value);
+    }
+
+    @Override
+    public void setBaseUrl(String value) {
+        BASE_URL.set(value == null ? "" : value);
+    }
+
+    @Override
+    public void setModel(String value) {
+        MODEL.set(value == null ? "" : value);
+    }
+
+    @Override
+    public void setProvider(String value) {
+        PROVIDER.set(value == null ? "openai" : value);
+    }
+
+    @Override
+    public void setSystemPrompt(String value) {
+        SYSTEM_PROMPT.set(value == null ? "" : value);
+    }
+
+    /**
+     * NeoForge's ModConfigSpec auto-persists in-memory mutations on a
+     * background schedule (world save, mod unload, etc.) — there's no
+     * public {@code save()} on the spec itself. The {@code ConfigValue.set}
+     * calls in the setters above are already enough for the values to
+     * survive a normal shutdown. This method emits an INFO log line so
+     * users see confirmation in the launcher log.
+     */
+    @Override
+    public void save() {
+        com.dwinovo.animus.Constants.LOG.info(
+                "[animus-config] updated (api_key length={}, provider={}, model={}); "
+                + "NeoForge will persist on next save tick",
+                safe(API_KEY).length(), safe(PROVIDER), safe(MODEL));
+    }
+
     /**
      * Guard against the (rare) corner case where a config value is read
      * before the spec is fully bound — returns the empty string instead of

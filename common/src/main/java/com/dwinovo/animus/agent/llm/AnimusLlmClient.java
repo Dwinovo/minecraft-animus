@@ -102,6 +102,26 @@ public final class AnimusLlmClient {
     }
 
     /**
+     * Invalidate the cached singleton so the next {@link #instance()} call
+     * rebuilds from fresh config. Called by the settings GUI after the
+     * user changes provider / API key / model / base URL — lets players
+     * switch backends without restarting the game.
+     *
+     * <p>In-flight requests on the old instance complete with the old
+     * credentials (we don't try to cancel them); only subsequent calls
+     * see the new config. Per-entity {@code ConvoState} is unaffected, so
+     * conversations continue with the new backend.
+     */
+    public static void reset() {
+        synchronized (AnimusLlmClient.class) {
+            if (instance != null) {
+                Constants.LOG.info("[animus-llm] resetting client (next call will rebuild from current config)");
+            }
+            instance = null;
+        }
+    }
+
+    /**
      * Streaming chat completion. Returns a future of the final
      * {@link AssistantTurn} (built up from all SSE chunks via the provider's
      * accumulator).

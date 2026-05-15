@@ -154,6 +154,40 @@ public final class FabricAnimusConfig implements IAnimusConfig {
     @Override
     public String getProvider() { return data.provider == null ? "openai" : data.provider; }
 
+    // ---- mutations ----
+
+    @Override
+    public void setApiKey(String value) { data.apiKey = value == null ? "" : value; }
+
+    @Override
+    public void setBaseUrl(String value) { data.baseUrl = value == null ? "" : value; }
+
+    @Override
+    public void setModel(String value) { data.model = value == null ? "" : value; }
+
+    @Override
+    public void setProvider(String value) { data.provider = value == null ? "openai" : value; }
+
+    @Override
+    public void setSystemPrompt(String value) { data.systemPrompt = value == null ? "" : value; }
+
+    @Override
+    public void save() {
+        Path configPath = FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+        try {
+            Files.createDirectories(configPath.getParent());
+            try (Writer w = Files.newBufferedWriter(configPath)) {
+                GSON.toJson(data, w);
+            }
+            Constants.LOG.info("[animus-config] saved {} (api_key length={}, provider={}, model={})",
+                    configPath,
+                    data.apiKey == null ? 0 : data.apiKey.length(),
+                    data.provider, data.model);
+        } catch (IOException ex) {
+            Constants.LOG.warn("[animus-config] save failed for {}: {}", configPath, ex.getMessage());
+        }
+    }
+
     /**
      * Gson-serialised POJO. Public fields kept simple on purpose — the JSON
      * file IS the schema, no need for an extra layer. The {@code _readme}

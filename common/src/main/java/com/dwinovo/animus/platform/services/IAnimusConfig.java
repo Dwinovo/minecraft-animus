@@ -60,4 +60,32 @@ public interface IAnimusConfig {
      * The agent layer adds tool-use guidance automatically on top of this.
      */
     String getSystemPrompt();
+
+    // ---- write surface (client-side: invoked by SettingsScreen) ----
+
+    /**
+     * Mutate the in-memory API key. Caller must {@link #save()} to persist.
+     * Null values are normalised to empty string.
+     */
+    void setApiKey(String value);
+
+    void setBaseUrl(String value);
+
+    void setModel(String value);
+
+    void setProvider(String value);
+
+    void setSystemPrompt(String value);
+
+    /**
+     * Flush in-memory changes to the loader-native config file. Best-effort:
+     * errors are logged but never thrown — settings GUI shouldn't crash the
+     * client because of a write failure.
+     *
+     * <p>Fabric impl rewrites {@code config/animus.json} directly. NeoForge
+     * impl writes through {@code ModConfigSpec.ConfigValue.set()}, which
+     * NeoForge persists to {@code animus-common.toml} on its own schedule
+     * (this method nudges that schedule when possible).
+     */
+    void save();
 }

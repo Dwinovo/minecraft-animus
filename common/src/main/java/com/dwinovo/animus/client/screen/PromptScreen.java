@@ -48,6 +48,13 @@ public final class PromptScreen extends Screen {
 
     private final AnimusEntity target;
     private EditBox input;
+    /**
+     * Carries the user's typed prompt across a SettingsScreen detour so the
+     * field doesn't reset to empty when we come back. Lifecycle: set in
+     * {@link #openSettings} before the screen switch; consumed in
+     * {@link #init} when this screen is rebuilt on return.
+     */
+    private String savedInputText = "";
 
     public PromptScreen(AnimusEntity target) {
         super(Component.translatable(ModLanguageData.Keys.GUI_PROMPT_TITLE));
@@ -70,19 +77,45 @@ public final class PromptScreen extends Screen {
                 Component.translatable(ModLanguageData.Keys.GUI_PROMPT_INPUT));
         this.input.setMaxLength(MAX_PROMPT_LENGTH);
         this.input.setHint(Component.translatable(ModLanguageData.Keys.GUI_PROMPT_HINT));
+        // Restore prompt text if we're coming back from SettingsScreen.
+        if (!this.savedInputText.isEmpty()) {
+            this.input.setValue(this.savedInputText);
+            this.savedInputText = "";
+        }
         addRenderableWidget(this.input);
         setInitialFocus(this.input);
 
         int footerY = top + CONTENT_HEIGHT - BUTTON_HEIGHT;
         int rightX = left + CONTENT_WIDTH - BUTTON_WIDTH;
-        int leftX  = rightX - BUTTON_WIDTH - BUTTON_GAP;
+        int cancelX  = rightX - BUTTON_WIDTH - BUTTON_GAP;
 
-        addRenderableWidget(new SimpleButton(leftX, footerY, BUTTON_WIDTH, BUTTON_HEIGHT,
+        // Settings button on the LEFT edge — keeps it out of muscle-memory
+        // reach of the Cancel/Send pair on the right, so accidental clicks
+        // mid-typing don't open settings.
+        addRenderableWidget(new SimpleButton(left, footerY, BUTTON_WIDTH, BUTTON_HEIGHT,
+                Component.translatable(ModLanguageData.Keys.GUI_PROMPT_SETTINGS),
+                b -> openSettings()));
+        addRenderableWidget(new SimpleButton(cancelX, footerY, BUTTON_WIDTH, BUTTON_HEIGHT,
                 Component.translatable(ModLanguageData.Keys.GUI_PROMPT_CANCEL),
                 b -> this.onClose()));
         addRenderableWidget(new SimpleButton(rightX, footerY, BUTTON_WIDTH, BUTTON_HEIGHT,
                 Component.translatable(ModLanguageData.Keys.GUI_PROMPT_SEND),
                 this::onSend));
+    }
+
+    /**
+     * Open the settings GUI, passing this screen as the parent so Cancel /
+     * Save return here. The user's currently-typed prompt is preserved —
+     * see {@link #savedInputText} which the parent screen's {@code init()}
+     * reads on rebuild.
+     */
+    private void openSettings() {
+        // Snapshot the in-progress prompt so it doesn't get wiped when we
+        // return from SettingsScreen and PromptScreen.init() rebuilds.
+        if (this.input != null) {
+            this.savedInputText = this.input.getValue();
+        }
+        Minecraft.getInstance().setScreen(new SettingsScreen(this));
     }
 
     @Override
