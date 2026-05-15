@@ -1,61 +1,68 @@
 package com.dwinovo.animus.agent.llm;
 
 import com.dwinovo.animus.Constants;
+import com.dwinovo.animus.agent.http.HttpLlmTransport;
+import com.dwinovo.animus.agent.provider.AssistantTurn;
+import com.dwinovo.animus.agent.provider.DeepSeekProvider;
+import com.dwinovo.animus.agent.provider.LlmProvider;
+import com.dwinovo.animus.agent.provider.OpenAIProvider;
+import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.platform.services.IAnimusConfig;
-import com.openai.client.OpenAIClientAsync;
-import com.openai.client.okhttp.OpenAIOkHttpClientAsync;
-import com.openai.models.chat.completions.ChatCompletion;
-import com.openai.models.chat.completions.ChatCompletionCreateParams;
-import com.openai.models.chat.completions.ChatCompletionTool;
-import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Mod-global async OpenAI client. Lazily constructed from the active
- * {@link IAnimusConfig} on first use; configuration changes require a
- * restart (acceptable for MVP — config writes are rare).
+ * Mod-global LLM client. Wraps {@link HttpLlmTransport} (JDK
+ * {@code java.net.http.HttpClient}, zero third-party deps) + a configured
+ * {@link LlmProvider} (wire-format adapter). Lazy singleton — first
+ * accessor triggers initialisation from {@link IAnimusConfig}.
  *
- * <h2>Backend compatibility</h2>
- * Built on {@link OpenAIOkHttpClientAsync}; any backend that speaks
- * OpenAI's {@code POST /v1/chat/completions} JSON works by setting the
- * config {@code base_url}. Tested against OpenAI itself; DeepSeek, Anthropic
- * (via proxy), Ollama and vLLM all expose this same shape.
+ * <h2>Why off-server</h2>
+ * This client used to live in server-tick code; it now runs on the **client**
+ * side so each player's API key drives their own conversation and their own
+ * token spend. The server only executes tool calls (validated) and ships
+ * results back. See {@code ClientAgentLoop} for the orchestration.
  *
- * <h2>Threading</h2>
- * All calls return {@link CompletableFuture}. The future's continuation
- * runs on the SDK's internal executor (cached thread pool); the agent loop
- * is expected to hop back to the server tick thread via
- * {@code server.execute(...)} before touching world state — see
- * {@link com.dwinovo.animus.agent.loop.AgentLoop AgentLoop} for that pattern.
- *
- * <h2>"Empty api key" guard</h2>
- * Refuses to even build the client if no key is configured (returns a failed
- * future). This keeps an unconfigured install from spamming the API with
- * 401s, and gives the agent layer a clean error path to surface in logs.
+ * <h2>Backend selection</h2>
+ * Pick provider by {@code config.getProvider()}:
+ * <ul>
+ *   <li>{@code "deepseek"} — preserves {@code reasoning_content} for thinking models</li>
+ *   <li>{@code "openai"} (default) — standard wire</li>
+ * </ul>
+ * URL = {@code config.getBaseUrl()} + {@code provider.chatCompletionsPath()}.
+ * Empty base URL falls back to OpenAI's production host.
  */
 public final class AnimusLlmClient {
 
+    /** Used when config.getBaseUrl() is empty. */
+    private static final String DEFAULT_OPENAI_BASE = "https://api.openai.com";
+
     private static volatile AnimusLlmClient instance;
 
-    private final OpenAIClientAsync client;
+    private final HttpLlmTransport transport = new HttpLlmTransport();
+    private final LlmProvider provider;
+    private final String fullUrl;
+    private final String apiKey;
     private final String model;
 
     private AnimusLlmClient(IAnimusConfig config) {
-        OpenAIOkHttpClientAsync.Builder b = OpenAIOkHttpClientAsync.builder()
-                .apiKey(config.getApiKey());
-        String baseUrl = config.getBaseUrl();
-        if (baseUrl != null && !baseUrl.isBlank()) {
-            b.baseUrl(baseUrl);
-        }
-        this.client = b.build();
-        String configuredModel = config.getModel();
-        this.model = (configuredModel == null || configuredModel.isBlank())
-                ? "gpt-5-2-mini" : configuredModel;
-        Constants.LOG.info("[animus-llm] client initialised: model={}, base_url={}",
-                this.model, (baseUrl == null || baseUrl.isBlank()) ? "<default>" : baseUrl);
+        this.provider = pickProvider(config.getProvider());
+        String base = config.getBaseUrl();
+        if (base == null || base.isBlank()) base = DEFAULT_OPENAI_BASE;
+        // Strip trailing slash to avoid double-slash in the joined URL.
+        if (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        this.fullUrl = base + provider.chatCompletionsPath();
+        this.apiKey = config.getApiKey();
+        String configured = config.getModel();
+        this.model = (configured == null || configured.isBlank()) ? "gpt-5-2-mini" : configured;
+        Constants.LOG.info("[animus-llm] client initialised: provider={}, model={}, url={}",
+                provider.name(), model, fullUrl);
     }
 
     public static AnimusLlmClient instance() {
@@ -69,51 +76,52 @@ public final class AnimusLlmClient {
         }
     }
 
-    /**
-     * Fire a chat completion request. The system prompt (from config) is
-     * prepended automatically — callers don't include it in {@code messages}.
-     *
-     * @return future of the completion; completes with an
-     *         {@code OpenAIException} or {@code IOException} subclass on failure.
-     */
-    public CompletableFuture<ChatCompletion> chat(List<ConvoState.Msg> messages,
-                                                  List<ChatCompletionTool> tools,
-                                                  String systemPrompt) {
-        ChatCompletionCreateParams.Builder b = ChatCompletionCreateParams.builder()
-                .model(model);
-
-        if (systemPrompt != null && !systemPrompt.isBlank()) {
-            b.addSystemMessage(systemPrompt);
-        }
-        for (ConvoState.Msg m : messages) {
-            switch (m) {
-                case ConvoState.Msg.User u -> b.addUserMessage(u.content());
-                case ConvoState.Msg.Assistant a -> b.addMessage(a.raw().toParam());
-                case ConvoState.Msg.Tool t -> b.addMessage(
-                        ChatCompletionToolMessageParam.builder()
-                                .toolCallId(t.toolCallId())
-                                .content(t.content())
-                                .build());
-            }
-        }
-        for (ChatCompletionTool tool : tools) {
-            b.addTool(tool);
-        }
-
-        return client.chat().completions().create(b.build());
-    }
-
-    public String getModel() {
-        return model;
-    }
-
-    /**
-     * Returns true iff the configured api key is non-empty. The agent loop
-     * checks this before attempting calls so the failure mode is one log line
-     * per session, not one per turn.
-     */
+    /** True iff config has a non-empty API key. */
     public static boolean isConfigured() {
         String key = Services.CONFIG.getApiKey();
         return key != null && !key.isBlank();
+    }
+
+    /**
+     * Fire one chat completion. The system prompt from config is prepended
+     * automatically — callers don't include it in {@code messages}.
+     *
+     * @return future of the parsed assistant turn; completes exceptionally
+     *         on HTTP error ({@link com.dwinovo.animus.agent.http.LlmHttpException})
+     *         or network failure (wrapped {@link java.io.IOException}).
+     */
+    public CompletableFuture<AssistantTurn> chat(List<ConvoState.Msg> messages,
+                                                  Collection<AnimusTool> tools,
+                                                  String systemPrompt) {
+        // Translate stored messages to provider wire format.
+        List<JsonObject> wire = new ArrayList<>(messages.size());
+        for (ConvoState.Msg m : messages) {
+            switch (m) {
+                case ConvoState.Msg.User u -> wire.add(provider.buildUserMessage(u.content()));
+                case ConvoState.Msg.Assistant a -> wire.add(provider.assistantToRequestMessage(a.turn()));
+                case ConvoState.Msg.Tool t -> wire.add(provider.buildToolResultMessage(t.toolCallId(), t.content()));
+            }
+        }
+
+        JsonArray toolList = provider.buildToolList(tools);
+        JsonObject body = provider.buildRequestBody(model, systemPrompt, wire, toolList);
+
+        return transport.post(fullUrl, apiKey, body)
+                .thenApply(provider::parseResponseBody);
+    }
+
+    public LlmProvider provider() { return provider; }
+    public String model() { return model; }
+
+    private static LlmProvider pickProvider(String name) {
+        if (name == null) return new OpenAIProvider();
+        return switch (name.toLowerCase()) {
+            case DeepSeekProvider.NAME -> new DeepSeekProvider();
+            case OpenAIProvider.NAME -> new OpenAIProvider();
+            default -> {
+                Constants.LOG.warn("[animus-llm] unknown provider '{}', falling back to openai", name);
+                yield new OpenAIProvider();
+            }
+        };
     }
 }

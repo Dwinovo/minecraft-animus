@@ -42,6 +42,20 @@ public interface IAnimusConfig {
     String getModel();
 
     /**
+     * Provider id selecting the wire-format adapter. Recognised values:
+     * <ul>
+     *   <li>{@code "openai"} (default) — vanilla OpenAI chat completions shape.
+     *       Works with most "OpenAI-compatible" backends (Together, Groq,
+     *       Mistral La Plateforme, Moonshot Kimi, Ollama, vLLM, ...).</li>
+     *   <li>{@code "deepseek"} — same wire shape but preserves
+     *       {@code reasoning_content} on round-trip so thinking models
+     *       (deepseek-v3+, deepseek-reasoner) don't 400 on multi-turn.</li>
+     * </ul>
+     * Unknown values fall back to {@code "openai"}.
+     */
+    String getProvider();
+
+    /**
      * System prompt prepended to every conversation. Empty string for none.
      * The agent layer adds tool-use guidance automatically on top of this.
      */

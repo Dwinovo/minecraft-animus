@@ -1,6 +1,6 @@
 package com.dwinovo.animus.agent.llm;
 
-import com.openai.models.chat.completions.ChatCompletionMessage;
+import com.dwinovo.animus.agent.provider.AssistantTurn;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -8,28 +8,21 @@ import java.util.stream.Collectors;
 
 /**
  * Per-entity conversation history + loop-detection bookkeeping. Lives on the
- * server side only (LLM never runs client-side), accessed solely from the
- * server main thread — no synchronisation needed.
+ * **client** side now (LLM moved off-server in the per-player-pays-tokens
+ * refactor), accessed solely from the client main thread — no synchronisation
+ * needed.
  *
- * <h2>Message shape</h2>
- * We don't store OpenAI's {@code ChatCompletionMessageParam} (sum type) for
- * user / tool messages because constructing the sum-type wrappers eagerly is
- * awkward. Instead we keep our own tagged-union {@link Msg} and translate to
- * SDK types at request build time inside {@link AnimusLlmClient}.
- *
- * <p>For assistant messages we DO store the original {@link ChatCompletionMessage}
- * — that response object has the tool_call list with the exact ids and
- * arguments the API expects to see echoed back, and re-deriving it from
- * fields would be error-prone. The SDK's {@code toParam()} flips it into
- * the right request shape lazily.
+ * <h2>Storage type</h2>
+ * Plain provider-agnostic DTOs ({@link AssistantTurn} et al.) — no SDK
+ * classes leak through. The provider layer translates these to / from wire
+ * JSON when building requests and parsing responses.
  *
  * <h2>Loop detection</h2>
  * {@link #recordToolBatchAndCheckLoop} compares the sorted tool-name list of
  * each LLM response against the previous one. Two identical batches in a row
  * triggers an abort — borrowed from TouhouLittleMaid's
  * {@code MAX_REPEAT_TOOL_BATCH_COUNT = 2}, which they validated against real
- * GPT-4 behaviour. Cheap heuristic that catches the common "model loops on
- * the same failure" pathology without false-positives on legitimate retries.
+ * GPT-4 behaviour.
  */
 public final class ConvoState {
 
@@ -41,7 +34,7 @@ public final class ConvoState {
     /** Tagged union for conversation history. */
     public sealed interface Msg permits Msg.User, Msg.Assistant, Msg.Tool {
         record User(String content) implements Msg {}
-        record Assistant(ChatCompletionMessage raw) implements Msg {}
+        record Assistant(AssistantTurn turn) implements Msg {}
         record Tool(String toolCallId, String content) implements Msg {}
     }
 
@@ -54,8 +47,8 @@ public final class ConvoState {
         messages.add(new Msg.User(content));
     }
 
-    public void addAssistant(ChatCompletionMessage raw) {
-        messages.add(new Msg.Assistant(raw));
+    public void addAssistant(AssistantTurn turn) {
+        messages.add(new Msg.Assistant(turn));
     }
 
     public void addToolResult(String toolCallId, String content) {
@@ -98,7 +91,7 @@ public final class ConvoState {
         return false;
     }
 
-    /** Wipe history. Called on entity removal or explicit reset. */
+    /** Wipe history. Called on explicit reset (Phase-2: /animus reset command). */
     public void clear() {
         messages.clear();
         resetTurnCount();

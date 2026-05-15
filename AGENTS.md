@@ -25,8 +25,10 @@
 - **双源资源加载**：默认资产走 `assets/animus/`（namespace `animus`），玩家自定义模型走 `<gameDir>/config/animus/models/`（namespace `animus_user`）。
 - **默认模型 Hachiware** 已就位（dwinovo 原创美术资产，重新许可为 CC BY-NC 4.0）。
 - **owner + 驯服系统**：`AnimusEntity extends TamableAnimal`，食物 tag `animus:tame_foods` 控制驯服食材。蹲下右键打开换肤 GUI；普通右键打开 LLM 对话 GUI（仅 owner）。
-- **OpenAI Java SDK 4.35.0** 已通过 Shadow + relocate 打包进 mod jar（kotlin/jackson/okhttp 全 relocate 到 `com.dwinovo.animus.shade.*`，`com.openai.*` 保持原包名）。
-- **LLM 任务执行框架已搭建**（MVP 端到端跑通）：`common/.../task/`（原子任务生命周期 + GoalSelector 桥接）+ `common/.../agent/`（LLM 客户端 + tool 注册表 + agent 编排循环 + 16-turn cap + batch-dedup）+ 右键 owner Prompt GUI + `AnimusPromptPayload` C2S 包 + 跨 loader `IAnimusConfig`（Fabric JSON / NeoForge ModConfigSpec）。第一个原子工具 `move_to(x,y,z,speed)` 已注册。
+- **零第三方 LLM 依赖**：用 JDK `java.net.http.HttpClient`（Java 25 内置）+ Gson（MC vanilla 自带）直发 OpenAI 协议。无 OkHttp / OpenAI SDK / kotlin-stdlib / jackson / swagger。**mod jar ~260KB**（早期内嵌 OpenAI SDK 时 50MB，砍了 99.5%）。
+- **LlmProvider 抽象** (`common/.../agent/provider/`)：单点 OpenAI ↔ 内部协议适配。`OpenAIProvider` 是默认实现，`DeepSeekProvider` 继承并处理 `reasoning_content` 字段的 round-trip（修 thinking 模式 400 兼容性问题）。Config 字段 `provider: "openai" | "deepseek"` 切换。
+- **LLM 调用在客户端**：每个玩家用自己的 API key、自付 token。服务端不调 LLM。设计原因：避免服务器主人为所有玩家承担 token 消耗 + 玩家不需要把 key 上交服务端。
+- **LLM 任务执行框架**（MVP 端到端跑通）：`common/.../task/`（原子任务生命周期 + GoalSelector 桥接）+ `common/.../agent/`（HTTP transport + provider + LLM 客户端 + ConvoState + 16-turn cap + batch-dedup）+ `common/.../client/agent/`（per-entity `ClientAgentLoop` + `ClientAgentLoopRegistry`）+ 右键 owner Prompt GUI + `ExecuteToolPayload`(C→S) / `TaskResultPayload`(S→C) 双向网包 + 跨 loader `IAnimusConfig`（Fabric JSON / NeoForge ModConfigSpec）。第一个原子工具 `move_to(x,y,z,speed)` 已注册。
 - 还没有 Sensor / Perception / 复合任务链 / streaming / 客户端任务状态可视化（下一阶段）。
 
 下一步通常是：① 玩家配置 API key 进 `config/animus.json` 或 `config/animus-common.toml`，启动游戏右键实体试 `move_to`；② 加更多原子工具（`look_at` / `say` / `attack`）；③ 加 Perception 层把附近玩家/方块/伤害事件喂给 LLM；④ 设计复合任务（任务链）编排 + 透明结果回报。
@@ -157,11 +159,14 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
    - 是 → 在 common 定义接口（`platform/services/`），在 `fabric/` + `neoforge/` 各加一个实现，并把全限定名写进对应的 `META-INF/services/` 文件。
 
 2. **这是 LLM 决策层、Goal 执行层、还是 Tool 桥接层？** 不要把三层混在一个类里。实际分层：
-   - `common/.../task/` — Task 抽象（`TaskRecord` / `TaskResult` / `TaskQueue`）+ `LlmTaskGoal` 基类（Goal 生命周期 ↔ 任务生命周期 1:1 桥接）
-   - `common/.../task/tasks/` — 具体原子任务实现（`MoveToTaskRecord` + `MoveToTaskGoal`）
-   - `common/.../agent/tool/` — Tool 抽象 + `ToolRegistry` + `ToolAdapter`（单点 OpenAI ↔ 内部协议转换）
-   - `common/.../agent/llm/` — `AnimusLlmClient`（async OpenAI 客户端）+ `ConvoState`（per-entity 对话）
-   - `common/.../agent/loop/` — `AgentLoop`（编排：tool_call → enqueue → drain result → next turn）
+   - `common/.../task/` — Task 抽象（`TaskRecord` / `TaskResult` / `TaskQueue`）+ `LlmTaskGoal` 基类（Goal 生命周期 ↔ 任务生命周期 1:1 桥接，**服务端**）
+   - `common/.../task/tasks/` — 具体原子任务实现（`MoveToTaskRecord` + `MoveToTaskGoal`，**服务端**）
+   - `common/.../agent/http/` — JDK `HttpClient` 包装（`HttpLlmTransport` + `LlmHttpException`）
+   - `common/.../agent/provider/` — `LlmProvider` 接口 + `OpenAIProvider` / `DeepSeekProvider`（单点 wire-format 适配）
+   - `common/.../agent/tool/` — Tool 抽象 + `ToolRegistry`（mod-global，两侧都用：客户端构造 tool 列表给 LLM；服务端用同一 registry 校验 ExecuteToolPayload）
+   - `common/.../agent/llm/` — `AnimusLlmClient`（async 单例）+ `ConvoState`（per-entity 对话历史）
+   - `common/.../client/agent/` — `ClientAgentLoop`（per-entity 编排循环，**客户端**）+ `ClientAgentLoopRegistry`（int entityId → loop 映射）
+   - `common/.../network/payload/` — `ExecuteToolPayload`（C→S，含 schema 校验）+ `TaskResultPayload`（S→C，喂结果给客户端 loop）+ `SetModelPayload`（C→S，换皮 GUI 用）
    - `common/.../entity/` — 实体类本身 + 注册（已落地：`AnimusEntity` + `InitEntity`）
 
 3. **要新建一个原子 Task 时**：保持单一职责。`extends LlmTaskGoal<T>` 只需实现 `onStart` / `onTick` / `buildResult` 三个方法。把可调参数尽量上提到对应的 `AnimusTool.parameterSchema()` 里，而不是写死在 Task 实现里。
@@ -170,18 +175,40 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
 
 ### 任务框架速查
 
-- **任务生命周期**：`queue.enqueue(record)` → `Goal.canUse()` peek 匹配 → `Goal.start()` poll + 标记 RUNNING + 调 `onStart` → `Goal.tick()` 每 tick 检查 deadline + `onTick` → 子类设置终止 state → `Goal.canContinueToUse()` 返回 false → `Goal.stop()` 调 `buildResult` + 写 outbox → 下一 tick `AgentLoop.tick()` 排空 outbox → `convo.addToolResult(...)` → 下一轮 LLM。
-- **跨线程关口唯一一处**：OpenAI SDK 异步 callback 通过 `server.execute(Runnable)` 投回 tick 线程。所有 world 状态修改只在 tick 线程发生（single-writer）。
+- **端到端流程**（client-side LLM）：
+  ```
+  玩家右键 → PromptScreen → ClientAgentLoopRegistry.getOrCreate(entityId).submitPrompt
+     → AnimusLlmClient.chat（异步 HTTPS via JDK HttpClient，玩家自己的 API key）
+     → AssistantTurn（含 tool_calls，DeepSeek 的 reasoning_content 在 extras 里保留）
+     → ExecuteToolPayload(C→S) per tool_call
+        → 服务端 schema 校验 + owner + 距离 → entity.taskQueue.enqueue(TaskRecord)
+        → MoveToTaskGoal.canUse() → start() → tick() → stop() → outbox
+     → AnimusEntity.customServerAiStep drain outbox → TaskResultPayload(S→C) per record
+     → 客户端 ClientAgentLoop.onToolResult → convo.addToolResult → 下一轮 LLM
+  ```
+- **任务生命周期**：`queue.enqueue(record)` → `Goal.canUse()` peek 匹配 → `Goal.start()` poll + 标记 RUNNING + 调 `onStart` → `Goal.tick()` 每 tick 检查 deadline + `onTick` → 子类设置终止 state → `Goal.canContinueToUse()` 返回 false → `Goal.stop()` 调 `buildResult` + 写 outbox。
+- **跨线程关口唯一一处**：`HttpLlmTransport.post` 的 future 在 JDK HttpClient 的 daemon 线程完成；`ClientAgentLoop.bounceBackToMain` 通过 `Minecraft.getInstance().execute(...)` 投回 client tick 线程。所有 convo / 网包发送只在 client tick 线程发生（single-writer）。
 - **超时计时**：用 `level.getGameTime()`（`/tick freeze` 和 `/tick rate` 都正确响应）。`TaskRecord.deadlineGameTime` 在 tool 翻译时算好（now + 默认 timeout）。
-- **抢占处理**：不做。所有 LLM Goal 都注册在 priority 0，selector 不会让一个 LLM Goal 抢另一个。环境事件（被攻击等）的反应留给后续 Perception 层。
+- **抢占处理**：不做。所有 LLM Goal 都注册在 priority 0，selector 不会让一个 LLM Goal 抢另一个。
 - **死循环防护**：`ConvoState.MAX_TOOL_TURN_COUNT = 16`（硬上限）+ `MAX_REPEAT_TOOL_BATCH_COUNT = 2`（连续两次相同 tool 批次就停）。LLM 返回纯文本则重置计数。
-- **OpenAI SDK 关键类**（`com.openai.*`，不 relocate）：`OpenAIClientAsync`（异步入口）、`ChatCompletionCreateParams.Builder.addTool/addMessage/addUserMessage/addSystemMessage`、`ChatCompletion.choices().get(0).message().toolCalls()` / `.content()` / `.toParam()`、`ChatCompletionToolMessageParam.builder().toolCallId(...).content(...).build()`。
+- **LLM 路由关键类**：`HttpLlmTransport`（POST + Gson）→ `LlmProvider.buildRequestBody` / `parseResponseBody` → `AssistantTurn`（含 `content` + `toolCalls` + `extras` 透传 backend 专属字段）。Provider 选择由 `config.provider` 决定。
+- **加新 Provider**（Anthropic native / Gemini 等）：实现 `LlmProvider` 接口；如果是 OpenAI 方言只改 `parseResponseBody` 和 `extractExtras`，参考 `DeepSeekProvider`（30 行）；如果是完全不同协议，从头实现 `buildXxxMessage` + `buildRequestBody` + `parseResponseBody`，参考 `OpenAIProvider`（200 行）。然后在 `AnimusLlmClient.pickProvider` 加 case。
 
 ### 引入外部依赖
 
-LLM 客户端、HTTP、MCP SDK 等多半需要直接 `implementation` 到 common（如果是 Java/Kotlin pure jar 且不引入加载器冲突），或者通过 jar-in-jar（fabric loom 的 `include` / neoforge moddev 的 jarJar）打包进去。**先确认依赖在 Fabric / NeoForge 两侧都没有 classpath 冲突再引入**，否则会出现「dev 能跑、正式包炸」。
+**默认拒绝**。当前 mod 零第三方运行时依赖，jar 仅 ~260KB，启动快、distribution 友好。引入新库要严格论证：
+- 这个功能能不能用 JDK 自带 / MC vanilla 提供的库做（HttpClient、Gson、Lucene 等）？
+- 加这个库会让 jar 多多少？要不要 relocate（避免与其他 mod 冲突）？
+- Fabric / NeoForge 两侧 classpath 是否一致？
 
-OpenAI SDK 的引入路径（已实践，可参考）：用 `com.gradleup.shadow` 在每个 loader 子项目里把 SDK + 全部 transitive 打成一个中间 jar，然后 merge 进 main mod jar。`kotlin` / `okhttp` / `okio` / `jackson` 必须一起 relocate（共配 `com.dwinovo.animus.shade.*`），SDK 自身 `com.openai.*` 保留原包名以便业务代码直接 `import`。具体配置见 [`fabric/build.gradle`](fabric/build.gradle) 和 [`neoforge/build.gradle`](neoforge/build.gradle) 的 `openaiShadeJar` 任务。
+**OpenAI SDK 的历史教训**：早期为了 type safety 引入了 `com.openai:openai-java` + transitive（kotlin-stdlib / okhttp / okio / jackson / swagger / jsonschema-generator）= 50MB jar。后来发现：
+1. 我们用到的 SDK 表面只占 ~20%（一打 typed POJO）
+2. SDK 把 schema 锁死成"标准 OpenAI"，DeepSeek 的 `reasoning_content` 等扩展字段全部被吞
+3. 体积代价 250 倍
+
+**最终方案**：用 JDK `java.net.http.HttpClient` + Gson 直发 JSON，约 200 行代码，零依赖。任何 OpenAI-compat backend（DeepSeek、Ollama、Together、Groq、Mistral、Moonshot 等）通过 `provider` 适配 30 行就能加，详见 `DeepSeekProvider`。
+
+**真要嵌外部 AI 框架时**（LangChain4j、MCP Java SDK 等），优先考虑把它放到 mod 外的 sidecar HTTP service，mod 只指向 `baseUrl`。模组本体永远保持轻量。
 
 ### 不要做的事
 

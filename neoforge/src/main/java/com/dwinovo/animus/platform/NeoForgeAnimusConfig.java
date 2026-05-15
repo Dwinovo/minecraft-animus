@@ -24,6 +24,7 @@ public final class NeoForgeAnimusConfig implements IAnimusConfig {
     public static final ModConfigSpec.ConfigValue<String> API_KEY;
     public static final ModConfigSpec.ConfigValue<String> BASE_URL;
     public static final ModConfigSpec.ConfigValue<String> MODEL;
+    public static final ModConfigSpec.ConfigValue<String> PROVIDER;
     public static final ModConfigSpec.ConfigValue<String> SYSTEM_PROMPT;
     public static final ModConfigSpec SPEC;
 
@@ -34,10 +35,13 @@ public final class NeoForgeAnimusConfig implements IAnimusConfig {
         API_KEY = b.comment("API key (sk-...) sent as the bearer token. Required.")
                 .define("api_key", "");
         BASE_URL = b.comment("Base URL override. Leave empty for OpenAI's default endpoint.",
-                "Examples: https://api.deepseek.com/v1, http://localhost:11434/v1 (Ollama)")
+                "Examples: https://api.deepseek.com, http://localhost:11434 (Ollama)")
                 .define("base_url", "");
         MODEL = b.comment("Model id sent as the `model` field. Backend-defined.")
                 .define("model", "gpt-5-2-mini");
+        PROVIDER = b.comment("Wire-format adapter. 'openai' = standard.",
+                "'deepseek' = same shape but preserves reasoning_content for thinking models.")
+                .define("provider", "openai");
 
         b.pop();
         b.comment("Behaviour tuning.").push("agent");
@@ -73,6 +77,12 @@ public final class NeoForgeAnimusConfig implements IAnimusConfig {
     @Override
     public String getSystemPrompt() {
         return safe(SYSTEM_PROMPT);
+    }
+
+    @Override
+    public String getProvider() {
+        String s = safe(PROVIDER);
+        return s.isEmpty() ? "openai" : s;
     }
 
     /**

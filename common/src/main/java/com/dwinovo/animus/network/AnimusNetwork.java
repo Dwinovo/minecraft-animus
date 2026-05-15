@@ -1,7 +1,8 @@
 package com.dwinovo.animus.network;
 
-import com.dwinovo.animus.network.payload.AnimusPromptPayload;
+import com.dwinovo.animus.network.payload.ExecuteToolPayload;
 import com.dwinovo.animus.network.payload.SetModelPayload;
+import com.dwinovo.animus.network.payload.TaskResultPayload;
 import com.dwinovo.animus.platform.Services;
 
 /**
@@ -12,14 +13,16 @@ import com.dwinovo.animus.platform.Services;
  * care of the loader-specific timing (Fabric registers immediately; NeoForge
  * queues until {@code RegisterPayloadHandlersEvent} fires).
  *
- * <p>Adding a new payload:
+ * <h2>Adding a new payload</h2>
  * <ol>
  *   <li>Define a record under {@code com.dwinovo.animus.network.payload}
  *       implementing {@code CustomPacketPayload} with a public
  *       {@code Type} and {@code StreamCodec}.</li>
- *   <li>Add one {@code Services.NETWORK.registerClientToServer(...)} call
- *       here (and an S→C equivalent when that direction lands).</li>
- *   <li>Send from client via {@code Services.NETWORK.sendToServer(...)}.</li>
+ *   <li>Add one {@code Services.NETWORK.registerClientToServer(...)} or
+ *       {@code registerServerToClient(...)} call here.</li>
+ *   <li>Send from the appropriate side via
+ *       {@code Services.NETWORK.sendToServer(...)} or
+ *       {@code Services.NETWORK.sendToPlayer(...)}.</li>
  * </ol>
  */
 public final class AnimusNetwork {
@@ -27,9 +30,16 @@ public final class AnimusNetwork {
     private AnimusNetwork() {}
 
     public static void register() {
+        // Client → Server: player chose a model in the chooser GUI.
         Services.NETWORK.registerClientToServer(
                 SetModelPayload.TYPE, SetModelPayload.STREAM_CODEC, SetModelPayload::handle);
+
+        // Client → Server: the client-side LLM emitted a tool_call; execute on owner's entity.
         Services.NETWORK.registerClientToServer(
-                AnimusPromptPayload.TYPE, AnimusPromptPayload.STREAM_CODEC, AnimusPromptPayload::handle);
+                ExecuteToolPayload.TYPE, ExecuteToolPayload.STREAM_CODEC, ExecuteToolPayload::handle);
+
+        // Server → Client: tool execution finished; ship result back to the owner.
+        Services.NETWORK.registerServerToClient(
+                TaskResultPayload.TYPE, TaskResultPayload.STREAM_CODEC, TaskResultPayload::handle);
     }
 }

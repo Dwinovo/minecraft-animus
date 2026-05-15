@@ -1,10 +1,13 @@
 package com.dwinovo.animus.entity;
 
-import com.dwinovo.animus.agent.loop.AgentLoop;
 import com.dwinovo.animus.anim.api.AnimusAnimated;
 import com.dwinovo.animus.anim.runtime.Animator;
 import com.dwinovo.animus.entity.interact.AnimusInteractHandler;
+import com.dwinovo.animus.network.payload.TaskResultPayload;
+import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.task.TaskQueue;
+import com.dwinovo.animus.task.TaskRecord;
+import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.tasks.MoveToTaskGoal;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -13,10 +16,13 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.TamableAnimal;
+
+import java.util.List;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.Animal;
@@ -77,14 +83,17 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     private String cachedModelKeyString = AnimusAnimated.DEFAULT_MODEL_KEY.toString();
 
     /**
-     * Lazy server-side state. Both are constructed on first access, which
-     * happens from {@code customServerAiStep} or a {@code Goal.canUse} call
-     * — i.e. only on a {@link ServerLevel}. The client never touches them,
-     * so the lazy null-guard pattern keeps the client JVM clean even though
-     * the fields are declared in {@code common}.
+     * Lazy server-side task queue. Constructed on first access, which
+     * happens only on a {@link ServerLevel} (the queue is populated by
+     * {@link com.dwinovo.animus.network.payload.ExecuteToolPayload} on the
+     * server and drained by the matching {@code LlmTaskGoal}).
+     *
+     * <p>The LLM-side agent loop now lives on the **client**
+     * ({@link com.dwinovo.animus.client.agent.ClientAgentLoop}) so each
+     * player's API key drives their own Animus. The server stays a pure
+     * task executor and result router — no LLM client here.
      */
     private TaskQueue taskQueue;
-    private AgentLoop agentLoop;
 
     public AnimusEntity(EntityType<? extends AnimusEntity> type, Level level) {
         super(type, level);
@@ -119,34 +128,56 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         return taskQueue;
     }
 
-    /** Server-side agent loop. Lazily created on first access. */
-    public AgentLoop getAgentLoop() {
-        if (agentLoop == null) agentLoop = new AgentLoop(this);
-        return agentLoop;
-    }
-
     /**
-     * Per-tick server hook. Vanilla calls this after {@code goalSelector.tick}
-     * and before {@code moveControl} — a clean place to drain completed
-     * tasks into the agent loop and trigger the next LLM turn if needed.
+     * Per-tick server hook. After vanilla goals have ticked (and produced
+     * completed task results into the queue's outbox), drain those results
+     * and ship them back to the owning player's client so its
+     * {@link com.dwinovo.animus.client.agent.ClientAgentLoop} can feed
+     * them into the LLM conversation and trigger the next turn.
      */
     @Override
     protected void customServerAiStep(ServerLevel level) {
         super.customServerAiStep(level);
-        getAgentLoop().tick();
+        drainTaskResultsToOwner();
     }
 
     /**
-     * Vanilla hook fired on death / unload / chunk-unload. Flushes pending
-     * tasks so the agent loop doesn't leave dangling tool_call_ids waiting
-     * forever, and disables any further LLM activity. Idempotent: removing
-     * an entity twice doesn't double-shutdown because the loop's internal
-     * flag stays set.
+     * Pull completed task records out of the queue's outbox and dispatch
+     * each as a {@link TaskResultPayload} to the owning player.
+     *
+     * <p>If the owner is offline (signed out, different dimension and not
+     * tracking, etc.), the results are dropped — silently. This matches the
+     * "Animus is owner-driven" contract: there's nobody to drive the next
+     * LLM turn anyway. Future hardening can buffer results and replay on
+     * next login.
+     */
+    private void drainTaskResultsToOwner() {
+        if (taskQueue == null) return;
+        List<TaskRecord> completed = taskQueue.drainCompleted();
+        if (completed.isEmpty()) return;
+        if (!(this.getOwner() instanceof ServerPlayer owner)) return;
+        for (TaskRecord rec : completed) {
+            TaskResult result = rec.getResult();
+            String json = result == null
+                    ? "{\"success\":false,\"message\":\"no result produced\"}"
+                    : result.toJson();
+            Services.NETWORK.sendToPlayer(owner, new TaskResultPayload(
+                    this.getId(), rec.getToolCallId(), json));
+        }
+    }
+
+    /**
+     * Vanilla hook fired on death / unload / chunk-unload. Cancels every
+     * pending task so its tool_call_id doesn't leak (it would otherwise
+     * sit in the client's pending set forever). The cancellation results
+     * are NOT shipped back — by the time {@code remove()} fires the owner
+     * may already have disconnected or the entity may be in an unload-
+     * before-tick state.
      */
     @Override
     public void remove(Entity.RemovalReason reason) {
-        if (agentLoop != null) {
-            agentLoop.shutdown();
+        if (taskQueue != null) {
+            taskQueue.cancelAll("entity removed: " + reason);
         }
         super.remove(reason);
     }

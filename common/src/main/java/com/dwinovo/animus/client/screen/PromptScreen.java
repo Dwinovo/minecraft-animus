@@ -1,9 +1,9 @@
 package com.dwinovo.animus.client.screen;
 
+import com.dwinovo.animus.agent.llm.AnimusLlmClient;
+import com.dwinovo.animus.client.agent.ClientAgentLoopRegistry;
 import com.dwinovo.animus.data.ModLanguageData;
 import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.network.payload.AnimusPromptPayload;
-import com.dwinovo.animus.platform.Services;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
@@ -14,20 +14,27 @@ import net.minecraft.network.chat.Component;
 
 /**
  * Owner-only chat GUI shown on right-click. Player types a natural-language
- * prompt; clicking Send dispatches an {@link AnimusPromptPayload} which the
- * server-side agent loop turns into LLM tool calls.
+ * prompt; clicking Send hands it to the client-side
+ * {@link com.dwinovo.animus.client.agent.ClientAgentLoop} for this entity,
+ * which runs the LLM with the player's own API key and dispatches resulting
+ * tool calls to the server via {@code ExecuteToolPayload}.
+ *
+ * <h2>Why no packet here</h2>
+ * The LLM moved from server-side to client-side so per-player token billing
+ * works (each player's API key drives their own conversations). The
+ * server never sees the prompt — it only receives validated tool-call
+ * dispatches one level deeper, after the client's LLM has decided what to do.
  *
  * <h2>Layout</h2>
- * Minimal — title, multi-line-ish single-row {@link EditBox}, send/cancel
- * buttons. Matches the visual language of {@link ChooseModelScreen} (same
- * pattern: vanilla buttons + title). Detailed conversation/log views can
- * land in a Phase-2 GUI; for MVP, the LLM's reply lands in the server log
- * (and eventually a chat bubble above the entity).
+ * Minimal — title, single-row {@link EditBox}, send/cancel buttons. If the
+ * client config has no API key set, the input field still works (so the user
+ * can preview the GUI) but Send no-ops and the agent loop logs a warning.
+ * Surfacing the empty-key state in the GUI itself is Phase-2 polish.
  *
  * <h2>Client-only class</h2>
  * Lives in {@code common} like {@link ChooseModelScreen} because
  * {@code Screen} is on the shared client jar. The dedicated server JVM
- * never loads this class because {@link com.dwinovo.animus.entity.interact.AnimusInteractHandler}
+ * never loads this class — {@link com.dwinovo.animus.entity.interact.AnimusInteractHandler}
  * guards the {@link #open} call with {@code level().isClientSide()}.
  */
 public final class PromptScreen extends Screen {
@@ -51,6 +58,9 @@ public final class PromptScreen extends Screen {
         Minecraft.getInstance().setScreen(new PromptScreen(entity));
     }
 
+    /** Soft cap matches the server's defence-in-depth limit on tool argument JSON length. */
+    private static final int MAX_PROMPT_LENGTH = 1024;
+
     @Override
     protected void init() {
         int left = (this.width - CONTENT_WIDTH) / 2;
@@ -58,7 +68,7 @@ public final class PromptScreen extends Screen {
 
         this.input = new EditBox(this.font, left, top + 12, CONTENT_WIDTH, INPUT_HEIGHT,
                 Component.translatable(ModLanguageData.Keys.GUI_PROMPT_INPUT));
-        this.input.setMaxLength(AnimusPromptPayload.MAX_PROMPT_LENGTH);
+        this.input.setMaxLength(MAX_PROMPT_LENGTH);
         this.input.setHint(Component.translatable(ModLanguageData.Keys.GUI_PROMPT_HINT));
         addRenderableWidget(this.input);
         setInitialFocus(this.input);
@@ -105,7 +115,15 @@ public final class PromptScreen extends Screen {
             this.onClose();
             return;
         }
-        Services.NETWORK.sendToServer(new AnimusPromptPayload(target.getId(), text));
+        if (!AnimusLlmClient.isConfigured()) {
+            // Don't crash, don't send — agent loop will also log this.
+            // GUI-side surfacing is Phase-2; for now we log and close.
+            com.dwinovo.animus.Constants.LOG.warn(
+                    "[animus-prompt] no apiKey configured; ignoring prompt. Edit config/animus.json (Fabric) or animus-common.toml (NeoForge) and restart.");
+            this.onClose();
+            return;
+        }
+        ClientAgentLoopRegistry.getOrCreate(target.getId()).submitPrompt(text);
         this.onClose();
     }
 

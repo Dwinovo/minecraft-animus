@@ -131,8 +131,11 @@ public final class FabricAnimusConfig implements IAnimusConfig {
         String key = data.apiKey == null ? "" : data.apiKey;
         String model = data.model == null ? "" : data.model;
         String base = data.baseUrl == null ? "" : data.baseUrl;
-        Constants.LOG.info("[animus-config] api_key length={}, model={}, base_url={}",
-                key.length(), model.isEmpty() ? "<empty>" : model,
+        String prov = data.provider == null ? "" : data.provider;
+        Constants.LOG.info("[animus-config] api_key length={}, provider={}, model={}, base_url={}",
+                key.length(),
+                prov.isEmpty() ? "<empty>" : prov,
+                model.isEmpty() ? "<empty>" : model,
                 base.isEmpty() ? "<default>" : base);
     }
 
@@ -148,6 +151,9 @@ public final class FabricAnimusConfig implements IAnimusConfig {
     @Override
     public String getSystemPrompt() { return data.systemPrompt == null ? "" : data.systemPrompt; }
 
+    @Override
+    public String getProvider() { return data.provider == null ? "openai" : data.provider; }
+
     /**
      * Gson-serialised POJO. Public fields kept simple on purpose — the JSON
      * file IS the schema, no need for an extra layer. The {@code _readme}
@@ -157,10 +163,11 @@ public final class FabricAnimusConfig implements IAnimusConfig {
      */
     public static final class ConfigData {
         /** Free-form note for human readers; ignored by the loader. */
-        public String _readme = "Animus mod configuration. Set 'apiKey' (required) and optionally 'baseUrl' to point at any OpenAI-compatible endpoint (DeepSeek, Ollama, vLLM, etc.). Field names are camelCase. Restart the world / dedicated server for changes to take effect.";
+        public String _readme = "Animus mod configuration. Set 'apiKey' (required) and optionally 'baseUrl' to point at any OpenAI-compatible endpoint (DeepSeek, Ollama, vLLM, etc.). 'provider' selects the wire-format adapter: 'openai' (default) or 'deepseek' (preserves reasoning_content for thinking models). Field names are camelCase. Restart for changes to take effect.";
         public String apiKey = "";
         public String baseUrl = "";
         public String model = "gpt-5-2-mini";
+        public String provider = "openai";
         public String systemPrompt = "You are the mind of a Minecraft creature named Animus. Use the provided tools to act in the world. Be concise. If a tool fails, decide whether to retry, try a different approach, or stop.";
 
         static ConfigData defaults() {
@@ -173,6 +180,7 @@ public final class FabricAnimusConfig implements IAnimusConfig {
             if (apiKey == null) apiKey = d.apiKey;
             if (baseUrl == null) baseUrl = d.baseUrl;
             if (model == null || model.isBlank()) model = d.model;
+            if (provider == null || provider.isBlank()) provider = d.provider;
             if (systemPrompt == null) systemPrompt = d.systemPrompt;
             return this;
         }
