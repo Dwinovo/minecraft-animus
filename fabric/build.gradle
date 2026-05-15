@@ -1,70 +1,12 @@
 plugins {
     id 'multiloader-loader'
     id 'net.fabricmc.fabric-loom'
-    id 'com.gradleup.shadow' version '9.4.1'
-}
-
-configurations {
-    openaiShade {
-        canBeResolved = true
-        canBeConsumed = false
-    }
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
-
-    // OpenAI Java SDK + its 18-artifact transitive closure (OkHttp, Okio,
-    // Jackson, Kotlin stdlib, etc.) are shaded into a single intermediate jar
-    // by the openaiShadeJar task below, then merged into the main mod jar.
-    // We deliberately skip Loom's `include` (non-transitive — would require
-    // hand-enumerating every transitive artifact, which rots on each SDK bump).
-    //
-    // The dependency is declared on both `openaiShade` (consumed by the
-    // ShadowJar task) and `implementation` (puts SDK classes on the dev
-    // compile/run classpath so IDE + `:fabric:runClient` see them as plain
-    // unrelocated classes). Gradle's resolution cache makes the double-declare
-    // free.
-    openaiShade "com.openai:openai-java:${openai_sdk_version}"
-    implementation "com.openai:openai-java:${openai_sdk_version}"
-}
-
-// The Shadow plugin auto-registers a default `shadowJar` task that targets
-// the entire runtimeClasspath — for a Minecraft mod that includes every MC
-// class, breaking the 65535-zip-entry limit. We only want our custom shading,
-// so disable the default task entirely.
-tasks.named('shadowJar') { enabled = false }
-
-tasks.register('openaiShadeJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-    archiveClassifier = 'openai-shaded'
-    configurations = [project.configurations.openaiShade]
-
-    // `com.openai.**` stays at its original package — entity-side code imports
-    // `com.openai.client.OpenAIClient` directly and no other Minecraft mod is
-    // known to bundle this SDK, so relocating it would only obscure imports.
-    relocate 'kotlin',                       'com.dwinovo.animus.shade.kotlin'
-    relocate 'org.jetbrains.kotlin',         'com.dwinovo.animus.shade.org.jetbrains.kotlin'
-    relocate 'org.jetbrains.annotations',    'com.dwinovo.animus.shade.org.jetbrains.annotations'
-    relocate 'com.fasterxml.jackson',        'com.dwinovo.animus.shade.com.fasterxml.jackson'
-    relocate 'okhttp3',                      'com.dwinovo.animus.shade.okhttp3'
-    relocate 'okio',                         'com.dwinovo.animus.shade.okio'
-    relocate 'io.swagger',                   'com.dwinovo.animus.shade.io.swagger'
-
-    mergeServiceFiles()
-
-    exclude 'META-INF/MANIFEST.MF'
-    exclude 'META-INF/maven/**'
-    exclude 'META-INF/*.SF'
-    exclude 'META-INF/*.DSA'
-    exclude 'META-INF/*.RSA'
-    exclude '**/module-info.class'
-}
-
-tasks.named('jar') {
-    dependsOn(tasks.named('openaiShadeJar'))
-    from { zipTree(tasks.openaiShadeJar.archiveFile.get().asFile) }
 }
 
 loom {

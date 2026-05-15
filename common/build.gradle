@@ -18,11 +18,6 @@ dependencies {
     compileOnly group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.3'
     annotationProcessor group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.3'
 
-    // OpenAI Java SDK — common only needs the API to compile against. The actual
-    // runtime jar is bundled into each loader artifact via jar-in-jar (see
-    // fabric/build.gradle and neoforge/build.gradle).
-    compileOnly "com.openai:openai-java:${openai_sdk_version}"
-
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
