@@ -54,12 +54,15 @@ public final class NeoForgeAnimusConfig implements IAnimusConfig {
 
         b.pop();
         b.comment("Behaviour tuning.").push("agent");
+        // Deliberately short. The planning behaviour (use todowrite for
+        // multi-step tasks, load_skill to fetch detailed workflows) emerges
+        // entirely from those tools' own descriptions plus the runtime-injected
+        // <available_skills> XML block — adding rules here just dilutes
+        // attention. Mirrors opencode's default.txt minimalist style.
         SYSTEM_PROMPT = b.comment("System prompt prepended to every conversation.")
                 .define("system_prompt",
-                        "You are the mind of a Minecraft creature named Animus. "
-                                + "Use the provided tools to act in the world. Be concise. "
-                                + "If a tool fails, decide whether to retry, try a different "
-                                + "approach, or stop.");
+                        "You are Animus, a Minecraft entity controlled by the player who owns you.\n"
+                                + "Use the tools provided to act in the world; output text only to talk to your owner.");
         b.pop();
 
         SPEC = b.build();

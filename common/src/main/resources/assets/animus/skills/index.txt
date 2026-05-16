@@ -1,0 +1,17 @@
+# Built-in skills manifest. One skill name per line; blank lines and lines
+# starting with '#' are ignored. The name MUST match the directory under
+# assets/animus/skills/<name>/SKILL.md AND the `name:` frontmatter inside.
+#
+# Order doesn't matter for bootstrap, but groups them for human-readers:
+# - Meta skills first (the LLM loads these to orient itself)
+# - Then the main-line skills in execution order
+
+end_game_overview
+combat_basics
+
+tier_progression
+nether_entry
+blaze_rods
+ender_pearls
+stronghold_finding
+dragon_combat

@@ -1,10 +1,13 @@
 package com.dwinovo.animus;
 
+import com.dwinovo.animus.agent.skill.BuiltinSkillBootstrap;
+import com.dwinovo.animus.agent.skill.SkillRegistry;
 import com.dwinovo.animus.anim.compile.BedrockResourceLoader;
 import com.dwinovo.animus.entity.InitEntity;
 import com.dwinovo.animus.render.AnimusRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -25,10 +28,24 @@ public class AnimusNeoForgeClient {
 
     @SubscribeEvent
     static void registerReloadListeners(AddClientReloadListenersEvent event) {
-        Path configDir = Minecraft.getInstance().gameDirectory.toPath()
-                .resolve("config").resolve(Constants.MOD_ID).resolve("models");
+        Path animusConfigRoot = Minecraft.getInstance().gameDirectory.toPath()
+                .resolve("config").resolve(Constants.MOD_ID);
+        Path modelsDir = animusConfigRoot.resolve("models");
+        Path skillsDir = animusConfigRoot.resolve("skills");
+
         event.addListener(
                 Identifier.fromNamespaceAndPath(Constants.MOD_ID, "anim_loader"),
-                new BedrockResourceLoader(configDir));
+                new BedrockResourceLoader(modelsDir));
+
+        // Skills load via the same reload pipeline so /reload picks up
+        // newly added SKILL.md files without a client restart. The bootstrap
+        // call extracts mod-shipped built-in SKILL.md files into skillsDir on
+        // first run; subsequent runs see the sentinel and skip.
+        event.addListener(
+                Identifier.fromNamespaceAndPath(Constants.MOD_ID, "skill_loader"),
+                (ResourceManagerReloadListener) rm -> {
+                    BuiltinSkillBootstrap.bootstrap(animusConfigRoot, skillsDir);
+                    SkillRegistry.instance().scan(skillsDir);
+                });
     }
 }

@@ -5,10 +5,14 @@ import com.dwinovo.animus.agent.llm.AnimusLlmClient;
 import com.dwinovo.animus.agent.llm.ConvoState;
 import com.dwinovo.animus.agent.provider.AssistantTurn;
 import com.dwinovo.animus.agent.provider.LlmToolCall;
+import com.dwinovo.animus.agent.skill.SkillRegistry;
+import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ToolRegistry;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
 import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.platform.services.IAnimusConfig;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
 
 import java.util.ArrayList;
@@ -141,13 +145,28 @@ public final class ClientAgentLoop {
         var tools = ToolRegistry.all();
         var snapshot = convo.snapshot();
         IAnimusConfig config = Services.CONFIG;
-        String systemPrompt = config.getSystemPrompt();
+        String systemPrompt = composeSystemPrompt(config.getSystemPrompt());
 
-        Constants.LOG.info("[animus-agent#{}] turn {}: convo={} msgs, tools={}",
-                entityId, convo.turnCount(), snapshot.size(), tools.size());
+        Constants.LOG.info("[animus-agent#{}] turn {}: convo={} msgs, tools={}, skills={}",
+                entityId, convo.turnCount(), snapshot.size(), tools.size(),
+                SkillRegistry.instance().size());
 
         AnimusLlmClient.instance().chatStreaming(snapshot, tools, systemPrompt, null)
                 .whenComplete(this::bounceBackToMain);
+    }
+
+    /**
+     * Compose the per-turn system prompt: the user-configured base prompt
+     * plus the dynamic {@code <available_skills>} XML block. Recomputed
+     * every turn so skill files added / removed between turns become
+     * visible immediately (no client restart needed).
+     */
+    private static String composeSystemPrompt(String basePrompt) {
+        String base = basePrompt == null ? "" : basePrompt;
+        String skillsXml = SkillRegistry.instance().formatXml();
+        if (skillsXml.isEmpty()) return base;
+        if (base.isBlank()) return skillsXml;
+        return base + "\n\n" + skillsXml;
     }
 
     private void bounceBackToMain(AssistantTurn turn, Throwable err) {
@@ -198,10 +217,14 @@ public final class ClientAgentLoop {
             return;
         }
 
-        // Dispatch every tool call to the server.
-        int dispatched = 0, rejected = 0;
+        // Dispatch every tool call. Local tools (todowrite / load_skill) run
+        // synchronously here and feed the result straight into the conversation;
+        // world-action tools (move_to, ...) ship to the server via ExecuteToolPayload
+        // and the result comes back asynchronously via TaskResultPayload.
+        int dispatched = 0, executedLocal = 0, rejected = 0;
         for (LlmToolCall tc : turn.toolCalls()) {
-            if (ToolRegistry.get(tc.name()) == null) {
+            AnimusTool tool = ToolRegistry.get(tc.name());
+            if (tool == null) {
                 rejected++;
                 Constants.LOG.warn("[animus-agent#{}] LLM called unknown tool '{}' (id={}); auto-failing",
                         entityId, tc.name(), tc.id());
@@ -209,6 +232,26 @@ public final class ClientAgentLoop {
                         "{\"success\":false,\"message\":\"unknown tool: " + escape(tc.name()) + "\"}");
                 continue;
             }
+
+            if (tool.isLocal()) {
+                String resultJson;
+                try {
+                    JsonObject args = parseArgs(tc.arguments());
+                    resultJson = tool.executeLocal(args);
+                } catch (RuntimeException ex) {
+                    resultJson = "{\"success\":false,\"message\":\"" + escape(ex.getMessage()) + "\"}";
+                    Constants.LOG.warn("[animus-agent#{}] local tool {} failed (id={}): {}",
+                            entityId, tc.name(), tc.id(), ex.getMessage());
+                }
+                convo.addToolResult(tc.id(), resultJson);
+                executedLocal++;
+                Constants.LOG.info("[animus-agent#{}] local-exec tool={} id={} args={} → {}",
+                        entityId, tc.name(), tc.id(),
+                        truncate(tc.arguments(), 120), truncate(resultJson, 200));
+                continue;
+            }
+
+            // World-action tool: ship to server, wait for TaskResultPayload.
             pendingToolCallIds.add(tc.id());
             Services.NETWORK.sendToServer(new ExecuteToolPayload(
                     entityId, tc.id(), tc.name(), tc.arguments()));
@@ -216,13 +259,27 @@ public final class ClientAgentLoop {
                     entityId, tc.name(), tc.id(), truncate(tc.arguments(), 200));
             dispatched++;
         }
-        Constants.LOG.debug("[animus-agent#{}] dispatched {}, rejected {}, pending {} after this turn",
-                entityId, dispatched, rejected, pendingToolCallIds.size());
+        Constants.LOG.debug("[animus-agent#{}] dispatched {}, local {}, rejected {}, pending {} after this turn",
+                entityId, dispatched, executedLocal, rejected, pendingToolCallIds.size());
 
-        // If every tool was rejected locally (unknown), nothing pending — kick
-        // the next turn so the LLM sees the synthetic failures.
+        // If nothing is awaiting a server round-trip (all local-exec or all rejected),
+        // kick the next turn immediately so the LLM sees the new tool_results.
         if (pendingToolCallIds.isEmpty()) {
             tryStartTurn();
+        }
+    }
+
+    /**
+     * Parse the {@code tc.arguments()} JSON string into a {@link JsonObject}
+     * for local-tool execution. Empty-string arguments are treated as an
+     * empty object (matches OpenAI's convention for zero-arg tool calls).
+     */
+    private static JsonObject parseArgs(String raw) {
+        if (raw == null || raw.isBlank()) return new JsonObject();
+        try {
+            return JsonParser.parseString(raw).getAsJsonObject();
+        } catch (RuntimeException ex) {
+            throw new IllegalArgumentException("invalid arguments JSON: " + ex.getMessage());
         }
     }
 

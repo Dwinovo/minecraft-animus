@@ -37,6 +37,23 @@ import java.util.Map;
  * at enqueue time. There is intentionally no per-call override — the LLM is
  * not trusted to set timeouts, and overrideable timeouts complicate the API
  * surface for no MVP benefit.
+ *
+ * <h2>Local vs world-action tools</h2>
+ * Two distinct categories of tool now coexist:
+ * <ul>
+ *   <li><b>World-action tools</b> ({@code isLocal() == false}, default) — like
+ *       {@code move_to}: dispatch to the server via {@code ExecuteToolPayload},
+ *       run as a {@code TaskRecord}/{@code LlmTaskGoal} on the server tick
+ *       thread, result comes back via {@code TaskResultPayload}. The
+ *       {@link #toTaskRecord} method is the one the server invokes.</li>
+ *   <li><b>Local (client-side) tools</b> ({@code isLocal() == true}) — like
+ *       {@code todowrite} / {@code load_skill}: pure agent-side bookkeeping
+ *       with no world side-effect. {@link ClientAgentLoop} executes them
+ *       synchronously via {@link #executeLocal(JsonObject)}, writes the
+ *       result straight into the conversation as a {@code role:tool} message,
+ *       and never goes to the server. {@link #toTaskRecord} is never called
+ *       for these — it should throw if called.</li>
+ * </ul>
  */
 public interface AnimusTool {
 
@@ -54,6 +71,7 @@ public interface AnimusTool {
 
     /**
      * Translate validated LLM arguments into an actionable task record.
+     * Only called for world-action tools ({@link #isLocal()} {@code == false}).
      *
      * @param toolCallId        the {@code id} from the LLM's tool_call; must be
      *                          carried through to the matching tool result message
@@ -67,5 +85,38 @@ public interface AnimusTool {
      *                                  the LLM as a failed tool result so the
      *                                  conversation continues
      */
-    TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime);
+    default TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
+        throw new UnsupportedOperationException(
+                "toTaskRecord called on local tool " + name() + " — use executeLocal instead");
+    }
+
+    /**
+     * Local tools = pure client-side bookkeeping (todowrite, load_skill).
+     * World-action tools (move_to, future place_block, ...) leave this false
+     * and ship over the network as {@code ExecuteToolPayload}.
+     *
+     * <p>Default {@code false} preserves backward-compatibility with every
+     * existing tool.
+     */
+    default boolean isLocal() {
+        return false;
+    }
+
+    /**
+     * Execute a local tool synchronously on the client agent loop thread.
+     * Only called when {@link #isLocal()} returns true. The returned string
+     * is written straight into the conversation as the {@code role:tool}
+     * message content — typically a JSON or XML-wrapped payload the LLM
+     * will read in the next turn.
+     *
+     * @param args parsed JSON arguments from the LLM's tool_call
+     * @return content of the role:tool reply
+     * @throws IllegalArgumentException for missing / malformed args; the agent
+     *                                  loop catches this and reports the failure
+     *                                  back to the LLM so the conversation continues
+     */
+    default String executeLocal(JsonObject args) {
+        throw new UnsupportedOperationException(
+                "executeLocal called on non-local tool " + name() + " — use toTaskRecord instead");
+    }
 }

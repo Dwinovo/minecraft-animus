@@ -202,7 +202,12 @@ public final class FabricAnimusConfig implements IAnimusConfig {
         public String baseUrl = "";
         public String model = "gpt-5-2-mini";
         public String provider = "openai";
-        public String systemPrompt = "You are the mind of a Minecraft creature named Animus. Use the provided tools to act in the world. Be concise. If a tool fails, decide whether to retry, try a different approach, or stop.";
+        // Deliberately short. The planning behaviour (use todowrite for
+        // multi-step tasks, load_skill to fetch detailed workflows) emerges
+        // entirely from those tools' own descriptions plus the runtime-injected
+        // <available_skills> XML block — adding rules here just dilutes
+        // attention. Mirrors opencode's default.txt minimalist style.
+        public String systemPrompt = "You are Animus, a Minecraft entity controlled by the player who owns you.\nUse the tools provided to act in the world; output text only to talk to your owner.";
 
         static ConfigData defaults() {
             return new ConfigData();
