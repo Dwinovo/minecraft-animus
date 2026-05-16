@@ -12,12 +12,15 @@ import java.util.List;
  * <h2>Threading model</h2>
  * Every operation is called from the server main thread:
  * <ul>
- *   <li>{@link #enqueue} runs inside {@code server.execute(...)} from the
- *       LLM async callback after the response handler resolves.</li>
- *   <li>{@link #peekMatching}, {@link #pollMatching}, {@link #complete},
- *       {@link #drainCompleted} all run from {@code GoalSelector.tick}
- *       (canUse / start / stop) or {@code customServerAiStep} (agent-loop
- *       tick).</li>
+ *   <li>{@link #enqueue} runs from {@code ExecuteToolPayload.handle} —
+ *       the C→S packet handler is delivered on the server main thread by the
+ *       network layer (see {@code ExecuteToolPayload.handle}'s javadoc).</li>
+ *   <li>{@link #peekMatching}, {@link #pollMatching}, {@link #complete} all
+ *       run from {@code GoalSelector.tick} (canUse / start / stop) via the
+ *       matching {@link LlmTaskGoal}.</li>
+ *   <li>{@link #drainCompleted} runs from {@code AnimusEntity.customServerAiStep}
+ *       once per tick, shipping completed records back to the owning player as
+ *       {@code TaskResultPayload} for the client-side agent loop to consume.</li>
  * </ul>
  * Plain non-thread-safe collections are deliberate — adding {@code synchronized}
  * or {@code ConcurrentLinkedDeque} would only mask a missed thread hop.

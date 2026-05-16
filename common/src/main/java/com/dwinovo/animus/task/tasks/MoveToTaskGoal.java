@@ -1,13 +1,11 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.task.Channel;
 import com.dwinovo.animus.task.LlmTaskGoal;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,10 +22,6 @@ import java.util.Map;
  *   <li>{@link TaskState#CANCELLED} — vanilla selector evicted us, e.g. entity
  *       death</li>
  * </ul>
- *
- * <p>Channels = {@link Channel#LOCOMOTION} only — moveTo doesn't lock looking
- * or speech, so an LLM can issue {@code move_to + look_at + say} as a parallel
- * tool-call batch and the three goals run side-by-side.
  */
 public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
 
@@ -40,8 +34,7 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
     private static final double REACHED_DISTANCE_SQR = 4.0;
 
     public MoveToTaskGoal(AnimusEntity entity) {
-        super(entity, MoveToTaskRecord.TOOL_NAME, MoveToTaskRecord.class,
-                EnumSet.of(Channel.LOCOMOTION));
+        super(entity, MoveToTaskRecord.TOOL_NAME, MoveToTaskRecord.class);
     }
 
     @Override

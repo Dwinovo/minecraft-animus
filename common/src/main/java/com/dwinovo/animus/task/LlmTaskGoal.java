@@ -3,8 +3,6 @@ package com.dwinovo.animus.task;
 import com.dwinovo.animus.entity.AnimusEntity;
 import net.minecraft.world.entity.ai.goal.Goal;
 
-import java.util.EnumSet;
-
 /**
  * Abstract base for every atomic-task {@link Goal}. Bridges the
  * Goal-lifecycle (canUse / start / tick / canContinueToUse / stop) onto the
@@ -23,14 +21,15 @@ import java.util.EnumSet;
  *   queue.drainCompleted() → LLM
  * </pre>
  *
- * <h2>Channel mutex</h2>
- * The {@link Channel}s a task occupies are translated to vanilla
- * {@link Goal.Flag}s and handed to {@code setFlags(...)} — the selector then
- * automatically prevents two same-channel tasks from running, while letting
- * different-channel tasks run in parallel. Priority is identical across all
- * LLM tasks (registered with {@code addGoal(0, ...)} in
- * {@code AnimusEntity.registerGoals}), which neutralises vanilla's preemption
- * mechanic: no LLM task ever interrupts another, only completes-then-yields.
+ * <h2>Serial execution</h2>
+ * All LLM tasks run serially: {@link TaskQueue} is a single FIFO and every
+ * {@code LlmTaskGoal.canUse()} peeks the same head, so only the goal whose
+ * {@code toolName} matches the head wins — the rest see a non-matching peek
+ * and stay idle until the head completes. No {@code setFlags(...)} is needed
+ * for that, and we don't register any vanilla pathfinding/look goals
+ * alongside (see {@code AnimusEntity.registerGoals}). Priority is identical
+ * across all LLM tasks (all at {@code addGoal(0, ...)}), which neutralises
+ * vanilla's preemption mechanic.
  *
  * <h2>What subclasses implement</h2>
  * Just three methods:
@@ -64,12 +63,10 @@ public abstract class LlmTaskGoal<T extends TaskRecord> extends Goal {
     /** Active record while the goal is running. {@code null} between cycles. */
     protected T currentRecord;
 
-    protected LlmTaskGoal(AnimusEntity entity, String toolName, Class<T> recordClass,
-                          EnumSet<Channel> channels) {
+    protected LlmTaskGoal(AnimusEntity entity, String toolName, Class<T> recordClass) {
         this.entity = entity;
         this.toolName = toolName;
         this.recordClass = recordClass;
-        this.setFlags(Channel.unionFlags(channels));
     }
 
     @Override

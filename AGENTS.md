@@ -7,14 +7,14 @@
 `minecraft-animus` 的目标是打造一个 **完全由 LLM 驱动的 Minecraft 实体**：
 
 1. 模组只包含 **一个实体**。该实体的行为不通过传统硬编码 Goal/Behavior 决定，而是由外部 LLM 决策。
-2. 使用 vanilla **`Goal` + `GoalSelector`** 系统作为执行层：每个原子任务（如 `move_to`）= 一个 `Goal` 子类，channel 概念直接复用 `Goal.Flag {MOVE, LOOK, JUMP, TARGET}` —— selector 自然提供"同 flag 互斥、跨 flag 并行"。LLM 任务统一注册在 priority 0，自动消除抢占。
+2. 使用 vanilla **`Goal` + `GoalSelector`** 系统作为执行层：每个原子任务（如 `move_to`）= 一个 `Goal` 子类。**当前阶段强制串行**：`TaskQueue` 是单 FIFO，所有 `LlmTaskGoal.canUse()` 都 peek 同一个队头，只有 toolName 匹配的 goal 能 `pollMatching` 走它；其它 LLM goal 全部 idle 等候。LLM 任务统一注册在 priority 0，自动消除抢占。**未来真要并行**（比如"边走边看"），改的是 `TaskQueue` 拆成 per-channel 队列 + `LlmTaskGoal` 重新引入 `setFlags(...)` 调用，**不是 `Goal.Flag` 本身**——`Goal.Flag` 这套机制 vanilla 自然支持跨 flag 并行，目前只是被单队列 FIFO 兜底成串行。
 3. 将原子任务 **映射为 ToolCall**：每个工具 = LLM 视角的 schema + Task 翻译器。Tool 和 Task 严格分离 —— Tool 描述 LLM 看到什么，Task 描述世界里发生什么。一对一不是硬约束（一个 Tool 可以发多个 Task，反之亦然）。
 4. 结合 **Skill** 与 **MCP**（Model Context Protocol）扩展能力：Skill = 编排好的任务链（对 LLM 暴露为单个 tool，内部按序执行原子 task，失败时回报具体到步），MCP 用于把外部上下文 / 工具喂给 Agent。
 5. 感知层（周期 sensor → perception 快照）作为 LLM 的 **观测输入**：先用一个 100 行的 `Perception` POJO（Phase-2 实现），不引入 vanilla Brain 的 Memory/MemoryModuleType 注册机制（成本过高）。
 
 设计原则：**Goal 是执行层；LLM 是决策层；ToolCall 是它们之间唯一的接口。** 不要在 Goal 里写策略，也不要在 LLM prompt 里写底层位移/路径逻辑——两边各司其职。
 
-**为什么不用 Brain**：Brain 的 Activity/Schedule/Memory 模型是为"被动 AI"（村民日程、Warden 状态机）设计的，命令式调度需要伪造 memory 状态。Goal.Flag 已经天然就是我们设计的 channel mutex。详见 [`common/.../task/LlmTaskGoal.java`](common/src/main/java/com/dwinovo/animus/task/LlmTaskGoal.java) 类注释。
+**为什么不用 Brain**：Brain 的 Activity/Schedule/Memory 模型是为"被动 AI"（村民日程、Warden 状态机）设计的，命令式调度需要伪造 memory 状态。Goal 生命周期（canUse → start → tick → stop）和我们 TaskRecord 的状态机（PENDING → RUNNING → SUCCESS/FAILED/TIMEOUT/CANCELLED）几乎天然 1:1 对齐，由 [`LlmTaskGoal`](common/src/main/java/com/dwinovo/animus/task/LlmTaskGoal.java) 这个 50 行的 bridge 就能把两者粘起来。详见该类注释。
 
 ## 当前进度
 
