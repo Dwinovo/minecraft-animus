@@ -1,6 +1,7 @@
 package com.dwinovo.animus.agent.llm;
 
 import com.dwinovo.animus.agent.provider.AssistantTurn;
+import com.dwinovo.animus.agent.provider.LlmToolCall;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -77,11 +78,22 @@ public final class ConvoState {
      * Record the tool batch from an assistant response and report whether
      * we've now seen the same batch enough times to bail out.
      *
-     * @param toolNames names of tools in this assistant turn, any order
+     * <p>The signature includes both the tool name <strong>and the raw
+     * arguments JSON</strong>, sorted. This is critical: signing on name
+     * alone false-positives on legitimate iterative workloads (e.g. mining
+     * a vein of ore with consecutive {@code mine_block(x1,y1,z1)} →
+     * {@code mine_block(x2,y2,z2)} calls). A true ReAct stall almost
+     * always emits identical args turn-after-turn, so including args keeps
+     * the guard's recall while restoring precision.
+     *
+     * @param toolCalls tool calls in this assistant turn, any order
      * @return {@code true} → abort, {@code false} → continue
      */
-    public boolean recordToolBatchAndCheckLoop(List<String> toolNames) {
-        String sig = toolNames.stream().sorted().collect(Collectors.joining(","));
+    public boolean recordToolBatchAndCheckLoop(List<LlmToolCall> toolCalls) {
+        String sig = toolCalls.stream()
+                .map(tc -> tc.name() + ":" + (tc.arguments() == null ? "" : tc.arguments()))
+                .sorted()
+                .collect(Collectors.joining("|"));
         if (sig.equals(lastBatchSignature)) {
             repeatedBatchCount++;
             return repeatedBatchCount >= MAX_REPEAT_TOOL_BATCH_COUNT;

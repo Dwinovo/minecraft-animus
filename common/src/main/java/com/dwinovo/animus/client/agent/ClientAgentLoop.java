@@ -15,10 +15,10 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
 
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Per-entity agent loop running on the **client**. Coordinates:
@@ -203,12 +203,15 @@ public final class ClientAgentLoop {
             return;
         }
 
-        // Loop guard.
-        List<String> names = new ArrayList<>(turn.toolCalls().size());
-        for (LlmToolCall tc : turn.toolCalls()) names.add(tc.name());
-        if (convo.recordToolBatchAndCheckLoop(names)) {
+        // Loop guard. Signature includes args so iterating across distinct
+        // positions (e.g. mining a vein) doesn't trip the detector — see
+        // ConvoState.recordToolBatchAndCheckLoop javadoc.
+        if (convo.recordToolBatchAndCheckLoop(turn.toolCalls())) {
+            String summary = turn.toolCalls().stream()
+                    .map(LlmToolCall::name)
+                    .collect(Collectors.joining(","));
             Constants.LOG.warn("[animus-agent#{}] tool batch loop detected ({}); stopping",
-                    entityId, String.join(",", names));
+                    entityId, summary);
             for (LlmToolCall tc : turn.toolCalls()) {
                 convo.addToolResult(tc.id(),
                         "{\"success\":false,\"message\":\"aborted: tool batch loop detected\"}");
