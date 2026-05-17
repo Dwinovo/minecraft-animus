@@ -2,8 +2,11 @@ package com.dwinovo.animus.entity;
 
 import com.dwinovo.animus.anim.api.AnimusAnimated;
 import com.dwinovo.animus.anim.runtime.Animator;
+import com.dwinovo.animus.data.PlayerAnimusData;
 import com.dwinovo.animus.entity.interact.AnimusInteractHandler;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
+import com.dwinovo.animus.network.payload.UnitDiedPayload;
+import com.dwinovo.animus.network.payload.UnitsSnapshotPayload;
 import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.task.TaskQueue;
 import com.dwinovo.animus.task.TaskRecord;
@@ -200,17 +203,44 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     }
 
     /**
-     * Vanilla hook fired on death / unload / chunk-unload. Cancels every
-     * pending task so its tool_call_id doesn't leak (it would otherwise
-     * sit in the client's pending set forever). The cancellation results
-     * are NOT shipped back — by the time {@code remove()} fires the owner
-     * may already have disconnected or the entity may be in an unload-
-     * before-tick state.
+     * Vanilla hook fired on death / unload / chunk-unload. Two cleanup
+     * responsibilities:
+     *
+     * <ol>
+     *   <li><strong>Per-entity tasks</strong> — cancels every pending task
+     *       so its tool_call_id doesn't leak.</li>
+     *   <li><strong>Multi-agent slot binding</strong> — if this entity is
+     *       still bound to a player unit slot (i.e. it died unexpectedly,
+     *       got unloaded, void-deathed), send {@link UnitDiedPayload} to
+     *       the owner and unbind the slot. Without this the client's
+     *       {@code EntityAgentLoop} would wait forever for tool results
+     *       that can never arrive — see the user thread on "report
+     *       submission guarantee".</li>
+     * </ol>
+     *
+     * <p>Intentional discards from {@code PlayerAnimusManager.recallUnit}
+     * unbind the slot <em>before</em> calling {@link Entity#discard}, so
+     * {@code findUnitFor} returns empty here and we don't double-notify.
      */
     @Override
     public void remove(Entity.RemovalReason reason) {
         if (taskQueue != null) {
             taskQueue.cancelAll("entity removed: " + reason);
+        }
+        if (this.level() instanceof ServerLevel sl) {
+            PlayerAnimusData.findUnitFor(this.getId()).ifPresent(key -> {
+                PlayerAnimusData data = PlayerAnimusData.of(key.playerUuid());
+                data.unbindActive(key.unitId());
+                ServerPlayer player = sl.getServer().getPlayerList().getPlayer(key.playerUuid());
+                if (player != null) {
+                    Services.NETWORK.sendToPlayer(player,
+                            new UnitDiedPayload(key.unitId(), reason.name()));
+                    UnitsSnapshotPayload.sendTo(player);
+                }
+                com.dwinovo.animus.Constants.LOG.info(
+                        "[animus-entity#{}] removed (reason={}) → notified owner of unit {} death",
+                        this.getId(), reason, key.unitId());
+            });
         }
         super.remove(reason);
     }

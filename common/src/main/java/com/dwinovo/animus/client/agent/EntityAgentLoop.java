@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
  * the loop:
  * <ol>
  *   <li>Pushes the final text as a report into the parent
- *       {@link PlayerAgentLoop#pushReport}.</li>
+ *       {@link PlayerAgentLoop#injectSubagentReport}.</li>
  *   <li>Ships a {@link RecallUnitPayload} so the server discards the
  *       in-world entity + clears the slot mapping.</li>
  *   <li>Self-removes from {@link AgentLoopRegistry} so future
@@ -100,26 +100,28 @@ public final class EntityAgentLoop {
      * External abort hook — called by {@code RecallUnitTool} from the
      * PlayerAgent or by {@code AgentLoopRegistry.onUnitDied}.
      *
-     * @param reason         human-readable reason for the abort
+     * @param state           one of {@code "aborted"} (recall) or
+     *                        {@code "died"} (entity death notification)
+     * @param reason          human-readable reason for the abort
      * @param sendRecallPacket if true, also ship a {@code RecallUnitPayload}
      *                         to the server so the in-world entity is
      *                         discarded. False when the abort already came
      *                         from the server (death notification) and the
      *                         entity is already gone.
      */
-    public void externalAbort(String reason, boolean sendRecallPacket) {
+    public void externalAbort(String state, String reason, boolean sendRecallPacket) {
         if (disposed) return;
-        Constants.LOG.info("[animus-entity#{}/{}] externally aborted: {}",
-                unitId, vanillaEntityId, reason);
+        Constants.LOG.info("[animus-entity#{}/{}] externally {}: {}",
+                unitId, vanillaEntityId, state, reason);
         aborted = true;
         PlayerAgentLoop player = AgentLoopRegistry.playerAgent();
         if (player != null) {
-            player.pushReport(unitId, "[aborted] " + reason);
+            player.injectSubagentReport(unitId, state, reason);
         }
         if (sendRecallPacket) {
             Services.NETWORK.sendToServer(new RecallUnitPayload(unitId));
         }
-        disposeQuietly();
+        disposeQuietly(/*notifyPlayer=*/false);  // already notified via inject
     }
 
     // ---- internals ----
@@ -132,13 +134,13 @@ public final class EntityAgentLoop {
         if (convo.turnCount() >= ConvoState.MAX_TOOL_TURN_COUNT) {
             Constants.LOG.warn("[animus-entity#{}/{}] turn cap reached",
                     unitId, vanillaEntityId);
-            terminateWithReport("Reached the max turn count without finishing.");
+            terminateWithReport("timeout", "Reached the max turn count without finishing.");
             return;
         }
         if (!AnimusLlmClient.isConfigured()) {
             Constants.LOG.warn("[animus-entity#{}/{}] API key not set",
                     unitId, vanillaEntityId);
-            terminateWithReport("API key is not configured; please set it in the Animus GUI.");
+            terminateWithReport("error", "API key is not configured; please set it in the Animus GUI.");
             return;
         }
 
@@ -213,11 +215,11 @@ public final class EntityAgentLoop {
         if (err != null) {
             Constants.LOG.warn("[animus-entity#{}/{}] LLM call failed: {}",
                     unitId, vanillaEntityId, unwrap(err));
-            terminateWithReport("LLM call failed: " + unwrap(err));
+            terminateWithReport("error", "LLM call failed: " + unwrap(err));
             return;
         }
         if (turn == null) {
-            terminateWithReport("LLM returned null turn.");
+            terminateWithReport("error", "LLM returned null turn.");
             return;
         }
 
@@ -227,7 +229,7 @@ public final class EntityAgentLoop {
             String finalText = turn.content() == null ? "" : turn.content();
             Constants.LOG.info("[animus-entity#{}/{}] FINAL: {}",
                     unitId, vanillaEntityId, truncate(finalText, 200));
-            terminateWithReport(finalText.isEmpty() ? "(no final text)" : finalText);
+            terminateWithReport("completed", finalText.isEmpty() ? "(no final text)" : finalText);
             return;
         }
 
@@ -241,7 +243,7 @@ public final class EntityAgentLoop {
                 convo.addToolResult(tc.id(),
                         "{\"success\":false,\"message\":\"aborted: tool batch loop detected\"}");
             }
-            terminateWithReport("Aborted due to tool-call loop on: " + summary);
+            terminateWithReport("error", "Aborted due to tool-call loop on: " + summary);
             return;
         }
 
@@ -280,27 +282,32 @@ public final class EntityAgentLoop {
     }
 
     /**
-     * Push a report up to the PlayerAgent, send the recall packet so the
-     * server discards the in-world entity, and self-remove from the registry.
-     * Idempotent via {@link #disposed} flag.
+     * Inject a sub-agent report (opencode background-mode style: synthetic
+     * user message into PlayerAgent's history), send the recall packet so
+     * the server discards the in-world entity, and self-remove from the
+     * registry. Idempotent via {@link #disposed} flag.
+     *
+     * @param state state tag carried in the synthetic message:
+     *              {@code "completed" | "error" | "timeout" | "aborted" | "died"}
      */
-    private void terminateWithReport(String reportText) {
+    private void terminateWithReport(String state, String reportText) {
         if (disposed) return;
         PlayerAgentLoop player = AgentLoopRegistry.playerAgent();
         if (player != null) {
-            player.pushReport(unitId, reportText);
+            player.injectSubagentReport(unitId, state, reportText);
         }
         Services.NETWORK.sendToServer(new RecallUnitPayload(unitId));
-        disposeQuietly();
+        disposeQuietly(/*notifyPlayer=*/false);  // inject already triggered notifyReportArrived
     }
 
-    private void disposeQuietly() {
+    private void disposeQuietly(boolean notifyPlayer) {
         if (disposed) return;
         disposed = true;
         AgentLoopRegistry.disposeEntityLoop(vanillaEntityId);
-        // Trigger the PlayerAgent to look at its updated env (new report).
-        PlayerAgentLoop player = AgentLoopRegistry.playerAgent();
-        if (player != null) player.notifyReportArrived();
+        if (notifyPlayer) {
+            PlayerAgentLoop player = AgentLoopRegistry.playerAgent();
+            if (player != null) player.notifyReportArrived();
+        }
     }
 
     private static JsonObject parseArgs(String raw) {

@@ -21,9 +21,14 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
+import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.KeyMapping;
 import net.neoforged.neoforge.client.event.AddClientReloadListenersEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
+import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import org.lwjgl.glfw.GLFW;
 
 import java.nio.file.Path;
 
@@ -34,6 +39,24 @@ public class AnimusNeoForgeClient {
     @SubscribeEvent
     static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(InitEntity.ANIMUS.get(), AnimusRenderer::new);
+    }
+
+    /** Default keybind: {@code X} → open the Animus manager. */
+    private static final KeyMapping OPEN_MANAGER = new KeyMapping(
+            "key.animus.open_manager",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_X,
+            KeyMapping.Category.MISC);
+
+    @SubscribeEvent
+    static void registerKeyMappings(RegisterKeyMappingsEvent event) {
+        event.register(OPEN_MANAGER);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                (ClientTickEvent.Post ev) -> {
+                    while (OPEN_MANAGER.consumeClick()) {
+                        AnimusManagerScreen.open();
+                    }
+                });
     }
 
     @SubscribeEvent

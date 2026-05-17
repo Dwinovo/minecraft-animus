@@ -8,15 +8,20 @@ import com.dwinovo.animus.client.screen.AnimusManagerScreen;
 import com.dwinovo.animus.client.screen.SettingsScreen;
 import com.dwinovo.animus.entity.InitEntity;
 import com.dwinovo.animus.render.AnimusRenderer;
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackType;
@@ -71,6 +76,26 @@ public class AnimusFabricClient implements ClientModInitializer {
                 });
 
         registerClientCommands();
+        registerKeybinding();
+    }
+
+    /**
+     * Default keybind: {@code X} → open the Animus manager. Players can
+     * rebind in vanilla Controls. Module is {@code fabric-key-mapping-api-v1}
+     * (renamed from the older {@code fabric-key-binding-api-v1}).
+     */
+    private static void registerKeybinding() {
+        KeyMapping openManager = new KeyMapping(
+                "key.animus.open_manager",
+                InputConstants.Type.KEYSYM,
+                GLFW.GLFW_KEY_X,
+                KeyMapping.Category.MISC);
+        KeyMappingHelper.registerKeyMapping(openManager);
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            while (openManager.consumeClick()) {
+                AnimusManagerScreen.open();
+            }
+        });
     }
 
     /**

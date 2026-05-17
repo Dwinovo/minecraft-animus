@@ -74,7 +74,7 @@ public final class RecallUnitTool implements AnimusTool {
         Optional<EntityAgentLoop> loop = AgentLoopRegistry.findByUnitId(unitId);
         if (loop.isPresent()) {
             // Full cleanup path — pushes report, sends recall packet, disposes.
-            loop.get().externalAbort("recalled by PlayerAgent", true);
+            loop.get().externalAbort("aborted", "recalled by PlayerAgent", true);
         } else {
             // No local loop (lifecycle race) — at least tell the server.
             Services.NETWORK.sendToServer(new RecallUnitPayload(unitId));

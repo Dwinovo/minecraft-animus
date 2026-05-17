@@ -56,8 +56,7 @@ public final class AgentLoopRegistry {
             // Server reported failure — synthesise a tool-result-like report
             // so the LLM sees the failure and can adjust.
             String reason = p.failReason().isEmpty() ? "unknown" : p.failReason();
-            player.pushReport(p.unitId(), "[summon failed] " + reason);
-            player.notifyReportArrived();
+            player.injectSubagentReport(p.unitId(), "summon_failed", reason);
             Constants.LOG.warn("[animus-registry] summon failed unit={} reason={}",
                     p.unitId(), reason);
             return;
@@ -89,12 +88,11 @@ public final class AgentLoopRegistry {
         }
         if (dying != null) {
             // Entity already gone server-side; don't send a recall packet.
-            dying.externalAbort("died: " + p.reason(), false);
+            dying.externalAbort("died", p.reason(), false);
         } else {
             // Even with no EntityAgent (already disposed), tell PlayerAgent.
             PlayerAgentLoop player = playerAgent();
-            player.pushReport(p.unitId(), "[died] " + p.reason());
-            player.notifyReportArrived();
+            player.injectSubagentReport(p.unitId(), "died", p.reason());
         }
     }
 

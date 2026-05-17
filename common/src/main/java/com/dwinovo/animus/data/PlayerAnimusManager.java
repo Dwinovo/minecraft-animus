@@ -118,13 +118,18 @@ public final class PlayerAnimusManager {
         if (vanillaId == -1) return;
         if (!(player.level() instanceof ServerLevel level)) return;
 
+        // Unbind FIRST so the AnimusEntity.remove() hook sees no binding
+        // and skips its UnitDiedPayload notification. This is the
+        // intentional-recall path — the client already initiated the
+        // tear-down and doesn't need a death event echoed back.
+        data.unbindActive(unitId);
+
         var raw = level.getEntity(vanillaId);
         if (raw instanceof AnimusEntity entity) {
             BlockPos pos = entity.blockPosition();
             playRecallEffects(level, pos);
             entity.discard();
         }
-        data.unbindActive(unitId);
 
         Constants.LOG.info("[animus-manager] recalled unit {} for player {}",
                 unitId, player.getName().getString());

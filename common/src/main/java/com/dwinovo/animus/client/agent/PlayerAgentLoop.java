@@ -20,8 +20,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.player.Player;
 
 import java.time.LocalDate;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -40,14 +38,14 @@ import java.util.stream.Collectors;
  * </ul>
  * No world-action tools — by design. The brain dispatches; bodies execute.
  *
- * <h2>Report queue</h2>
- * {@link #recentReports} accumulates final-text messages from EntityAgents.
- * Each turn's env block surfaces the latest {@link #MAX_REPORTS_DISPLAYED}.
- * When a report lands and PlayerAgent is idle, the loop auto-triggers a new
- * turn so the brain "thinks" about the report immediately. If PlayerAgent
- * is mid-turn, the report just sits in the queue — the gate at
- * {@link #tryStartTurn} prevents double-fire (mirrors opencode's
- * {@code resumeWhenIdle}, validated in the research turn).
+ * <h2>EntityAgent reports — opencode-aligned</h2>
+ * When an EntityAgent finishes (final text, recall, death), its report is
+ * injected as a <strong>synthetic user-role message</strong> into
+ * {@link #convo} via {@link #injectSubagentReport}. This mirrors
+ * opencode's background-mode pattern at {@code task.ts:246-269} (the
+ * {@code inject()} function posting a {@code synthetic: true} text part
+ * to the parent session). Result: every report is permanently in chat
+ * history and visible to the Chat tab, not just a passing env-block flash.
  *
  * <h2>Pending prompts</h2>
  * {@code assign_task} sends {@link com.dwinovo.animus.network.payload.SummonUnitPayload}
@@ -59,11 +57,7 @@ import java.util.stream.Collectors;
  */
 public final class PlayerAgentLoop {
 
-    public static final int MAX_REPORTS_DISPLAYED = 8;
-    public static final int MAX_REPORTS_KEPT = 32;
-
     private final ConvoState convo = new ConvoState();
-    private final Deque<UnitReport> recentReports = new ArrayDeque<>();
     private final Map<Integer, String> pendingPrompts = new HashMap<>();
 
     private boolean awaitingLlmResponse = false;
@@ -93,16 +87,50 @@ public final class PlayerAgentLoop {
         return pendingPrompts.remove(unitId);
     }
 
-    /** Called by EntityAgentLoop on natural termination or by Unit death notifications. */
-    public void pushReport(int unitId, String text) {
-        if (recentReports.size() >= MAX_REPORTS_KEPT) recentReports.pollFirst();
-        recentReports.addLast(new UnitReport(unitId, text));
-        Constants.LOG.info("[animus-player] ← report unit={} : {}", unitId, truncate(text, 200));
+    /**
+     * Inject a sub-agent (EntityAgent) report as a synthetic
+     * <strong>user-role</strong> message into PlayerAgent's conversation.
+     * Mirrors opencode's {@code TaskTool.inject} background pattern
+     * ({@code packages/opencode/src/tool/task.ts:246-269}) — the message
+     * becomes a permanent part of conversation history, so a chat-tab
+     * scrollback shows every unit's report in chronological order.
+     *
+     * <p>Format mirrors opencode's {@code backgroundMessage}:
+     * <pre>
+     * Background task completed: unit X
+     * unit_id: X
+     * state: completed
+     *
+     * &lt;task_result&gt;
+     * {report body}
+     * &lt;/task_result&gt;
+     * </pre>
+     * The {@code state} value distinguishes "completed" (clean final text)
+     * from "error" / "aborted" / "died". The LLM can pattern-match on this
+     * structured form without needing to parse free text.
+     *
+     * <p>{@link #notifyReportArrived} runs after the inject to trigger the
+     * next turn if the agent is idle (opencode's {@code continueIfIdle}).
+     */
+    public void injectSubagentReport(int unitId, String state, String body) {
+        String message = "Background task " + state + ": unit " + unitId + "\n"
+                + "unit_id: " + unitId + "\n"
+                + "state: " + state + "\n"
+                + "\n"
+                + "<task_result>\n"
+                + (body == null ? "" : body) + "\n"
+                + "</task_result>";
+        convo.addUser(message);
+        Constants.LOG.info("[animus-player] ← report unit={} state={} body={}",
+                unitId, state, truncate(body, 200));
+        notifyReportArrived();
     }
 
     /**
-     * Called after a report is pushed. Triggers a new turn iff PlayerAgent
-     * is currently idle — mirrors opencode's {@code resumeWhenIdle} gate.
+     * Triggers a new turn iff PlayerAgent is currently idle. Mirrors
+     * opencode's {@code resumeWhenIdle} gate ({@code task.ts:214-244}) —
+     * if the agent is mid-turn when a report lands, the message stays in
+     * history and gets processed on the next natural turn boundary.
      */
     public void notifyReportArrived() {
         if (awaitingLlmResponse) return;
@@ -150,7 +178,9 @@ public final class PlayerAgentLoop {
         if (!base.isBlank()) sb.append(base);
         sb.append("\n\nYou are the PlayerAgent — the strategic brain. You cannot perform world actions directly. ");
         sb.append("Use assign_task(unit_id, prompt) to dispatch work to one of your units (1-6). ");
-        sb.append("Each unit runs independently in parallel and reports back via recent_reports. ");
+        sb.append("Each unit runs independently in parallel. When a unit finishes (or is recalled / dies), ");
+        sb.append("its report appears as a synthetic user-role message in this conversation with shape ");
+        sb.append("<task_result>...</task_result> — react to it as if the player relayed it to you. ");
         sb.append("Use the read-only perception tools to gather information before deciding.");
         if (envBlock != null) {
             sb.append("\n\n").append(envBlock);
@@ -188,22 +218,10 @@ public final class PlayerAgentLoop {
             sb.append(", alive=").append(unit.alive());
             sb.append('\n');
         }
-
-        if (!recentReports.isEmpty()) {
-            sb.append("  recent_reports:\n");
-            int shown = 0;
-            // Iterate newest-last; show the last N
-            int skip = Math.max(0, recentReports.size() - MAX_REPORTS_DISPLAYED);
-            int idx = 0;
-            for (UnitReport r : recentReports) {
-                if (idx++ < skip) continue;
-                sb.append("    - [unit ").append(r.unitId()).append("] ")
-                  .append(escapeOneLine(r.text())).append('\n');
-                shown++;
-            }
-            sb.append("  reports_total: ").append(recentReports.size())
-              .append(", reports_shown: ").append(shown).append('\n');
-        }
+        // Note: unit reports are NOT injected here — they now live as
+        // synthetic user-role messages in conversation history (see
+        // injectSubagentReport), mirroring opencode's background inject
+        // pattern. env block holds only "current snapshot" facts.
 
         sb.append("</env>");
         return sb.toString();
@@ -211,11 +229,6 @@ public final class PlayerAgentLoop {
 
     private static String formatNum(double v) {
         return String.format("%.1f", v);
-    }
-
-    private static String escapeOneLine(String s) {
-        if (s == null) return "";
-        return s.replace('\n', ' ').replace('\r', ' ');
     }
 
     private void bounceBackToMain(AssistantTurn turn, Throwable err) {
@@ -313,6 +326,4 @@ public final class PlayerAgentLoop {
         return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    /** Report record — bound to its unit_id, kept newest-last in the queue. */
-    public record UnitReport(int unitId, String text) {}
 }
