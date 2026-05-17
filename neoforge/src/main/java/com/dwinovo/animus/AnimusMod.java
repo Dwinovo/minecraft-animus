@@ -47,6 +47,19 @@ public class AnimusMod {
         // flushes when RegisterPayloadHandlersEvent fires (see below).
         AnimusNetwork.register();
 
+        // Multi-agent lifecycle hooks — register on the NeoForge game event bus
+        // (different from mod bus). Player join → push initial snapshot;
+        // server stopping → clear all in-memory player data.
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                (net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent ev) -> {
+                    if (ev.getEntity() instanceof net.minecraft.server.level.ServerPlayer sp) {
+                        com.dwinovo.animus.network.payload.UnitsSnapshotPayload.sendTo(sp);
+                    }
+                });
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                (net.neoforged.neoforge.event.server.ServerStoppingEvent ev) ->
+                        com.dwinovo.animus.data.PlayerAnimusData.clearAll());
+
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on NeoForge.");
     }

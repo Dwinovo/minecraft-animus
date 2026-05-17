@@ -81,6 +81,13 @@ public final class LoadSkillTool implements AnimusTool {
     }
 
     @Override
+    public java.util.Set<com.dwinovo.animus.agent.tool.AgentRole> allowedRoles() {
+        return java.util.EnumSet.of(
+                com.dwinovo.animus.agent.tool.AgentRole.PLAYER,
+                com.dwinovo.animus.agent.tool.AgentRole.ENTITY);
+    }
+
+    @Override
     public String executeLocal(JsonObject args) {
         if (args == null || !args.has("name") || args.get("name").isJsonNull()) {
             throw new IllegalArgumentException("missing required argument: name");

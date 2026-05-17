@@ -3,13 +3,20 @@ package com.dwinovo.animus;
 import com.dwinovo.animus.agent.skill.BuiltinSkillBootstrap;
 import com.dwinovo.animus.agent.skill.SkillRegistry;
 import com.dwinovo.animus.anim.compile.BedrockResourceLoader;
+import com.dwinovo.animus.client.agent.AgentLoopRegistry;
+import com.dwinovo.animus.client.screen.SettingsScreen;
 import com.dwinovo.animus.entity.InitEntity;
 import com.dwinovo.animus.render.AnimusRenderer;
+import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.ResourceManager;
@@ -61,5 +68,53 @@ public class AnimusFabricClient implements ClientModInitializer {
                         SkillRegistry.instance().scan(skillsDir);
                     }
                 });
+
+        registerClientCommands();
+    }
+
+    /**
+     * Register the {@code /animus} client commands. All three branches run
+     * entirely client-side — they only manipulate the {@code PlayerAgentLoop}
+     * and open client GUIs.
+     */
+    private static void registerClientCommands() {
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, registry) -> {
+            LiteralArgumentBuilder<FabricClientCommandSource> root =
+                    net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("animus");
+
+            // /animus <prompt...>  — alias for /animus prompt
+            root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands
+                    .argument("text", StringArgumentType.greedyString())
+                    .executes(ctx -> {
+                        String text = StringArgumentType.getString(ctx, "text");
+                        AgentLoopRegistry.playerAgent().submitPrompt(text);
+                        ctx.getSource().sendFeedback(Component.literal("[animus] dispatched: " + truncate(text, 60)));
+                        return 1;
+                    }));
+
+            // /animus settings  — open settings GUI
+            root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands
+                    .literal("settings")
+                    .executes(ctx -> {
+                        Minecraft.getInstance().execute(() -> SettingsScreen.open(null));
+                        return 1;
+                    }));
+
+            // /animus reset  — clear PlayerAgent conversation
+            root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands
+                    .literal("reset")
+                    .executes(ctx -> {
+                        AgentLoopRegistry.clear();
+                        ctx.getSource().sendFeedback(Component.literal("[animus] conversation cleared"));
+                        return 1;
+                    }));
+
+            dispatcher.register(root);
+        });
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 }

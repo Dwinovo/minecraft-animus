@@ -3,7 +3,9 @@ package com.dwinovo.animus.agent.tool;
 import com.dwinovo.animus.task.TaskRecord;
 import com.google.gson.JsonObject;
 
+import java.util.EnumSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * LLM-facing surface of a single action the entity can take. Sits one layer
@@ -103,18 +105,48 @@ public interface AnimusTool {
     }
 
     /**
+     * Which agent role(s) may call this tool. The registry filters the
+     * tool list per role via {@link ToolRegistry#forRole}, so a tool whose
+     * role set excludes a role is simply not visible to that agent's LLM.
+     *
+     * <p>Default is {@link AgentRole#ENTITY} only — historical tools were
+     * all entity-perspective; opt-in to PLAYER for the new manager tools.
+     */
+    default Set<AgentRole> allowedRoles() {
+        return EnumSet.of(AgentRole.ENTITY);
+    }
+
+    /**
      * Execute a local tool synchronously on the client agent loop thread.
      * Only called when {@link #isLocal()} returns true. The returned string
      * is written straight into the conversation as the {@code role:tool}
      * message content — typically a JSON or XML-wrapped payload the LLM
      * will read in the next turn.
      *
+     * <p>Two overloads exist:
+     * <ul>
+     *   <li>{@link #executeLocal(JsonObject, ClientToolContext)} — preferred,
+     *       gives the tool access to the live entity / world. Perception
+     *       tools override this.</li>
+     *   <li>{@link #executeLocal(JsonObject)} — context-less, kept for
+     *       tools that are pure agent-side bookkeeping
+     *       (todowrite / load_skill).</li>
+     * </ul>
+     * Default forwarding from the context-aware overload to the bare one
+     * means old tools don't have to change.
+     *
      * @param args parsed JSON arguments from the LLM's tool_call
+     * @param ctx  live entity/world handle, see {@link ClientToolContext}
      * @return content of the role:tool reply
      * @throws IllegalArgumentException for missing / malformed args; the agent
      *                                  loop catches this and reports the failure
      *                                  back to the LLM so the conversation continues
      */
+    default String executeLocal(JsonObject args, ClientToolContext ctx) {
+        return executeLocal(args);
+    }
+
+    /** Context-less overload — see {@link #executeLocal(JsonObject, ClientToolContext)}. */
     default String executeLocal(JsonObject args) {
         throw new UnsupportedOperationException(
                 "executeLocal called on non-local tool " + name() + " — use toTaskRecord instead");

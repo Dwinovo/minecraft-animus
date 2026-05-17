@@ -1,8 +1,14 @@
 package com.dwinovo.animus.network;
 
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
+import com.dwinovo.animus.network.payload.RecallUnitPayload;
 import com.dwinovo.animus.network.payload.SetModelPayload;
+import com.dwinovo.animus.network.payload.SummonUnitPayload;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
+import com.dwinovo.animus.network.payload.UnitConfigUpdatePayload;
+import com.dwinovo.animus.network.payload.UnitDiedPayload;
+import com.dwinovo.animus.network.payload.UnitSpawnedPayload;
+import com.dwinovo.animus.network.payload.UnitsSnapshotPayload;
 import com.dwinovo.animus.platform.Services;
 
 /**
@@ -41,5 +47,21 @@ public final class AnimusNetwork {
         // Server → Client: tool execution finished; ship result back to the owner.
         Services.NETWORK.registerServerToClient(
                 TaskResultPayload.TYPE, TaskResultPayload.STREAM_CODEC, TaskResultPayload::handle);
+
+        // Multi-agent pipeline payloads (PlayerAgent ↔ Animus units).
+        Services.NETWORK.registerClientToServer(
+                SummonUnitPayload.TYPE, SummonUnitPayload.STREAM_CODEC, SummonUnitPayload::handle);
+        Services.NETWORK.registerServerToClient(
+                UnitSpawnedPayload.TYPE, UnitSpawnedPayload.STREAM_CODEC, UnitSpawnedPayload::handle);
+        Services.NETWORK.registerClientToServer(
+                RecallUnitPayload.TYPE, RecallUnitPayload.STREAM_CODEC, RecallUnitPayload::handle);
+        Services.NETWORK.registerServerToClient(
+                UnitDiedPayload.TYPE, UnitDiedPayload.STREAM_CODEC, UnitDiedPayload::handle);
+        Services.NETWORK.registerClientToServer(
+                UnitConfigUpdatePayload.TYPE, UnitConfigUpdatePayload.STREAM_CODEC,
+                UnitConfigUpdatePayload::handle);
+        Services.NETWORK.registerServerToClient(
+                UnitsSnapshotPayload.TYPE, UnitsSnapshotPayload.STREAM_CODEC,
+                UnitsSnapshotPayload::handle);
     }
 }

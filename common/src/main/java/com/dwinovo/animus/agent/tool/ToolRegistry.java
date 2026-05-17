@@ -1,8 +1,10 @@
 package com.dwinovo.animus.agent.tool;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -46,6 +48,20 @@ public final class ToolRegistry {
 
     public static Collection<AnimusTool> all() {
         return Collections.unmodifiableCollection(TOOLS.values());
+    }
+
+    /**
+     * View of all tools whose {@link AnimusTool#allowedRoles()} includes
+     * {@code role}. Order is preserved (registration order). Used by both
+     * {@code PlayerAgentLoop} and {@code EntityAgentLoop} to feed only the
+     * relevant tools into each LLM call.
+     */
+    public static List<AnimusTool> forRole(AgentRole role) {
+        List<AnimusTool> out = new ArrayList<>();
+        for (AnimusTool t : TOOLS.values()) {
+            if (t.allowedRoles().contains(role)) out.add(t);
+        }
+        return out;
     }
 
     public static int size() {

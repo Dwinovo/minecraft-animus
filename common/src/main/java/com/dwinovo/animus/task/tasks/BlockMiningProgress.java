@@ -1,17 +1,28 @@
 package com.dwinovo.animus.task.tasks;
 
+import com.dwinovo.animus.Constants;
+import com.dwinovo.animus.data.PlayerAnimusData;
+import com.dwinovo.animus.data.PlayerAnimusStorage;
 import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.network.payload.UnitsSnapshotPayload;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
+
+import java.util.List;
 
 /**
  * Reusable mining-progress state machine. Encapsulates the per-tick swing /
@@ -145,10 +156,72 @@ public final class BlockMiningProgress {
         }
 
         if (progressTicks >= totalTicksNeeded) {
-            level.destroyBlock(pos, true, entity);
+            breakAndRouteDrops(level, pos);
             return Outcome.COMPLETED;
         }
         return Outcome.IN_PROGRESS;
+    }
+
+    /**
+     * Break the block and route every dropped {@link ItemStack} into the
+     * owning player's {@link PlayerAnimusStorage}. Items that don't fit
+     * (storage full) fall back to vanilla on-ground {@link ItemEntity}.
+     *
+     * <p>Bypasses {@code level.destroyBlock(pos, true, entity)} so we
+     * compute drops manually with the entity's held item as the tool
+     * (preserves correct-tool / silk-touch / fortune semantics) and never
+     * spawn ItemEntities in the world unless storage rejects them.
+     */
+    private void breakAndRouteDrops(Level level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        BlockEntity blockEntity = level.getBlockEntity(pos);
+        ItemStack tool = entity.getMainHandItem();
+        List<ItemStack> drops = (level instanceof ServerLevel sl)
+                ? Block.getDrops(state, sl, pos, blockEntity, entity, tool)
+                : List.of();
+
+        // dropResources=false: don't let vanilla spawn ItemEntities; we handle drops.
+        level.destroyBlock(pos, false, entity);
+
+        if (drops.isEmpty()) return;
+
+        PlayerAnimusStorage storage = lookupOwnerStorage();
+        if (storage == null) {
+            // No identifiable player owner (race?) — fall back to vanilla on-ground.
+            for (ItemStack stack : drops) spawnAsItemEntity(level, pos, stack);
+            return;
+        }
+        for (ItemStack stack : drops) {
+            ItemStack leftover = storage.insert(stack);
+            if (!leftover.isEmpty()) {
+                Constants.LOG.debug("[animus-mining] storage full, dropping {} on ground",
+                        leftover.getCount());
+                spawnAsItemEntity(level, pos, leftover);
+            }
+        }
+        // Push fresh storage snapshot to the owner so the GUI / env_block see the new items.
+        Player owner = entity.getOwner() instanceof Player p ? p : null;
+        if (owner instanceof ServerPlayer sp) {
+            UnitsSnapshotPayload.sendTo(sp);
+        }
+    }
+
+    /**
+     * Resolve the storage associated with this entity's owner. Returns
+     * {@code null} on any miss (no owner UUID, owner not currently a player).
+     */
+    private PlayerAnimusStorage lookupOwnerStorage() {
+        if (entity.getOwnerReference() == null) return null;
+        var data = PlayerAnimusData.lookup(entity.getOwnerReference().getUUID());
+        return data.map(PlayerAnimusData::storage).orElse(null);
+    }
+
+    private static void spawnAsItemEntity(Level level, BlockPos pos, ItemStack stack) {
+        if (stack.isEmpty()) return;
+        ItemEntity ie = new ItemEntity(level,
+                pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack);
+        ie.setDefaultPickUpDelay();
+        level.addFreshEntity(ie);
     }
 
     /** Clear the crack overlay. Safe to call multiple times. */

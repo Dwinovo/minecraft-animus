@@ -1,7 +1,7 @@
 package com.dwinovo.animus.network.payload;
 
 import com.dwinovo.animus.Constants;
-import com.dwinovo.animus.client.agent.ClientAgentLoopRegistry;
+import com.dwinovo.animus.client.agent.AgentLoopRegistry;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -51,7 +51,7 @@ public record TaskResultPayload(int entityId,
     public static void handle(TaskResultPayload p) {
         Constants.LOG.debug("[animus-net] task_result entity={} tool_call_id={} → {}",
                 p.entityId(), p.toolCallId(), truncate(p.resultJson(), 200));
-        ClientAgentLoopRegistry.get(p.entityId())
+        AgentLoopRegistry.get(p.entityId())
                 .ifPresent(loop -> loop.onToolResult(p.toolCallId(), p.resultJson()));
     }
 
