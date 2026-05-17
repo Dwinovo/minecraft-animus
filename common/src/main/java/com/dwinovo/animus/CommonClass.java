@@ -1,8 +1,11 @@
 package com.dwinovo.animus;
 
 import com.dwinovo.animus.agent.tool.ToolRegistry;
+import com.dwinovo.animus.agent.tool.tools.AttackTargetTool;
 import com.dwinovo.animus.agent.tool.tools.LoadSkillTool;
+import com.dwinovo.animus.agent.tool.tools.MineBlockTool;
 import com.dwinovo.animus.agent.tool.tools.MoveToTool;
+import com.dwinovo.animus.agent.tool.tools.PathfindAndMineTool;
 import com.dwinovo.animus.agent.tool.tools.TodoWriteTool;
 import com.dwinovo.animus.platform.Services;
 
@@ -41,6 +44,9 @@ public class CommonClass {
      */
     private static void registerTools() {
         ToolRegistry.register(new MoveToTool());
+        ToolRegistry.register(new AttackTargetTool());
+        ToolRegistry.register(new MineBlockTool());
+        ToolRegistry.register(new PathfindAndMineTool());
         ToolRegistry.register(new TodoWriteTool());
         ToolRegistry.register(new LoadSkillTool());
         Constants.LOG.info("[animus] registered {} tool(s)", ToolRegistry.size());

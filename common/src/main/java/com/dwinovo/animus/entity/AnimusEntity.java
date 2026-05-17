@@ -8,7 +8,10 @@ import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.task.TaskQueue;
 import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.TaskResult;
+import com.dwinovo.animus.task.tasks.AttackTargetTaskGoal;
+import com.dwinovo.animus.task.tasks.MineBlockTaskGoal;
 import com.dwinovo.animus.task.tasks.MoveToTaskGoal;
+import com.dwinovo.animus.task.tasks.PathfindAndMineTaskGoal;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -25,6 +28,7 @@ import net.minecraft.world.entity.TamableAnimal;
 import java.util.List;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -33,9 +37,10 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
 /**
- * Single LLM-driven entity at the heart of the mod. The Brain / ToolCall /
- * LLM client integration arrives in later plans; for now {@link
- * #registerGoals()} stays empty and the entity drifts in place.
+ * Single LLM-driven entity at the heart of the mod. Behaviour is driven
+ * by an external LLM through the tool / task pipeline; see
+ * {@link #registerGoals()} for the wiring of task-executor Goals and the
+ * vanilla {@code MeleeAttackGoal} that backs the {@code attack_target} tool.
  *
  * <h2>Why TamableAnimal</h2>
  * Vanilla {@code TamableAnimal} gives us, free of code:
@@ -102,14 +107,30 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     public static AttributeSupplier.Builder createAttributes() {
         return TamableAnimal.createMobAttributes()
                 .add(Attributes.MAX_HEALTH, 20.0)
-                .add(Attributes.MOVEMENT_SPEED, 0.25);
+                .add(Attributes.MOVEMENT_SPEED, 0.25)
+                // Roughly zombie-equivalent. Without this the entity swings
+                // through targets for 0 damage and combat tasks never resolve.
+                .add(Attributes.ATTACK_DAMAGE, 4.0);
     }
 
     /**
-     * Registers every LLM-driven task as a {@code Goal} at priority 0.
-     * Equal priority neutralises vanilla's preemption logic — tasks coexist
-     * by {@link Goal.Flag channel} but never interrupt each other. See
-     * {@link com.dwinovo.animus.task.LlmTaskGoal} for the lifecycle bridge.
+     * Wires the entity's AI:
+     * <ul>
+     *   <li>Vanilla {@link MeleeAttackGoal} (priority 0) — permanent. Watches
+     *       {@code getTarget()} and handles path-find + swing + doHurtTarget
+     *       + cooldown autonomously. The {@code attack_target} tool engages
+     *       it indirectly by setting the target via
+     *       {@link AttackTargetTaskGoal}.</li>
+     *   <li>Per-tool {@code LlmTaskGoal} subclasses (priority 0) — each
+     *       atomic world-action tool is paired with one of these. They peek
+     *       a single FIFO {@code TaskQueue} so only the goal matching the
+     *       head record activates, enforcing serial execution; see
+     *       {@link com.dwinovo.animus.task.LlmTaskGoal} javadoc.</li>
+     * </ul>
+     * Equal priority across the LlmTaskGoals neutralises vanilla preemption.
+     * {@code MeleeAttackGoal} owns MOVE+LOOK flags while {@code LlmTaskGoal}
+     * declares no flags, so the attack goal and the sentinel
+     * {@code AttackTargetTaskGoal} happily run side-by-side.
      *
      * <p>Called by the {@code Mob} constructor before {@code AnimusEntity}'s
      * field initialisers have run. Don't access instance fields here — the
@@ -119,7 +140,11 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     @Override
     protected void registerGoals() {
         super.registerGoals();
+        this.goalSelector.addGoal(0, new MeleeAttackGoal(this, 1.2D, true));
         this.goalSelector.addGoal(0, new MoveToTaskGoal(this));
+        this.goalSelector.addGoal(0, new AttackTargetTaskGoal(this));
+        this.goalSelector.addGoal(0, new MineBlockTaskGoal(this));
+        this.goalSelector.addGoal(0, new PathfindAndMineTaskGoal(this));
     }
 
     /** Server-side task queue. Lazily created on first access. */
