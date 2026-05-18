@@ -111,7 +111,13 @@ public final class BlockMiningProgress {
         if (hardness < 0) return false;
 
         ItemStack tool = entity.getMainHandItem();
-        boolean correct = tool.isCorrectToolForDrops(state);
+        // Mirror vanilla Player.hasCorrectToolForDrops — a block that doesn't
+        // REQUIRE the correct tool (e.g. wood, dirt, sand) is always treated
+        // as "correct", regardless of held item. Previously we only checked
+        // the tool side, which gave wood-with-bare-hands the slow divisor
+        // (100) and made Animus ~3.3× slower than a survival-mode player.
+        boolean correct = !state.requiresCorrectToolForDrops()
+                || tool.isCorrectToolForDrops(state);
         float toolSpeed = tool.getDestroySpeed(state);
         if (toolSpeed <= 0.0F) toolSpeed = 1.0F;
         float divisor = correct ? 30.0F : 100.0F;

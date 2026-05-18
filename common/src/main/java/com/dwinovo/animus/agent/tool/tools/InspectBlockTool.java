@@ -114,13 +114,16 @@ public final class InspectBlockTool implements AnimusTool {
         boolean needsTool = state.requiresCorrectToolForDrops();
         root.addProperty("needs_correct_tool", needsTool);
         ItemStack hand = anchor.getMainHandItem();
-        boolean correct = hand.isCorrectToolForDrops(state);
-        root.addProperty("current_hand_correct_tool", correct);
+        boolean handIsRightTool = hand.isCorrectToolForDrops(state);
+        root.addProperty("current_hand_correct_tool", handIsRightTool);
 
         if (!state.isAir() && hardness >= 0) {
             float toolSpeed = hand.getDestroySpeed(state);
             if (toolSpeed <= 0.0F) toolSpeed = 1.0F;
-            float divisor = correct ? 30.0F : 100.0F;
+            // Same vanilla rule as BlockMiningProgress — block that doesn't
+            // require correct tool always uses fast divisor.
+            boolean fast = !needsTool || handIsRightTool;
+            float divisor = fast ? 30.0F : 100.0F;
             int ticks = hardness == 0.0F
                     ? 1
                     : Math.max(1, (int) Math.ceil(hardness * divisor / toolSpeed));
