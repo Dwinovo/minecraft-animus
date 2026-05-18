@@ -14,6 +14,7 @@ import com.dwinovo.animus.agent.tool.tools.MineBlockTool;
 import com.dwinovo.animus.agent.tool.tools.MoveToTool;
 import com.dwinovo.animus.agent.tool.tools.PathfindAndMineTool;
 import com.dwinovo.animus.agent.tool.tools.RecallUnitTool;
+import com.dwinovo.animus.agent.tool.tools.ScanBlocksTool;
 import com.dwinovo.animus.agent.tool.tools.ScanNearbyEntitiesTool;
 import com.dwinovo.animus.agent.tool.tools.TodoWriteTool;
 import com.dwinovo.animus.platform.Services;
@@ -68,6 +69,7 @@ public class CommonClass {
 
         // Shared tools — work for either role via ctx.anchor().
         ToolRegistry.register(new ScanNearbyEntitiesTool());
+        ToolRegistry.register(new ScanBlocksTool());
         ToolRegistry.register(new InspectBlockTool());
         ToolRegistry.register(new GetWorldInfoTool());
         ToolRegistry.register(new TodoWriteTool());
