@@ -3,6 +3,7 @@ package com.dwinovo.animus.entity;
 import com.dwinovo.animus.anim.api.AnimusAnimated;
 import com.dwinovo.animus.anim.runtime.Animator;
 import com.dwinovo.animus.data.PlayerAnimusData;
+import com.dwinovo.animus.data.PlayerAnimusStorage;
 import com.dwinovo.animus.entity.interact.AnimusInteractHandler;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
 import com.dwinovo.animus.network.payload.UnitDiedPayload;
@@ -23,10 +24,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.core.Vec3i;
 import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.TamableAnimal;
+import net.minecraft.world.entity.item.ItemEntity;
 
 import java.util.List;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
@@ -105,6 +108,11 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
 
     public AnimusEntity(EntityType<? extends AnimusEntity> type, Level level) {
         super(type, level);
+        // Vacuum-pick up nearby ItemEntities into the owner's shared storage.
+        // Vanilla Mob.serverAiStep iterates getEntitiesOfClass(ItemEntity,
+        // bbox.inflate(getPickupReach())) and calls pickUpItem(...) when
+        // wantsToPickUp returns true — we just opt in + override the routing.
+        this.setCanPickUpLoot(true);
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -222,6 +230,71 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
      * unbind the slot <em>before</em> calling {@link Entity#discard}, so
      * {@code findUnitFor} returns empty here and we don't double-notify.
      */
+    /**
+     * Item-pickup vacuum radius. Inflates the entity bounding box by
+     * (x, y, z) when scanning for {@link ItemEntity}s in
+     * {@code Mob.serverAiStep}. Larger than vanilla default
+     * {@code Vec3i(1, 0, 1)} so Animus feels magnetic — players see it
+     * "suck in" nearby drops from mob kills or loot scatter.
+     */
+    @Override
+    protected Vec3i getPickupReach() {
+        return new Vec3i(2, 1, 2);
+    }
+
+    /**
+     * We want everything — drops route into the owner's shared storage so
+     * the LLM / player decides later. No item filtering here; if the owner
+     * has no storage (e.g. orphan Animus spawned via /summon), vanilla's
+     * default {@code wantsToPickUp} returns false for non-equipment so
+     * orphans won't hoard.
+     */
+    @Override
+    public boolean wantsToPickUp(net.minecraft.server.level.ServerLevel level,
+                                  net.minecraft.world.item.ItemStack stack) {
+        return lookupOwnerStorage(level) != null;
+    }
+
+    /**
+     * Route picked-up stacks into the owner's {@link PlayerAnimusStorage}
+     * instead of equipping into armor slots (vanilla {@code Mob.pickUpItem}'s
+     * default behaviour). Plays the standard pickup sound + take animation
+     * if any portion was absorbed; leaves the remainder as an ItemEntity if
+     * storage filled up.
+     */
+    @Override
+    protected void pickUpItem(net.minecraft.server.level.ServerLevel level, ItemEntity itemEntity) {
+        net.minecraft.world.item.ItemStack ground = itemEntity.getItem();
+        if (ground.isEmpty()) return;
+        PlayerAnimusStorage storage = lookupOwnerStorage(level);
+        if (storage == null) return;
+        int before = ground.getCount();
+        net.minecraft.world.item.ItemStack leftover = storage.insert(ground.copy());
+        int absorbed = before - leftover.getCount();
+        if (absorbed <= 0) return;
+        this.onItemPickup(itemEntity);
+        this.take(itemEntity, absorbed);
+        net.minecraft.world.item.ItemStack remaining = itemEntity.getItem();
+        remaining.shrink(absorbed);
+        if (remaining.isEmpty()) {
+            itemEntity.discard();
+        } else {
+            itemEntity.setItem(remaining);
+        }
+    }
+
+    /**
+     * Resolve the owner's shared storage. Returns {@code null} for orphan
+     * Animuses (no owner / owner not in {@code PlayerAnimusData} — e.g.
+     * spawned via {@code /summon} outside the manager flow), in which case
+     * we politely skip pickup.
+     */
+    private PlayerAnimusStorage lookupOwnerStorage(net.minecraft.server.level.ServerLevel level) {
+        if (this.getOwnerReference() == null) return null;
+        return PlayerAnimusData.lookup(level.getServer(), this.getOwnerReference().getUUID())
+                .map(PlayerAnimusData::storage).orElse(null);
+    }
+
     @Override
     public void remove(Entity.RemovalReason reason) {
         if (taskQueue != null) {
