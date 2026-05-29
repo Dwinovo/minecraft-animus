@@ -49,7 +49,7 @@ public final class AnimusNetwork {
         Services.NETWORK.registerServerToClient(
                 TaskResultPayload.TYPE, TaskResultPayload.STREAM_CODEC, TaskResultPayload::handle);
 
-        // Multi-agent pipeline payloads (PlayerAgent ↔ Animus units).
+        // Unit lifecycle payloads (summon / recall / spawned / died / snapshot).
         Services.NETWORK.registerClientToServer(
                 SummonUnitPayload.TYPE, SummonUnitPayload.STREAM_CODEC, SummonUnitPayload::handle);
         Services.NETWORK.registerServerToClient(

@@ -100,7 +100,7 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
      * server and drained by the matching {@code LlmTaskGoal}).
      *
      * <p>The LLM-side agent loop now lives on the **client**
-     * ({@link com.dwinovo.animus.client.agent.ClientAgentLoop}) so each
+     * ({@link com.dwinovo.animus.client.agent.EntityAgentLoop}) so each
      * player's API key drives their own Animus. The server stays a pure
      * task executor and result router — no LLM client here.
      */
@@ -168,7 +168,7 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
      * Per-tick server hook. After vanilla goals have ticked (and produced
      * completed task results into the queue's outbox), drain those results
      * and ship them back to the owning player's client so its
-     * {@link com.dwinovo.animus.client.agent.ClientAgentLoop} can feed
+     * {@link com.dwinovo.animus.client.agent.EntityAgentLoop} can feed
      * them into the LLM conversation and trigger the next turn.
      */
     @Override

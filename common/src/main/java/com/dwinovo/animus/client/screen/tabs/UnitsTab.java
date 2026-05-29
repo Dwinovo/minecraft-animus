@@ -1,9 +1,14 @@
 package com.dwinovo.animus.client.screen.tabs;
 
+import com.dwinovo.animus.client.agent.AgentLoopRegistry;
 import com.dwinovo.animus.client.data.ClientPlayerAnimusState;
 import com.dwinovo.animus.client.data.ClientUnitView;
 import com.dwinovo.animus.client.screen.AnimusManagerScreen;
+import com.dwinovo.animus.client.screen.EntityChatScreen;
 import com.dwinovo.animus.client.screen.SimpleButton;
+import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.network.payload.RecallUnitPayload;
+import com.dwinovo.animus.network.payload.SummonUnitPayload;
 import com.dwinovo.animus.network.payload.UnitConfigUpdatePayload;
 import com.dwinovo.animus.platform.Services;
 import net.minecraft.client.Minecraft;
@@ -104,6 +109,42 @@ public final class UnitsTab extends Tab {
                 Component.literal("Apply"),
                 b -> applyEdits());
         parent.registerTabWidget(applyBtn);
+
+        // -- Action row: Summon (idle) / Recall + Chat (busy) --
+        panelY += INPUT_HEIGHT + 30;  // clear the status line drawn in render()
+        int actionW = 56;
+        if (selected.active()) {
+            SimpleButton recallBtn = new SimpleButton(panelX, panelY, actionW, INPUT_HEIGHT,
+                    Component.literal("Recall"), b -> recallUnit());
+            parent.registerTabWidget(recallBtn);
+            SimpleButton chatBtn = new SimpleButton(panelX + actionW + 4, panelY, actionW, INPUT_HEIGHT,
+                    Component.literal("Chat"), b -> openChat());
+            parent.registerTabWidget(chatBtn);
+        } else if (selected.alive()) {
+            SimpleButton summonBtn = new SimpleButton(panelX, panelY, actionW + 24, INPUT_HEIGHT,
+                    Component.literal("Summon"), b -> summonUnit());
+            parent.registerTabWidget(summonBtn);
+        }
+    }
+
+    private void summonUnit() {
+        Services.NETWORK.sendToServer(new SummonUnitPayload(selectedUnitId));
+        // Server replies with UnitSpawnedPayload → snapshot refresh repaints the row.
+    }
+
+    private void recallUnit() {
+        Services.NETWORK.sendToServer(new RecallUnitPayload(selectedUnitId));
+    }
+
+    /** Open the per-entity chat for the unit currently occupying this slot. */
+    private void openChat() {
+        AgentLoopRegistry.entityIdForUnit(selectedUnitId).ifPresent(entityId -> {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.level == null) return;
+            if (mc.level.getEntity(entityId) instanceof AnimusEntity entity) {
+                EntityChatScreen.open(entity);
+            }
+        });
     }
 
     private void selectUnit(int unitId) {

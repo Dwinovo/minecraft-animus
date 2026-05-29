@@ -9,7 +9,6 @@ import com.dwinovo.animus.client.screen.SettingsScreen;
 import com.dwinovo.animus.entity.InitEntity;
 import com.dwinovo.animus.render.AnimusRenderer;
 import com.mojang.blaze3d.platform.InputConstants;
-import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
@@ -102,20 +101,15 @@ public class AnimusFabricClient implements ClientModInitializer {
 
     /**
      * Register the {@code /animus} client commands. All branches run
-     * entirely client-side — they only manipulate {@code PlayerAgentLoop}
-     * and open client GUIs.
-     *
-     * <h2>Subcommand layout</h2>
-     * Each verb is its own literal — no bare {@code /animus <text>} with a
-     * greedy fallback, because Brigadier would let the greedy argument
-     * swallow literals like "settings" (registered later) and route them
-     * through {@code submitPrompt} instead of into the GUI.
+     * entirely client-side — they open client GUIs or reset agent state.
+     * Conversations now happen per-entity (right-click an Animus, or the
+     * Units tab Chat button), so there is no prompt verb here.
      */
     private static void registerClientCommands() {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registry) -> {
             LiteralArgumentBuilder<FabricClientCommandSource> root =
                     net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("animus")
-                            // /animus (no args) → open the manager GUI (Chat tab by default).
+                            // /animus (no args) → open the manager GUI (Units tab).
                             .executes(ctx -> {
                                 AnimusManagerScreen.open();
                                 return 1;
@@ -129,47 +123,16 @@ public class AnimusFabricClient implements ClientModInitializer {
                         return 1;
                     }));
 
-            // /animus reset  — clear PlayerAgent conversation
+            // /animus reset  — clear all per-entity conversations
             root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands
                     .literal("reset")
                     .executes(ctx -> {
                         AgentLoopRegistry.clear();
-                        ctx.getSource().sendFeedback(Component.literal("[animus] conversation cleared"));
+                        ctx.getSource().sendFeedback(Component.literal("[animus] conversations cleared"));
                         return 1;
                     }));
 
-            // /animus prompt <text...>  — submit a prompt to PlayerAgent
-            root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands
-                    .literal("prompt")
-                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands
-                            .argument("text", StringArgumentType.greedyString())
-                            .executes(ctx -> {
-                                String text = StringArgumentType.getString(ctx, "text");
-                                AgentLoopRegistry.playerAgent().submitPrompt(text);
-                                ctx.getSource().sendFeedback(
-                                        Component.literal("[animus] dispatched: " + truncate(text, 60)));
-                                return 1;
-                            })));
-
-            // /animus say <text...>  — short alias for prompt
-            root.then(net.fabricmc.fabric.api.client.command.v2.ClientCommands
-                    .literal("say")
-                    .then(net.fabricmc.fabric.api.client.command.v2.ClientCommands
-                            .argument("text", StringArgumentType.greedyString())
-                            .executes(ctx -> {
-                                String text = StringArgumentType.getString(ctx, "text");
-                                AgentLoopRegistry.playerAgent().submitPrompt(text);
-                                ctx.getSource().sendFeedback(
-                                        Component.literal("[animus] dispatched: " + truncate(text, 60)));
-                                return 1;
-                            })));
-
             dispatcher.register(root);
         });
-    }
-
-    private static String truncate(String s, int max) {
-        if (s == null) return "";
-        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 }

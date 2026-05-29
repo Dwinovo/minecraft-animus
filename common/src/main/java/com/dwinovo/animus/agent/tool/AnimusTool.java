@@ -50,7 +50,7 @@ import java.util.Set;
  *       {@link #toTaskRecord} method is the one the server invokes.</li>
  *   <li><b>Local (client-side) tools</b> ({@code isLocal() == true}) — like
  *       {@code todowrite} / {@code load_skill}: pure agent-side bookkeeping
- *       with no world side-effect. {@link ClientAgentLoop} executes them
+ *       with no world side-effect. {@link EntityAgentLoop} executes them
  *       synchronously via {@link #executeLocal(JsonObject)}, writes the
  *       result straight into the conversation as a {@code role:tool} message,
  *       and never goes to the server. {@link #toTaskRecord} is never called

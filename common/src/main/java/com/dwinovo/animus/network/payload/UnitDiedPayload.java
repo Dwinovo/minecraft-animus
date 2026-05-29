@@ -10,8 +10,8 @@ import net.minecraft.resources.Identifier;
 /**
  * Server → Client: the in-world entity backing a unit slot died unexpectedly
  * (took fatal damage, fell into the void, was killed by a mob). Client uses
- * this to abort the corresponding EntityAgent loop, push a "unit X died:
- * reason" report to the PlayerAgent, and re-render the GUI slot as dead.
+ * this to dispose the corresponding entity agent loop and re-render the GUI
+ * slot as dead.
  *
  * <p>Separate from {@code RecallUnitPayload} because that one is
  * client-initiated cleanup, whereas this one is server-initiated

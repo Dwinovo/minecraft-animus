@@ -11,7 +11,7 @@ import net.minecraft.resources.Identifier;
 /**
  * Server-to-client payload: result of a previously requested tool execution.
  * Server drains task outboxes each tick and ships completed results back to
- * the owning player; the player's {@code ClientAgentLoop} feeds them into
+ * the owning player; the player's {@code EntityAgentLoop} feeds them into
  * the LLM conversation as {@code role:tool} messages, then triggers the
  * next turn when all pending results are in.
  *

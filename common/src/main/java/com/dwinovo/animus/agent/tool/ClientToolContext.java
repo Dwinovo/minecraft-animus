@@ -29,7 +29,7 @@ public record ClientToolContext(
         return new ClientToolContext(AgentRole.ENTITY, entity, null, unitId, vanillaEntityId);
     }
 
-    /** Factory for the PlayerAgent path — only the player is meaningful. */
+    /** Factory for a player-anchored path — only the player is meaningful. */
     public static ClientToolContext forPlayer(Player player) {
         return new ClientToolContext(AgentRole.PLAYER, null, player, -1, -1);
     }

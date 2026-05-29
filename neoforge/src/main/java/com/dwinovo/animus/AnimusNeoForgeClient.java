@@ -8,7 +8,6 @@ import com.dwinovo.animus.client.screen.AnimusManagerScreen;
 import com.dwinovo.animus.client.screen.SettingsScreen;
 import com.dwinovo.animus.entity.InitEntity;
 import com.dwinovo.animus.render.AnimusRenderer;
-import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.client.Minecraft;
@@ -67,28 +66,13 @@ public class AnimusNeoForgeClient {
 
     @SubscribeEvent
     static void registerClientCommands(RegisterClientCommandsEvent event) {
-        // Each verb is its own literal — no bare /animus <text> with a
-        // greedy fallback, because Brigadier would let the greedy argument
-        // swallow literals like "settings" registered later.
+        // Conversations now happen per-entity (right-click an Animus, or the
+        // Units tab Chat button), so there is no prompt verb here.
         LiteralArgumentBuilder<CommandSourceStack> root = Commands.literal("animus")
                 .executes(AnimusNeoForgeClient::cmdManager)
                 .then(Commands.literal("settings").executes(AnimusNeoForgeClient::cmdSettings))
-                .then(Commands.literal("reset").executes(AnimusNeoForgeClient::cmdReset))
-                .then(Commands.literal("prompt").then(
-                        Commands.argument("text", StringArgumentType.greedyString())
-                                .executes(AnimusNeoForgeClient::cmdPrompt)))
-                .then(Commands.literal("say").then(
-                        Commands.argument("text", StringArgumentType.greedyString())
-                                .executes(AnimusNeoForgeClient::cmdPrompt)));
+                .then(Commands.literal("reset").executes(AnimusNeoForgeClient::cmdReset));
         event.getDispatcher().register(root);
-    }
-
-    private static int cmdPrompt(CommandContext<CommandSourceStack> ctx) {
-        String text = StringArgumentType.getString(ctx, "text");
-        AgentLoopRegistry.playerAgent().submitPrompt(text);
-        ctx.getSource().sendSuccess(() ->
-                Component.literal("[animus] dispatched: " + truncate(text, 60)), false);
-        return 1;
     }
 
     private static int cmdManager(CommandContext<CommandSourceStack> ctx) {
@@ -104,13 +88,8 @@ public class AnimusNeoForgeClient {
     private static int cmdReset(CommandContext<CommandSourceStack> ctx) {
         AgentLoopRegistry.clear();
         ctx.getSource().sendSuccess(() ->
-                Component.literal("[animus] conversation cleared"), false);
+                Component.literal("[animus] conversations cleared"), false);
         return 1;
-    }
-
-    private static String truncate(String s, int max) {
-        if (s == null) return "";
-        return s.length() <= max ? s : s.substring(0, max) + "...";
     }
 
     @SubscribeEvent

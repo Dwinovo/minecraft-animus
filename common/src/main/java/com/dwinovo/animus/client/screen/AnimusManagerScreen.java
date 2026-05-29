@@ -1,6 +1,5 @@
 package com.dwinovo.animus.client.screen;
 
-import com.dwinovo.animus.client.screen.tabs.ChatTab;
 import com.dwinovo.animus.client.screen.tabs.StorageTab;
 import com.dwinovo.animus.client.screen.tabs.Tab;
 import com.dwinovo.animus.client.screen.tabs.UnitsTab;
@@ -14,8 +13,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The single in-game GUI for everything Animus. Top tab bar (Chat / Units /
+ * The single in-game GUI for managing Animus units. Top tab bar (Units /
  * Storage), top-right buttons (Settings / Close), content area below.
+ *
+ * <p>Chat is no longer a tab — in the single-layer agent design each Animus
+ * has its own conversation, reached by right-clicking the entity (or the
+ * Units tab Chat button), which opens {@link EntityChatScreen}.
  *
  * <h2>Why one screen</h2>
  * Multiple separate screens (one per concern) would lose state when the
@@ -36,7 +39,7 @@ import java.util.List;
  */
 public final class AnimusManagerScreen extends Screen {
 
-    public enum TabId { CHAT, UNITS, STORAGE }
+    public enum TabId { UNITS, STORAGE }
 
     public static final int CONTENT_WIDTH = 360;
     public static final int CONTENT_HEIGHT = 240;
@@ -44,18 +47,15 @@ public final class AnimusManagerScreen extends Screen {
     private static final int TOP_BUTTONS_HEIGHT = 16;
     private static final int PADDING = 8;
 
-    private TabId activeTab = TabId.CHAT;
+    private TabId activeTab = TabId.UNITS;
     private final List<Tab> tabs = new ArrayList<>();
-    private final ChatTab chatTab;
     private final UnitsTab unitsTab;
     private final StorageTab storageTab;
 
     private AnimusManagerScreen() {
         super(Component.literal("Animus"));
-        this.chatTab = new ChatTab(this);
         this.unitsTab = new UnitsTab(this);
         this.storageTab = new StorageTab(this);
-        tabs.add(chatTab);
         tabs.add(unitsTab);
         tabs.add(storageTab);
     }
@@ -92,7 +92,7 @@ public final class AnimusManagerScreen extends Screen {
 
         // Top tab bar (3 tabs, equal width).
         int tabsTotalWidth = CONTENT_WIDTH - 130;  // leave room for the right-side action buttons
-        int tabWidth = tabsTotalWidth / 3;
+        int tabWidth = tabsTotalWidth / tabs.size();
         for (int i = 0; i < tabs.size(); i++) {
             final TabId id = TabId.values()[i];
             int bx = left + i * tabWidth;

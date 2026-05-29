@@ -14,8 +14,8 @@ import java.util.function.Consumer;
  * builder, the GUI, and any local tools that need to surface state.
  *
  * <h2>Why a mirror</h2>
- * The server is authoritative — but PlayerAgent runs on the client and
- * needs unit metadata (names, model keys, alive/active flags) and storage
+ * The server is authoritative — but each entity's agent runs on the client
+ * and needs unit metadata (names, model keys, alive/active flags) and storage
  * contents synchronously when composing each turn's prompt. Round-tripping
  * to the server every turn would add latency and complicate the agent
  * loop. The mirror trades a tiny memory cost for synchronous reads.

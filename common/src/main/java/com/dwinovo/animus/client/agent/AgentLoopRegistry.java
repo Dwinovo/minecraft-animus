@@ -9,123 +9,85 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Client-side registry for the multi-agent stack:
- * <ul>
- *   <li>One {@link PlayerAgentLoop} singleton for the local player.</li>
- *   <li>One {@link EntityAgentLoop} per currently-spawned Animus, keyed by
- *       the vanilla {@code entity.getId()} (server-assigned at spawn time).</li>
- * </ul>
+ * Client-side registry of {@link EntityAgentLoop} instances — one per Animus
+ * the player is talking to, keyed by the vanilla {@code entity.getId()}.
+ *
+ * <h2>Single-layer architecture</h2>
+ * Each Animus carries its own conversation; the owner chats with each entity
+ * directly. There is no PlayerAgent brain coordinating sub-agents anymore —
+ * see {@link EntityAgentLoop} for the rationale behind rolling that back.
+ *
+ * <h2>Unit-slot index</h2>
+ * Units summoned through the manager GUI are bound to a slot id (1..6). We
+ * keep a {@code unitId → vanillaEntityId} index so the Units tab can open a
+ * chat for, or look up, the entity currently occupying a slot. Entities the
+ * player interacts with outside the slot system (right-click a stray Animus)
+ * still get a loop via {@link #getOrCreate} — they just aren't in this index.
  *
  * <h2>Threading</h2>
- * Client main thread only — every entry point (payload handler, EntityAgent
- * self-dispose, etc.) runs on it.
- *
- * <h2>Lifecycle</h2>
- * <ul>
- *   <li>PlayerAgent: lazily created on first {@link #playerAgent} call;
- *       lives the whole session.</li>
- *   <li>EntityAgents: created in {@link #onUnitSpawned} when the server
- *       confirms a successful summon; disposed in {@link #disposeEntityLoop}
- *       when the loop emits final text, or in {@link #onUnitDied} when the
- *       in-world entity dies unexpectedly.</li>
- *   <li>{@link #clear} called from world-disconnect / fresh-start hooks.</li>
- * </ul>
+ * Client main thread only — every entry point (payload handler, chat screen,
+ * interact handler, client-tick watchdog) runs on it. No locks.
  */
 public final class AgentLoopRegistry {
 
-    private static PlayerAgentLoop PLAYER;
     private static final Map<Integer, EntityAgentLoop> ENTITY_LOOPS = new HashMap<>();
+    private static final Map<Integer, Integer> UNIT_TO_ENTITY = new HashMap<>();
 
     private AgentLoopRegistry() {}
 
-    /** Get-or-create the singleton PlayerAgent for this client session. */
-    public static synchronized PlayerAgentLoop playerAgent() {
-        if (PLAYER == null) PLAYER = new PlayerAgentLoop();
-        return PLAYER;
+    /** Create-on-first-access. The returned loop is bound to {@code vanillaEntityId} for its lifetime. */
+    public static EntityAgentLoop getOrCreate(int vanillaEntityId) {
+        return ENTITY_LOOPS.computeIfAbsent(vanillaEntityId, EntityAgentLoop::new);
     }
 
-    public static Optional<EntityAgentLoop> entityLoop(int vanillaEntityId) {
-        return Optional.ofNullable(ENTITY_LOOPS.get(vanillaEntityId));
-    }
-
-    /** S→C handler: a summon-unit just succeeded (or failed). */
-    public static void onUnitSpawned(UnitSpawnedPayload p) {
-        PlayerAgentLoop player = playerAgent();
-        String pending = player.drainPendingPrompt(p.unitId());
-        if (p.vanillaEntityId() == -1) {
-            // Server reported failure — synthesise a tool-result-like report
-            // so the LLM sees the failure and can adjust.
-            String reason = p.failReason().isEmpty() ? "unknown" : p.failReason();
-            player.injectSubagentReport(p.unitId(), "summon_failed", reason);
-            Constants.LOG.warn("[animus-registry] summon failed unit={} reason={}",
-                    p.unitId(), reason);
-            return;
-        }
-        EntityAgentLoop loop = new EntityAgentLoop(p.vanillaEntityId(), p.unitId());
-        ENTITY_LOOPS.put(p.vanillaEntityId(), loop);
-        Constants.LOG.info("[animus-registry] spawned EntityAgent unit={} vanilla={} pending_prompt={}",
-                p.unitId(), p.vanillaEntityId(), pending != null);
-        if (pending != null) {
-            loop.submitPrompt(pending);
-        } else {
-            // No pending prompt — this can happen if the player triggered a
-            // bare summon outside of assign_task. Push a synthetic prompt
-            // so the loop has something to chew on, or just dispose silently.
-            Constants.LOG.warn("[animus-registry] spawned unit={} with no pending prompt; idling",
-                    p.unitId());
-        }
-    }
-
-    /** S→C handler: in-world entity died unexpectedly. */
-    public static void onUnitDied(UnitDiedPayload p) {
-        // Find the EntityAgent for this unit_id (by scanning — small map).
-        EntityAgentLoop dying = null;
-        for (EntityAgentLoop loop : ENTITY_LOOPS.values()) {
-            if (loop.unitId() == p.unitId()) {
-                dying = loop;
-                break;
-            }
-        }
-        if (dying != null) {
-            // Entity already gone server-side; don't send a recall packet.
-            dying.externalAbort("died", p.reason(), false);
-        } else {
-            // Even with no EntityAgent (already disposed), tell PlayerAgent.
-            PlayerAgentLoop player = playerAgent();
-            player.injectSubagentReport(p.unitId(), "died", p.reason());
-        }
-    }
-
-    /** EntityAgent finished naturally — remove from the map. */
-    public static void disposeEntityLoop(int vanillaEntityId) {
-        ENTITY_LOOPS.remove(vanillaEntityId);
-    }
-
-    /** Clear everything — called on world-disconnect / explicit reset. */
-    public static void clear() {
-        PLAYER = null;
-        ENTITY_LOOPS.clear();
-    }
-
-    /** Used by TaskResultPayload routing — find the EntityAgent that owns a vanilla id. */
+    /** Read-only lookup; never creates. Used by the S→C result handler. */
     public static Optional<EntityAgentLoop> get(int vanillaEntityId) {
         return Optional.ofNullable(ENTITY_LOOPS.get(vanillaEntityId));
     }
 
-    /** Find the EntityAgent for a given unit slot (1..6), if active. */
-    public static Optional<EntityAgentLoop> findByUnitId(int unitId) {
-        for (EntityAgentLoop loop : ENTITY_LOOPS.values()) {
-            if (loop.unitId() == unitId) return Optional.of(loop);
-        }
-        return Optional.empty();
+    /** Vanilla entity id currently bound to a unit slot (1..6), if any. */
+    public static Optional<Integer> entityIdForUnit(int unitId) {
+        return Optional.ofNullable(UNIT_TO_ENTITY.get(unitId));
     }
 
     /**
-     * Per-client-tick fan-out. Invoked once per client tick from the
-     * loader's tick event (Fabric {@code ClientTickEvents.END_CLIENT_TICK} /
-     * NeoForge {@code ClientTickEvent.Post}). Each entity loop runs its
-     * watchdog. Snapshots the values to a fresh array so a loop terminating
-     * itself mid-iteration doesn't blow up the iterator.
+     * S→C handler: a summon-unit request resolved. On success we pre-create
+     * the entity's loop and index it by slot so the GUI can chat with it; on
+     * failure we just log (the owner will see the unit stay idle).
+     */
+    public static void onUnitSpawned(UnitSpawnedPayload p) {
+        if (p.vanillaEntityId() == -1) {
+            String reason = p.failReason().isEmpty() ? "unknown" : p.failReason();
+            Constants.LOG.warn("[animus-registry] summon failed unit={} reason={}", p.unitId(), reason);
+            return;
+        }
+        UNIT_TO_ENTITY.put(p.unitId(), p.vanillaEntityId());
+        getOrCreate(p.vanillaEntityId());
+        Constants.LOG.info("[animus-registry] unit {} spawned as vanilla entity {}",
+                p.unitId(), p.vanillaEntityId());
+    }
+
+    /** S→C handler: in-world entity bound to a unit slot died / unloaded. */
+    public static void onUnitDied(UnitDiedPayload p) {
+        Integer vanillaId = UNIT_TO_ENTITY.remove(p.unitId());
+        if (vanillaId != null) {
+            ENTITY_LOOPS.remove(vanillaId);
+        }
+        Constants.LOG.info("[animus-registry] unit {} died (reason={}); loop disposed",
+                p.unitId(), p.reason());
+    }
+
+    /** Clear everything — called on world-disconnect / explicit reset. */
+    public static void clear() {
+        ENTITY_LOOPS.clear();
+        UNIT_TO_ENTITY.clear();
+    }
+
+    /**
+     * Per-client-tick fan-out. Invoked once per client tick from the loader's
+     * tick event. Each entity loop runs its stale-result watchdog. Snapshots
+     * the values to a fresh array so a loop mutating the map mid-iteration
+     * doesn't blow up the iterator.
      */
     public static void tickAll() {
         if (ENTITY_LOOPS.isEmpty()) return;

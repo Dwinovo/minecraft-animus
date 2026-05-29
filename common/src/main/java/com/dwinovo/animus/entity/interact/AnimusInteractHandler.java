@@ -6,21 +6,40 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 
 /**
- * Right-click dispatcher for {@link AnimusEntity}. In the multi-agent
- * architecture an Animus body is summoned and disposed by the
- * PlayerAgent — there's no per-entity GUI, so right-click is a no-op
- * (returns {@link InteractionResult#PASS} to let vanilla mob behaviour
- * fall through).
+ * Right-click dispatcher for {@link AnimusEntity}. In the single-layer agent
+ * design each Animus has its own conversation, so an owner main-hand
+ * right-click opens that entity's chat GUI ({@code EntityChatScreen}).
  *
- * <p>Configuration / naming / model selection happens in the
- * {@code AnimusManagerScreen} GUI (default keybind {@code X}).
- * Conversations with the PlayerAgent happen via {@code /animus <prompt>}.
+ * <p>Non-owners, off-hand clicks, and anything else fall through with
+ * {@link InteractionResult#PASS} so vanilla mob behaviour (e.g. leashing)
+ * still works.
+ *
+ * <p>Unit naming / model selection lives in the {@code AnimusManagerScreen}
+ * Units tab (default keybind {@code X}).
  */
 public final class AnimusInteractHandler {
 
     private AnimusInteractHandler() {}
 
     public static InteractionResult handle(AnimusEntity entity, Player player, InteractionHand hand) {
-        return InteractionResult.PASS;
+        if (hand != InteractionHand.MAIN_HAND) return InteractionResult.PASS;
+        if (!entity.isTame() || !entity.isOwnedBy(player)) return InteractionResult.PASS;
+
+        if (entity.level().isClientSide()) {
+            openChat(entity);
+        }
+        // SUCCESS on both sides keeps client/server interaction in lockstep and
+        // swallows the swing so the owner doesn't punch their own unit.
+        return InteractionResult.SUCCESS;
+    }
+
+    /**
+     * Isolated client-only call. Referencing the {@code Screen} subclass from
+     * a separate method keeps the dedicated-server class loader from touching
+     * client GUI classes — {@link #handle} only invokes this inside the
+     * {@code isClientSide()} guard.
+     */
+    private static void openChat(AnimusEntity entity) {
+        com.dwinovo.animus.client.screen.EntityChatScreen.open(entity);
     }
 }
