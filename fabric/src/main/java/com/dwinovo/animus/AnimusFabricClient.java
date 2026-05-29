@@ -4,7 +4,6 @@ import com.dwinovo.animus.agent.skill.BuiltinSkillBootstrap;
 import com.dwinovo.animus.agent.skill.SkillRegistry;
 import com.dwinovo.animus.anim.compile.BedrockResourceLoader;
 import com.dwinovo.animus.client.agent.AgentLoopRegistry;
-import com.dwinovo.animus.client.screen.AnimusManagerScreen;
 import com.dwinovo.animus.client.screen.SettingsScreen;
 import com.dwinovo.animus.entity.InitEntity;
 import com.dwinovo.animus.render.AnimusRenderer;
@@ -75,28 +74,8 @@ public class AnimusFabricClient implements ClientModInitializer {
                 });
 
         registerClientCommands();
-        registerKeybinding();
-        // Drive the per-EntityAgent stale-result watchdog from the client tick.
+        // Drive the per-entity stale-result watchdog from the client tick.
         ClientTickEvents.END_CLIENT_TICK.register(mc -> AgentLoopRegistry.tickAll());
-    }
-
-    /**
-     * Default keybind: {@code X} → open the Animus manager. Players can
-     * rebind in vanilla Controls. Module is {@code fabric-key-mapping-api-v1}
-     * (renamed from the older {@code fabric-key-binding-api-v1}).
-     */
-    private static void registerKeybinding() {
-        KeyMapping openManager = new KeyMapping(
-                "key.animus.open_manager",
-                InputConstants.Type.KEYSYM,
-                GLFW.GLFW_KEY_X,
-                KeyMapping.Category.MISC);
-        KeyMappingHelper.registerKeyMapping(openManager);
-        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
-            while (openManager.consumeClick()) {
-                AnimusManagerScreen.open();
-            }
-        });
     }
 
     /**
@@ -109,9 +88,9 @@ public class AnimusFabricClient implements ClientModInitializer {
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registry) -> {
             LiteralArgumentBuilder<FabricClientCommandSource> root =
                     net.fabricmc.fabric.api.client.command.v2.ClientCommands.literal("animus")
-                            // /animus (no args) → open the manager GUI (Units tab).
+                            // /animus (no args) → open settings (configure API key).
                             .executes(ctx -> {
-                                AnimusManagerScreen.open();
+                                SettingsScreen.open(null);
                                 return 1;
                             });
 

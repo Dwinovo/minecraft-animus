@@ -3,7 +3,7 @@ package com.dwinovo.animus.agent.tool.tools;
 import com.dwinovo.animus.agent.tool.AgentRole;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ClientToolContext;
-import com.dwinovo.animus.client.data.ClientPlayerAnimusState;
+import com.dwinovo.animus.client.data.ClientAnimusInventories;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -27,11 +27,10 @@ public final class GetStorageTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Read the contents of the player's shared virtual storage "
-                + "(54-slot chest). Returns a list of {slot, item_id, count, "
-                + "max_stack_size} for each non-empty slot. Empty slots are "
-                + "omitted. Use this before assigning resource-gathering "
-                + "tasks to avoid over-collecting.";
+        return "Read the contents of your own inventory. Returns a list of "
+                + "{slot, item_id, count, max_stack_size} for each non-empty "
+                + "slot. Empty slots are omitted. Use this to check what you "
+                + "are carrying before / after gathering.";
     }
 
     @Override
@@ -57,8 +56,7 @@ public final class GetStorageTool implements AnimusTool {
 
     @Override
     public String executeLocal(JsonObject args, ClientToolContext ctx) {
-        ClientPlayerAnimusState state = ClientPlayerAnimusState.instance();
-        ItemStack[] slots = state.storageSnapshot();
+        ItemStack[] slots = ClientAnimusInventories.get(ctx.vanillaEntityId());
         JsonArray items = new JsonArray();
         int used = 0;
         for (int i = 0; i < slots.length; i++) {

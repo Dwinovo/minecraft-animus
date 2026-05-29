@@ -1,19 +1,15 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.Constants;
-import com.dwinovo.animus.data.PlayerAnimusData;
-import com.dwinovo.animus.data.PlayerAnimusStorage;
 import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.network.payload.UnitsSnapshotPayload;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -170,13 +166,15 @@ public final class BlockMiningProgress {
 
     /**
      * Break the block and route every dropped {@link ItemStack} into the
-     * owning player's {@link PlayerAnimusStorage}. Items that don't fit
-     * (storage full) fall back to vanilla on-ground {@link ItemEntity}.
+     * Animus's own inventory. Items that don't fit (inventory full) fall back
+     * to vanilla on-ground {@link ItemEntity}.
      *
      * <p>Bypasses {@code level.destroyBlock(pos, true, entity)} so we
      * compute drops manually with the entity's held item as the tool
      * (preserves correct-tool / silk-touch / fortune semantics) and never
-     * spawn ItemEntities in the world unless storage rejects them.
+     * spawn ItemEntities in the world unless the inventory rejects them.
+     * The inventory's {@code setChanged} hook pushes a fresh snapshot to the
+     * owner so the GUI and {@code get_storage} tool see the new items.
      */
     private void breakAndRouteDrops(Level level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
@@ -191,39 +189,15 @@ public final class BlockMiningProgress {
 
         if (drops.isEmpty()) return;
 
-        PlayerAnimusStorage storage = lookupOwnerStorage();
-        if (storage == null) {
-            // No identifiable player owner (race?) — fall back to vanilla on-ground.
-            for (ItemStack stack : drops) spawnAsItemEntity(level, pos, stack);
-            return;
-        }
+        SimpleContainer inventory = entity.getInventory();
         for (ItemStack stack : drops) {
-            ItemStack leftover = storage.insert(stack);
+            ItemStack leftover = inventory.addItem(stack);
             if (!leftover.isEmpty()) {
-                Constants.LOG.debug("[animus-mining] storage full, dropping {} on ground",
+                Constants.LOG.debug("[animus-mining] inventory full, dropping {} on ground",
                         leftover.getCount());
                 spawnAsItemEntity(level, pos, leftover);
             }
         }
-        // Persist + push fresh snapshot to the owner so GUI / env_block see the new items.
-        Player owner = entity.getOwner() instanceof Player p ? p : null;
-        if (owner instanceof ServerPlayer sp && sp.level() instanceof ServerLevel spLevel) {
-            PlayerAnimusData.lookup(spLevel.getServer(), sp.getUUID())
-                    .ifPresent(PlayerAnimusData::markDirty);
-            UnitsSnapshotPayload.sendTo(sp);
-        }
-    }
-
-    /**
-     * Resolve the storage associated with this entity's owner. Returns
-     * {@code null} on any miss (no owner UUID, owner not currently a player,
-     * not on a server level).
-     */
-    private PlayerAnimusStorage lookupOwnerStorage() {
-        if (entity.getOwnerReference() == null) return null;
-        if (!(entity.level() instanceof ServerLevel sl)) return null;
-        var data = PlayerAnimusData.lookup(sl.getServer(), entity.getOwnerReference().getUUID());
-        return data.map(PlayerAnimusData::storage).orElse(null);
     }
 
     private static void spawnAsItemEntity(Level level, BlockPos pos, ItemStack stack) {

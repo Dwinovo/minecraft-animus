@@ -322,7 +322,7 @@ public final class EntityAgentLoop {
                 String resultJson;
                 try {
                     JsonObject args = parseArgs(tc.arguments());
-                    ClientToolContext ctx = ClientToolContext.forEntity(vanillaEntityId, resolveEntity(), -1);
+                    ClientToolContext ctx = new ClientToolContext(resolveEntity(), vanillaEntityId);
                     resultJson = tool.executeLocal(args, ctx);
                 } catch (RuntimeException ex) {
                     resultJson = "{\"success\":false,\"message\":\"" + escape(ex.getMessage()) + "\"}";

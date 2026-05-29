@@ -1,8 +1,6 @@
 package com.dwinovo.animus.client.agent;
 
-import com.dwinovo.animus.Constants;
-import com.dwinovo.animus.network.payload.UnitDiedPayload;
-import com.dwinovo.animus.network.payload.UnitSpawnedPayload;
+import com.dwinovo.animus.client.data.ClientAnimusInventories;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -14,15 +12,7 @@ import java.util.Optional;
  *
  * <h2>Single-layer architecture</h2>
  * Each Animus carries its own conversation; the owner chats with each entity
- * directly. There is no PlayerAgent brain coordinating sub-agents anymore —
- * see {@link EntityAgentLoop} for the rationale behind rolling that back.
- *
- * <h2>Unit-slot index</h2>
- * Units summoned through the manager GUI are bound to a slot id (1..6). We
- * keep a {@code unitId → vanillaEntityId} index so the Units tab can open a
- * chat for, or look up, the entity currently occupying a slot. Entities the
- * player interacts with outside the slot system (right-click a stray Animus)
- * still get a loop via {@link #getOrCreate} — they just aren't in this index.
+ * directly. There is no coordinating brain — see {@link EntityAgentLoop}.
  *
  * <h2>Threading</h2>
  * Client main thread only — every entry point (payload handler, chat screen,
@@ -31,7 +21,6 @@ import java.util.Optional;
 public final class AgentLoopRegistry {
 
     private static final Map<Integer, EntityAgentLoop> ENTITY_LOOPS = new HashMap<>();
-    private static final Map<Integer, Integer> UNIT_TO_ENTITY = new HashMap<>();
 
     private AgentLoopRegistry() {}
 
@@ -45,48 +34,21 @@ public final class AgentLoopRegistry {
         return Optional.ofNullable(ENTITY_LOOPS.get(vanillaEntityId));
     }
 
-    /** Vanilla entity id currently bound to a unit slot (1..6), if any. */
-    public static Optional<Integer> entityIdForUnit(int unitId) {
-        return Optional.ofNullable(UNIT_TO_ENTITY.get(unitId));
-    }
-
-    /**
-     * S→C handler: a summon-unit request resolved. On success we pre-create
-     * the entity's loop and index it by slot so the GUI can chat with it; on
-     * failure we just log (the owner will see the unit stay idle).
-     */
-    public static void onUnitSpawned(UnitSpawnedPayload p) {
-        if (p.vanillaEntityId() == -1) {
-            String reason = p.failReason().isEmpty() ? "unknown" : p.failReason();
-            Constants.LOG.warn("[animus-registry] summon failed unit={} reason={}", p.unitId(), reason);
-            return;
-        }
-        UNIT_TO_ENTITY.put(p.unitId(), p.vanillaEntityId());
-        getOrCreate(p.vanillaEntityId());
-        Constants.LOG.info("[animus-registry] unit {} spawned as vanilla entity {}",
-                p.unitId(), p.vanillaEntityId());
-    }
-
-    /** S→C handler: in-world entity bound to a unit slot died / unloaded. */
-    public static void onUnitDied(UnitDiedPayload p) {
-        Integer vanillaId = UNIT_TO_ENTITY.remove(p.unitId());
-        if (vanillaId != null) {
-            ENTITY_LOOPS.remove(vanillaId);
-        }
-        Constants.LOG.info("[animus-registry] unit {} died (reason={}); loop disposed",
-                p.unitId(), p.reason());
+    /** Drop one entity's loop + inventory mirror (e.g. when it dies / unloads). */
+    public static void dispose(int vanillaEntityId) {
+        ENTITY_LOOPS.remove(vanillaEntityId);
+        ClientAnimusInventories.remove(vanillaEntityId);
     }
 
     /** Clear everything — called on world-disconnect / explicit reset. */
     public static void clear() {
         ENTITY_LOOPS.clear();
-        UNIT_TO_ENTITY.clear();
+        ClientAnimusInventories.clear();
     }
 
     /**
-     * Per-client-tick fan-out. Invoked once per client tick from the loader's
-     * tick event. Each entity loop runs its stale-result watchdog. Snapshots
-     * the values to a fresh array so a loop mutating the map mid-iteration
+     * Per-client-tick fan-out. Each entity loop runs its stale-result
+     * watchdog. Snapshots the values so a loop mutating the map mid-iteration
      * doesn't blow up the iterator.
      */
     public static void tickAll() {

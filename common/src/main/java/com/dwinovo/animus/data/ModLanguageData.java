@@ -44,6 +44,9 @@ public final class ModLanguageData {
         /** Entity display name shown on name plates and spawn eggs. */
         public static final String ENTITY_ANIMUS = "entity.animus.animus";
 
+        /** Spawn-egg item display name. */
+        public static final String ITEM_ANIMUS_SPAWN_EGG = "item.animus.animus_spawn_egg";
+
         // Model-chooser GUI labels.
         public static final String GUI_CHOOSE_MODEL_TITLE     = "animus.gui.choose_model.title";
         public static final String GUI_CHOOSE_MODEL_REFRESH   = "animus.gui.choose_model.refresh";
@@ -94,6 +97,7 @@ public final class ModLanguageData {
 
     private static void addEn(Adder adder) {
         adder.add(Keys.ENTITY_ANIMUS, "Animus");
+        adder.add(Keys.ITEM_ANIMUS_SPAWN_EGG, "Animus Spawn Egg");
 
         adder.add(Keys.GUI_CHOOSE_MODEL_TITLE,        "Choose Model");
         adder.add(Keys.GUI_CHOOSE_MODEL_REFRESH,      "Refresh");
@@ -130,6 +134,7 @@ public final class ModLanguageData {
 
     private static void addZh(Adder adder) {
         adder.add(Keys.ENTITY_ANIMUS, "Animus");
+        adder.add(Keys.ITEM_ANIMUS_SPAWN_EGG, "Animus 刷怪蛋");
 
         adder.add(Keys.GUI_CHOOSE_MODEL_TITLE,        "选择模型");
         adder.add(Keys.GUI_CHOOSE_MODEL_REFRESH,      "刷新");

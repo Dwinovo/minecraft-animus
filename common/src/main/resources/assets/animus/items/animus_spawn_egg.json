@@ -1,0 +1,9 @@
+{
+  "model": {
+    "type": "minecraft:special",
+    "base": "minecraft:item/template_spawn_egg",
+    "model": {
+      "type": "minecraft:spawn_egg"
+    }
+  }
+}

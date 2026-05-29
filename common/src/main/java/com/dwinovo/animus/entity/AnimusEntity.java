@@ -2,12 +2,9 @@ package com.dwinovo.animus.entity;
 
 import com.dwinovo.animus.anim.api.AnimusAnimated;
 import com.dwinovo.animus.anim.runtime.Animator;
-import com.dwinovo.animus.data.PlayerAnimusData;
-import com.dwinovo.animus.data.PlayerAnimusStorage;
 import com.dwinovo.animus.entity.interact.AnimusInteractHandler;
+import com.dwinovo.animus.network.payload.AnimusInventoryPayload;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
-import com.dwinovo.animus.network.payload.UnitDiedPayload;
-import com.dwinovo.animus.network.payload.UnitsSnapshotPayload;
 import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.task.TaskQueue;
 import com.dwinovo.animus.task.TaskRecord;
@@ -16,102 +13,101 @@ import com.dwinovo.animus.task.tasks.AttackTargetTaskGoal;
 import com.dwinovo.animus.task.tasks.MineBlockTaskGoal;
 import com.dwinovo.animus.task.tasks.MoveToTaskGoal;
 import com.dwinovo.animus.task.tasks.PathfindAndMineTaskGoal;
+import net.minecraft.core.Vec3i;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.core.Vec3i;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.TamableAnimal;
-import net.minecraft.world.entity.item.ItemEntity;
-
-import java.util.List;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * Single LLM-driven entity at the heart of the mod. Behaviour is driven
- * by an external LLM through the tool / task pipeline; see
- * {@link #registerGoals()} for the wiring of task-executor Goals and the
- * vanilla {@code MeleeAttackGoal} that backs the {@code attack_target} tool.
+ * Single LLM-driven companion entity. A tamed Animus is a self-contained
+ * pet: it carries its own inventory, acts on the world through the tool /
+ * task pipeline, and chats with its owner through a per-entity GUI.
+ *
+ * <h2>Tame → own → command</h2>
+ * Spawned wild; the player tames it by feeding {@code animus:tame_foods}
+ * (see {@link AnimusInteractHandler}). Once tamed, an owner main-hand
+ * right-click opens its GUI (chat / inventory / model). The owner's chat
+ * drives a client-side LLM loop ({@code EntityAgentLoop}) whose tool calls
+ * are executed on this body server-side.
  *
  * <h2>Why TamableAnimal</h2>
- * Vanilla {@code TamableAnimal} gives us, free of code:
- * <ul>
- *   <li>{@code OwnerUUID} NBT persistence + {@link #getOwner()} resolution</li>
- *   <li>{@link #isTame()} / {@link #tame(Player)} / {@link #isOwnedBy} helpers</li>
- *   <li>Heart-particle (event 7) and smoke-puff (event 6) on the client when
- *       {@code level.broadcastEntityEvent} is called with those codes</li>
- *   <li>The owner concept is the same one the LLM layer will read as "whose
- *       commands to trust" — wiring owner first means the chat / tool-call
- *       layer just hooks {@code getOwnerUUID()} when it lands</li>
- * </ul>
- * Breeding (inherited from {@link Animal}) is explicitly disabled —
- * Animus is intended to be unique per spawn, not a renewable resource.
+ * Vanilla gives us owner-UUID persistence, {@link #isTame()} /
+ * {@link #tame(Player)} / {@link #isOwnedBy}, and the heart / smoke particle
+ * events for the taming feedback — all for free.
+ *
+ * <h2>Inventory</h2>
+ * Each Animus owns a {@value #INVENTORY_SIZE}-slot {@link SimpleContainer}.
+ * Mined / vacuumed drops land here; the owner moves items in and out via the
+ * GUI's chest menu. Persisted in entity NBT. Contents drop on death. A
+ * snapshot is pushed to the owner ({@link AnimusInventoryPayload}) whenever
+ * it changes so the client-side {@code get_storage} tool stays current.
  *
  * <h2>Synced model key</h2>
- * {@link #DATA_MODEL_KEY} is a string holding the {@link Identifier} of the
- * baked model to render this entity with — by default
- * {@link AnimusAnimated#DEFAULT_MODEL_KEY}. Players change it through the
- * model-chooser GUI (sneak-right-click as the owner) which dispatches a
- * {@code SetModelPayload} to the server; the server sets this field and
- * vanilla {@link SynchedEntityData} broadcasts the change to every tracking
- * client.
- *
- * <h2>Persistence</h2>
- * The model key survives world reload via the {@code "ModelKey"} NBT entry.
- * Owner UUID and {@code isTame} are handled by {@code TamableAnimal}'s own
- * {@code addAdditionalSaveData} / {@code readAdditionalSaveData}, called
- * automatically via {@code super}.
+ * {@link #DATA_MODEL_KEY} holds the render-model {@link Identifier}; changed
+ * via the GUI's model picker → {@code SetModelPayload}, broadcast by vanilla
+ * {@link SynchedEntityData}.
  */
 public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
+
+    public static final int INVENTORY_SIZE = 27;
 
     private static final EntityDataAccessor<String> DATA_MODEL_KEY =
             SynchedEntityData.defineId(AnimusEntity.class, EntityDataSerializers.STRING);
 
     private static final String NBT_KEY_MODEL = "ModelKey";
+    private static final String NBT_KEY_INVENTORY = "Inventory";
 
     private Animator animator;
 
-    /**
-     * Cache of the parsed {@link Identifier} so {@link #getModelKey()} doesn't
-     * re-parse every frame. Refreshed when the underlying synced string changes.
-     */
     private Identifier cachedModelKey = AnimusAnimated.DEFAULT_MODEL_KEY;
     private String cachedModelKeyString = AnimusAnimated.DEFAULT_MODEL_KEY.toString();
 
     /**
-     * Lazy server-side task queue. Constructed on first access, which
-     * happens only on a {@link ServerLevel} (the queue is populated by
-     * {@link com.dwinovo.animus.network.payload.ExecuteToolPayload} on the
-     * server and drained by the matching {@code LlmTaskGoal}).
-     *
-     * <p>The LLM-side agent loop now lives on the **client**
-     * ({@link com.dwinovo.animus.client.agent.EntityAgentLoop}) so each
-     * player's API key drives their own Animus. The server stays a pure
-     * task executor and result router — no LLM client here.
+     * This Animus's own inventory. Marks {@link #inventoryDirty} on any
+     * change so {@link #customServerAiStep} can push a fresh snapshot to the
+     * owner exactly once per tick instead of per-slot-mutation.
+     */
+    private final SimpleContainer inventory = new SimpleContainer(INVENTORY_SIZE) {
+        @Override
+        public void setChanged() {
+            super.setChanged();
+            inventoryDirty = true;
+        }
+    };
+    private boolean inventoryDirty = false;
+
+    /**
+     * Lazy server-side task queue, populated by {@code ExecuteToolPayload}
+     * and drained by the matching {@code LlmTaskGoal}. The LLM loop itself
+     * runs on the owner's client; the server is a pure executor + router.
      */
     private TaskQueue taskQueue;
 
     public AnimusEntity(EntityType<? extends AnimusEntity> type, Level level) {
         super(type, level);
-        // Vacuum-pick up nearby ItemEntities into the owner's shared storage.
-        // Vanilla Mob.serverAiStep iterates getEntitiesOfClass(ItemEntity,
-        // bbox.inflate(getPickupReach())) and calls pickUpItem(...) when
-        // wantsToPickUp returns true — we just opt in + override the routing.
         this.setCanPickUpLoot(true);
     }
 
@@ -119,35 +115,9 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         return TamableAnimal.createMobAttributes()
                 .add(Attributes.MAX_HEALTH, 20.0)
                 .add(Attributes.MOVEMENT_SPEED, 0.25)
-                // Roughly zombie-equivalent. Without this the entity swings
-                // through targets for 0 damage and combat tasks never resolve.
                 .add(Attributes.ATTACK_DAMAGE, 4.0);
     }
 
-    /**
-     * Wires the entity's AI:
-     * <ul>
-     *   <li>Vanilla {@link MeleeAttackGoal} (priority 0) — permanent. Watches
-     *       {@code getTarget()} and handles path-find + swing + doHurtTarget
-     *       + cooldown autonomously. The {@code attack_target} tool engages
-     *       it indirectly by setting the target via
-     *       {@link AttackTargetTaskGoal}.</li>
-     *   <li>Per-tool {@code LlmTaskGoal} subclasses (priority 0) — each
-     *       atomic world-action tool is paired with one of these. They peek
-     *       a single FIFO {@code TaskQueue} so only the goal matching the
-     *       head record activates, enforcing serial execution; see
-     *       {@link com.dwinovo.animus.task.LlmTaskGoal} javadoc.</li>
-     * </ul>
-     * Equal priority across the LlmTaskGoals neutralises vanilla preemption.
-     * {@code MeleeAttackGoal} owns MOVE+LOOK flags while {@code LlmTaskGoal}
-     * declares no flags, so the attack goal and the sentinel
-     * {@code AttackTargetTaskGoal} happily run side-by-side.
-     *
-     * <p>Called by the {@code Mob} constructor before {@code AnimusEntity}'s
-     * field initialisers have run. Don't access instance fields here — the
-     * Goal subclass should only store the entity reference and read state
-     * lazily from {@code canUse()} onward.
-     */
     @Override
     protected void registerGoals() {
         super.registerGoals();
@@ -158,48 +128,50 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         this.goalSelector.addGoal(0, new PathfindAndMineTaskGoal(this));
     }
 
-    /** Server-side task queue. Lazily created on first access. */
+    // ---- inventory ----
+
+    /** This Animus's own inventory. Server-authoritative; backs the GUI chest menu. */
+    public SimpleContainer getInventory() {
+        return inventory;
+    }
+
+    /** Push the current inventory snapshot to the owning player, if online. */
+    public void syncInventoryToOwner() {
+        if (!(this.getOwner() instanceof ServerPlayer owner)) return;
+        List<ItemStack> list = new ArrayList<>(inventory.getContainerSize());
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            list.add(inventory.getItem(i));
+        }
+        Services.NETWORK.sendToPlayer(owner, new AnimusInventoryPayload(this.getId(), list));
+    }
+
+    // ---- task queue ----
+
     public TaskQueue getTaskQueue() {
         if (taskQueue == null) taskQueue = new TaskQueue();
         return taskQueue;
     }
 
-    /**
-     * Per-tick server hook. After vanilla goals have ticked (and produced
-     * completed task results into the queue's outbox), drain those results
-     * and ship them back to the owning player's client so its
-     * {@link com.dwinovo.animus.client.agent.EntityAgentLoop} can feed
-     * them into the LLM conversation and trigger the next turn.
-     */
     @Override
     protected void customServerAiStep(ServerLevel level) {
         super.customServerAiStep(level);
         drainTaskResultsToOwner();
+        if (inventoryDirty) {
+            inventoryDirty = false;
+            syncInventoryToOwner();
+        }
     }
 
-    /**
-     * Pull completed task records out of the queue's outbox and dispatch
-     * each as a {@link TaskResultPayload} to the owning player.
-     *
-     * <p>If the owner is offline (signed out, different dimension and not
-     * tracking, etc.), the results are dropped — silently. This matches the
-     * "Animus is owner-driven" contract: there's nobody to drive the next
-     * LLM turn anyway. Future hardening can buffer results and replay on
-     * next login.
-     */
     private void drainTaskResultsToOwner() {
         if (taskQueue == null) return;
         List<TaskRecord> completed = taskQueue.drainCompleted();
         if (completed.isEmpty()) return;
         if (!(this.getOwner() instanceof ServerPlayer owner)) {
             com.dwinovo.animus.Constants.LOG.debug(
-                    "[animus-entity#{}] dropping {} task result(s) — owner offline / not a ServerPlayer",
+                    "[animus-entity#{}] dropping {} task result(s) — owner offline",
                     this.getId(), completed.size());
             return;
         }
-        com.dwinovo.animus.Constants.LOG.debug(
-                "[animus-entity#{}] dispatching {} task result(s) to owner {}",
-                this.getId(), completed.size(), owner.getName().getString());
         for (TaskRecord rec : completed) {
             TaskResult result = rec.getResult();
             String json = result == null
@@ -210,71 +182,31 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         }
     }
 
-    /**
-     * Vanilla hook fired on death / unload / chunk-unload. Two cleanup
-     * responsibilities:
-     *
-     * <ol>
-     *   <li><strong>Per-entity tasks</strong> — cancels every pending task
-     *       so its tool_call_id doesn't leak.</li>
-     *   <li><strong>Multi-agent slot binding</strong> — if this entity is
-     *       still bound to a player unit slot (i.e. it died unexpectedly,
-     *       got unloaded, void-deathed), send {@link UnitDiedPayload} to
-     *       the owner and unbind the slot. Without this the client's
-     *       {@code EntityAgentLoop} would wait forever for tool results
-     *       that can never arrive — see the user thread on "report
-     *       submission guarantee".</li>
-     * </ol>
-     *
-     * <p>Intentional discards from {@code PlayerAnimusManager.recallUnit}
-     * unbind the slot <em>before</em> calling {@link Entity#discard}, so
-     * {@code findUnitFor} returns empty here and we don't double-notify.
-     */
-    /**
-     * Item-pickup vacuum radius. Inflates the entity bounding box by
-     * (x, y, z) when scanning for {@link ItemEntity}s in
-     * {@code Mob.serverAiStep}. Larger than vanilla default
-     * {@code Vec3i(1, 0, 1)} so Animus feels magnetic — players see it
-     * "suck in" nearby drops from mob kills or loot scatter.
-     */
+    // ---- item pickup → own inventory ----
+
     @Override
     protected Vec3i getPickupReach() {
         return new Vec3i(2, 1, 2);
     }
 
-    /**
-     * We want everything — drops route into the owner's shared storage so
-     * the LLM / player decides later. No item filtering here; if the owner
-     * has no storage (e.g. orphan Animus spawned via /summon), vanilla's
-     * default {@code wantsToPickUp} returns false for non-equipment so
-     * orphans won't hoard.
-     */
+    /** Only tamed Animus vacuum items, and only when there's room. */
     @Override
-    public boolean wantsToPickUp(net.minecraft.server.level.ServerLevel level,
-                                  net.minecraft.world.item.ItemStack stack) {
-        return lookupOwnerStorage(level) != null;
+    public boolean wantsToPickUp(ServerLevel level, ItemStack stack) {
+        return this.isTame() && this.inventory.canAddItem(stack);
     }
 
-    /**
-     * Route picked-up stacks into the owner's {@link PlayerAnimusStorage}
-     * instead of equipping into armor slots (vanilla {@code Mob.pickUpItem}'s
-     * default behaviour). Plays the standard pickup sound + take animation
-     * if any portion was absorbed; leaves the remainder as an ItemEntity if
-     * storage filled up.
-     */
+    /** Route picked-up stacks into this Animus's own inventory. */
     @Override
-    protected void pickUpItem(net.minecraft.server.level.ServerLevel level, ItemEntity itemEntity) {
-        net.minecraft.world.item.ItemStack ground = itemEntity.getItem();
+    protected void pickUpItem(ServerLevel level, ItemEntity itemEntity) {
+        ItemStack ground = itemEntity.getItem();
         if (ground.isEmpty()) return;
-        PlayerAnimusStorage storage = lookupOwnerStorage(level);
-        if (storage == null) return;
         int before = ground.getCount();
-        net.minecraft.world.item.ItemStack leftover = storage.insert(ground.copy());
+        ItemStack leftover = inventory.addItem(ground.copy());
         int absorbed = before - leftover.getCount();
         if (absorbed <= 0) return;
         this.onItemPickup(itemEntity);
         this.take(itemEntity, absorbed);
-        net.minecraft.world.item.ItemStack remaining = itemEntity.getItem();
+        ItemStack remaining = itemEntity.getItem();
         remaining.shrink(absorbed);
         if (remaining.isEmpty()) {
             itemEntity.discard();
@@ -283,37 +215,19 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         }
     }
 
-    /**
-     * Resolve the owner's shared storage. Returns {@code null} for orphan
-     * Animuses (no owner / owner not in {@code PlayerAnimusData} — e.g.
-     * spawned via {@code /summon} outside the manager flow), in which case
-     * we politely skip pickup.
-     */
-    private PlayerAnimusStorage lookupOwnerStorage(net.minecraft.server.level.ServerLevel level) {
-        if (this.getOwnerReference() == null) return null;
-        return PlayerAnimusData.lookup(level.getServer(), this.getOwnerReference().getUUID())
-                .map(PlayerAnimusData::storage).orElse(null);
-    }
+    // ---- lifecycle ----
 
     @Override
     public void remove(Entity.RemovalReason reason) {
         if (taskQueue != null) {
             taskQueue.cancelAll("entity removed: " + reason);
         }
-        if (this.level() instanceof ServerLevel sl) {
-            PlayerAnimusData.findUnitFor(sl.getServer(), this.getId()).ifPresent(key -> {
-                PlayerAnimusData.lookup(sl.getServer(), key.playerUuid()).ifPresent(data ->
-                        data.unbindActive(key.unitId()));
-                ServerPlayer player = sl.getServer().getPlayerList().getPlayer(key.playerUuid());
-                if (player != null) {
-                    Services.NETWORK.sendToPlayer(player,
-                            new UnitDiedPayload(key.unitId(), reason.name()));
-                    UnitsSnapshotPayload.sendTo(player);
-                }
-                com.dwinovo.animus.Constants.LOG.info(
-                        "[animus-entity#{}] removed (reason={}) → notified owner of unit {} death",
-                        this.getId(), reason, key.unitId());
-            });
+        if (reason.shouldDestroy() && this.level() instanceof ServerLevel sl) {
+            for (int i = 0; i < inventory.getContainerSize(); i++) {
+                ItemStack s = inventory.getItem(i);
+                if (!s.isEmpty()) this.spawnAtLocation(sl, s);
+            }
+            inventory.clearContent();
         }
         super.remove(reason);
     }
@@ -324,18 +238,6 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         builder.define(DATA_MODEL_KEY, AnimusAnimated.DEFAULT_MODEL_KEY.toString());
     }
 
-    /**
-     * Vanilla hook fired on every {@link SynchedEntityData} change (both
-     * sides). When the model key changes, the animator's currently held
-     * {@code BakedAnimation}s become stale — their bone indices belong to
-     * the previous model's skeleton, so leaving them in place would
-     * index-out-of-bounds against the new model's pose buffer on the next
-     * frame. Reset the animator so each controller re-picks its animation
-     * fresh.
-     *
-     * <p>{@code animator} is created lazily on the client; the null guard
-     * keeps the server side (which never builds an animator) inert.
-     */
     @Override
     public void onSyncedDataUpdated(EntityDataAccessor<?> key) {
         super.onSyncedDataUpdated(key);
@@ -359,33 +261,24 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
                 cachedModelKey = parsed;
                 cachedModelKeyString = current;
             }
-            // Bad value: keep the previously cached id so rendering still resolves.
         }
         return cachedModelKey;
     }
 
-    /** Server-side setter; vanilla SynchedEntityData broadcasts to clients. */
     public void setModelKey(Identifier id) {
         this.entityData.set(DATA_MODEL_KEY, id.toString());
     }
 
     @Override
     public String getCurrentTask() {
-        // Surface the queue head's tool name for client-side display hooks
-        // (rendering bubble, debug overlay). Server-side only — the field is
-        // never populated client-side because TaskQueue is server-lazy.
         if (taskQueue != null && taskQueue.hasPending()) {
             return "busy:" + taskQueue.pendingCount();
         }
         return "none";
     }
 
-    /**
-     * Right-click dispatch. {@link AnimusInteractHandler} centralises the
-     * state table (untamed/tamed × owner/not × food/sneak); anything it
-     * doesn't recognise returns {@link InteractionResult#PASS} so vanilla
-     * fall-through (e.g. leashing) still works.
-     */
+    // ---- interaction ----
+
     @Override
     public InteractionResult mobInteract(Player player, InteractionHand hand) {
         InteractionResult result = AnimusInteractHandler.handle(this, player, hand);
@@ -395,34 +288,33 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         return super.mobInteract(player, hand);
     }
 
-    /**
-     * Vanilla {@link Animal#isFood} drives breeding/baby-growth and the
-     * "food in hand follows me" Goal. Returning {@code false} unconditionally
-     * disables both — Animus must not breed (no second-generation entities
-     * with copied owner UUIDs) and its food affinity is handled exclusively
-     * by {@link AnimusInteractHandler}.
-     */
+    /** Food affinity / breeding stay disabled — taming is handled explicitly. */
     @Override
     public boolean isFood(ItemStack stack) {
         return false;
     }
 
-    /** Disabled — Animus is single-spawn-per-egg, no offspring. */
     @Override
     public boolean canMate(Animal partner) {
         return false;
     }
 
-    /** Safety net: even if mating were somehow triggered, never produce a child. */
     @Override
     public AgeableMob getBreedOffspring(ServerLevel level, AgeableMob partner) {
         return null;
     }
 
+    // ---- persistence ----
+
     @Override
     public void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output);
         output.putString(NBT_KEY_MODEL, this.entityData.get(DATA_MODEL_KEY));
+        List<ItemStack> items = new ArrayList<>(inventory.getContainerSize());
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            items.add(inventory.getItem(i));
+        }
+        output.store(NBT_KEY_INVENTORY, ItemStack.OPTIONAL_CODEC.listOf(), items);
     }
 
     @Override
@@ -430,5 +322,10 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         super.readAdditionalSaveData(input);
         this.entityData.set(DATA_MODEL_KEY,
                 input.getStringOr(NBT_KEY_MODEL, AnimusAnimated.DEFAULT_MODEL_KEY.toString()));
+        input.read(NBT_KEY_INVENTORY, ItemStack.OPTIONAL_CODEC.listOf()).ifPresent(list -> {
+            for (int i = 0; i < list.size() && i < inventory.getContainerSize(); i++) {
+                inventory.setItem(i, list.get(i));
+            }
+        });
     }
 }
