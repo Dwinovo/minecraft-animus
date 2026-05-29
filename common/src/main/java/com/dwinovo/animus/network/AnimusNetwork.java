@@ -2,6 +2,7 @@ package com.dwinovo.animus.network;
 
 import com.dwinovo.animus.network.payload.AnimusInventoryPayload;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
+import com.dwinovo.animus.network.payload.OpenAnimusInventoryPayload;
 import com.dwinovo.animus.network.payload.SetModelPayload;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
 import com.dwinovo.animus.platform.Services;
@@ -43,5 +44,10 @@ public final class AnimusNetwork {
         Services.NETWORK.registerServerToClient(
                 AnimusInventoryPayload.TYPE, AnimusInventoryPayload.STREAM_CODEC,
                 AnimusInventoryPayload::handle);
+
+        // C→S: open one Animus's inventory as a vanilla chest menu.
+        Services.NETWORK.registerClientToServer(
+                OpenAnimusInventoryPayload.TYPE, OpenAnimusInventoryPayload.STREAM_CODEC,
+                OpenAnimusInventoryPayload::handle);
     }
 }
