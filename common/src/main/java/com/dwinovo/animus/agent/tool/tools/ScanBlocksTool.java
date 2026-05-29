@@ -1,6 +1,5 @@
 package com.dwinovo.animus.agent.tool.tools;
 
-import com.dwinovo.animus.agent.tool.AgentRole;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ClientToolContext;
 import com.google.gson.JsonArray;
@@ -20,7 +19,6 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -107,11 +105,6 @@ public final class ScanBlocksTool implements AnimusTool {
 
     @Override
     public boolean isLocal() { return true; }
-
-    @Override
-    public Set<AgentRole> allowedRoles() {
-        return EnumSet.of(AgentRole.PLAYER, AgentRole.ENTITY);
-    }
 
     @Override
     public String executeLocal(JsonObject args, ClientToolContext ctx) {

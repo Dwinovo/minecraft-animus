@@ -6,7 +6,6 @@ import com.dwinovo.animus.agent.llm.ConvoState;
 import com.dwinovo.animus.agent.provider.AssistantTurn;
 import com.dwinovo.animus.agent.provider.LlmToolCall;
 import com.dwinovo.animus.agent.skill.SkillRegistry;
-import com.dwinovo.animus.agent.tool.AgentRole;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ClientToolContext;
 import com.dwinovo.animus.agent.tool.ToolRegistry;
@@ -201,7 +200,7 @@ public final class EntityAgentLoop {
         convo.incrementTurn();
         awaitingLlmResponse = true;
 
-        var tools = ToolRegistry.forRole(AgentRole.ENTITY);
+        var tools = ToolRegistry.all();
         var snapshot = convo.snapshot();
         IAnimusConfig config = Services.CONFIG;
         String systemPrompt = composeSystemPrompt(config.getSystemPrompt());
@@ -308,14 +307,11 @@ public final class EntityAgentLoop {
         // TaskResultPayload.
         for (LlmToolCall tc : turn.toolCalls()) {
             AnimusTool tool = ToolRegistry.resolve(tc.name());
-            if (tool == null || !tool.allowedRoles().contains(AgentRole.ENTITY)) {
-                Constants.LOG.warn("[animus-entity#{}] LLM called unknown / wrong-role tool '{}' (id={})",
+            if (tool == null) {
+                Constants.LOG.warn("[animus-entity#{}] LLM called unknown tool '{}' (id={})",
                         vanillaEntityId, tc.name(), tc.id());
-                String reason = (tool == null)
-                        ? "unknown tool: " + escape(tc.name())
-                        : "tool '" + escape(tc.name()) + "' is not callable from this Animus";
                 convo.addToolResult(tc.id(),
-                        "{\"success\":false,\"message\":\"" + reason + "\"}");
+                        "{\"success\":false,\"message\":\"unknown tool: " + escape(tc.name()) + "\"}");
                 continue;
             }
             if (tool.isLocal()) {

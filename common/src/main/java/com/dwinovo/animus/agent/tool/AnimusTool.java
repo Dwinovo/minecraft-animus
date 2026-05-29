@@ -3,9 +3,7 @@ package com.dwinovo.animus.agent.tool;
 import com.dwinovo.animus.task.TaskRecord;
 import com.google.gson.JsonObject;
 
-import java.util.EnumSet;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * LLM-facing surface of a single action the entity can take. Sits one layer
@@ -102,18 +100,6 @@ public interface AnimusTool {
      */
     default boolean isLocal() {
         return false;
-    }
-
-    /**
-     * Which agent role(s) may call this tool. The registry filters the
-     * tool list per role via {@link ToolRegistry#forRole}, so a tool whose
-     * role set excludes a role is simply not visible to that agent's LLM.
-     *
-     * <p>Default is {@link AgentRole#ENTITY} only — historical tools were
-     * all entity-perspective; opt-in to PLAYER for the new manager tools.
-     */
-    default Set<AgentRole> allowedRoles() {
-        return EnumSet.of(AgentRole.ENTITY);
     }
 
     /**

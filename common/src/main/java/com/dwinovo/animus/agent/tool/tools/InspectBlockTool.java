@@ -1,6 +1,5 @@
 package com.dwinovo.animus.agent.tool.tools;
 
-import com.dwinovo.animus.agent.tool.AgentRole;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ClientToolContext;
 import com.dwinovo.animus.task.tasks.BlockMiningProgress;
@@ -12,11 +11,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * The {@code inspect_block} tool — read everything the LLM might want to
@@ -79,10 +76,6 @@ public final class InspectBlockTool implements AnimusTool {
         return true;
     }
 
-    @Override
-    public Set<AgentRole> allowedRoles() {
-        return EnumSet.of(AgentRole.PLAYER, AgentRole.ENTITY);
-    }
 
     @Override
     @SuppressWarnings("deprecation")  // BlockBehaviour.isSolid() carries Mojang's

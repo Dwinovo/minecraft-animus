@@ -1,6 +1,5 @@
 package com.dwinovo.animus.agent.tool.tools;
 
-import com.dwinovo.animus.agent.tool.AgentRole;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ClientToolContext;
 import com.dwinovo.animus.client.data.ClientAnimusInventories;
@@ -9,15 +8,13 @@ import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.ItemStack;
 
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
- * Read the shared virtual chest contents. Used by PlayerAgent to plan
- * resource-related work ("do we need more iron?"). EntityAgents can also
+ * Read the Animus's own inventory contents, so it can plan
+ * resource-related work ("do we need more iron?"). The agent can also
  * call it to verify materials before starting subtasks.
  */
 public final class GetStorageTool implements AnimusTool {
@@ -48,11 +45,6 @@ public final class GetStorageTool implements AnimusTool {
 
     @Override
     public boolean isLocal() { return true; }
-
-    @Override
-    public Set<AgentRole> allowedRoles() {
-        return EnumSet.of(AgentRole.PLAYER, AgentRole.ENTITY);
-    }
 
     @Override
     public String executeLocal(JsonObject args, ClientToolContext ctx) {

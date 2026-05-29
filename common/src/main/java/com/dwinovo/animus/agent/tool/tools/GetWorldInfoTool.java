@@ -1,16 +1,13 @@
 package com.dwinovo.animus.agent.tool.tools;
 
-import com.dwinovo.animus.agent.tool.AgentRole;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ClientToolContext;
 import com.google.gson.JsonObject;
 import net.minecraft.world.entity.LivingEntity;
 
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * The {@code get_world_info} tool — read dimension / brightness outside /
@@ -60,10 +57,6 @@ public final class GetWorldInfoTool implements AnimusTool {
         return true;
     }
 
-    @Override
-    public Set<AgentRole> allowedRoles() {
-        return EnumSet.of(AgentRole.PLAYER, AgentRole.ENTITY);
-    }
 
     @Override
     public String executeLocal(JsonObject args, ClientToolContext ctx) {
