@@ -66,5 +66,20 @@ public final class ModItemTagData {
                 .add(Items.BEETROOT)
                 .add(Items.RABBIT_STEW)
                 .add(Items.SWEET_BERRIES);
+
+        // Cheap, common blocks the pathfinder may throw away as scaffolding.
+        // Mirrors Baritone's acceptableThrowawayItems — never the player's
+        // valuables. Packs can extend this tag freely.
+        tags.tag(InitTag.SCAFFOLDS)
+                .add(Items.COBBLESTONE)
+                .add(Items.DIRT)
+                .add(Items.COBBLED_DEEPSLATE)
+                .add(Items.STONE)
+                .add(Items.NETHERRACK)
+                .add(Items.ANDESITE)
+                .add(Items.DIORITE)
+                .add(Items.GRANITE)
+                .add(Items.TUFF)
+                .add(Items.DEEPSLATE);
     }
 }

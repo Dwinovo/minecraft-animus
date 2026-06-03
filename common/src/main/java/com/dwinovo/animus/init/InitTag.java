@@ -28,6 +28,15 @@ public final class InitTag {
      */
     public static final TagKey<Item> TAME_FOODS = item("tame_foods");
 
+    /**
+     * Throwaway building blocks the Animus may consume as scaffolding while
+     * pathfinding — bridging gaps, stepping up, and pillaring. The pathfinder
+     * ({@link com.dwinovo.animus.pathing}) only ever places a block in this tag,
+     * so it never burns the player's valuables. Datapack-driven so packs can add
+     * their own cheap blocks — see {@code data/animus/tags/item/scaffolds.json}.
+     */
+    public static final TagKey<Item> SCAFFOLDS = item("scaffolds");
+
     private InitTag() {}
 
     private static TagKey<Item> item(String name) {

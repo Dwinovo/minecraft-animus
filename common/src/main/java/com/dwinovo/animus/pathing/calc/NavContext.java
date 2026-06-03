@@ -1,18 +1,15 @@
 package com.dwinovo.animus.pathing.calc;
 
 import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.init.InitTag;
 import com.dwinovo.animus.pathing.util.ActionCosts;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
-
-import java.util.Set;
 
 /**
  * Per-search snapshot binding the world, the entity's capabilities, and a
@@ -22,8 +19,8 @@ import java.util.Set;
  * doesn't see mid-search inventory mutation.
  *
  * <h2>Inventory gating (the key behaviour)</h2>
- * {@link #hasScaffold} is a boolean: does the entity hold ANY whitelisted
- * scaffolding block? When false, {@link #costOfPlacing} returns
+ * {@link #hasScaffold} is a boolean: does the entity hold ANY block in the
+ * {@link InitTag#SCAFFOLDS} tag? When false, {@link #costOfPlacing} returns
  * {@link ActionCosts#COST_INF} for every position, so all bridge/step-up
  * moves become impossible and A* routes around (or fails with "out of
  * material"). Actual depletion is handled at execution time — when the
@@ -33,23 +30,6 @@ import java.util.Set;
  * avoiding an explosive per-node "remaining blocks" search state.
  */
 public final class NavContext {
-
-    /**
-     * Blocks the Animus may consume as throwaway scaffolding for bridging /
-     * pillaring. Common, cheap building blocks only — never the player's
-     * valuables. Mirrors Baritone's {@code acceptableThrowawayItems}.
-     */
-    public static final Set<Item> SCAFFOLD_ITEMS = Set.of(
-            Items.COBBLESTONE,
-            Items.DIRT,
-            Items.COBBLED_DEEPSLATE,
-            Items.STONE,
-            Items.NETHERRACK,
-            Items.ANDESITE,
-            Items.DIORITE,
-            Items.GRANITE,
-            Items.TUFF,
-            Items.DEEPSLATE);
 
     public final Level level;
     public final AnimusEntity entity;
@@ -83,7 +63,7 @@ public final class NavContext {
         int total = 0;
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
-            if (!s.isEmpty() && SCAFFOLD_ITEMS.contains(s.getItem())) {
+            if (isScaffold(s)) {
                 total += s.getCount();
             }
         }
@@ -130,19 +110,25 @@ public final class NavContext {
         return Math.max(1.0, Math.ceil(hardness * divisor / toolSpeed));
     }
 
-    /** Pick a scaffolding item the entity currently holds, or null. */
-    public static Item firstScaffoldItem(SimpleContainer inv) {
+    /** Pick a scaffolding stack the entity currently holds, or null. */
+    public static ItemStack firstScaffoldItem(SimpleContainer inv) {
         for (int i = 0; i < inv.getContainerSize(); i++) {
             ItemStack s = inv.getItem(i);
-            if (!s.isEmpty() && SCAFFOLD_ITEMS.contains(s.getItem())) {
-                return s.getItem();
+            if (isScaffold(s)) {
+                return s;
             }
         }
         return null;
     }
 
-    /** True if {@code item} is a placeable scaffolding block. */
-    public static boolean isScaffold(Item item) {
-        return item instanceof BlockItem && SCAFFOLD_ITEMS.contains(item);
+    /**
+     * True if {@code stack} is a placeable scaffolding block: a {@link BlockItem}
+     * tagged {@link InitTag#SCAFFOLDS}. The {@code BlockItem} check guarantees
+     * the executor can actually place it even if a pack tags an odd item.
+     */
+    public static boolean isScaffold(ItemStack stack) {
+        return !stack.isEmpty()
+                && stack.getItem() instanceof BlockItem
+                && stack.is(InitTag.SCAFFOLDS);
     }
 }
