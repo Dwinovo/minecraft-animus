@@ -125,18 +125,26 @@ public final class NeoForgeAnimusConfig implements IAnimusConfig {
     }
 
     /**
-     * NeoForge's ModConfigSpec auto-persists in-memory mutations on a
-     * background schedule (world save, mod unload, etc.) — there's no
-     * public {@code save()} on the spec itself. The {@code ConfigValue.set}
-     * calls in the setters above are already enough for the values to
-     * survive a normal shutdown. This method emits an INFO log line so
-     * users see confirmation in the launcher log.
+     * Flush the in-memory config to disk. The setters above only mutate the
+     * loaded NightConfig in memory — {@link ModConfigSpec.ConfigValue#set}'s
+     * own javadoc states it "does NOT write to disk... call
+     * {@link ModConfigSpec#save()} eventually". Without this explicit save an
+     * in-game settings change is lost on shutdown (the values revert to
+     * whatever was last on disk), which is exactly the "reverts to default"
+     * bug players hit after changing provider / key in the GUI.
+     *
+     * <p>Guarded by {@link ModConfigSpec#isLoaded()}: {@code save()} throws if
+     * the spec hasn't been bound to a config file yet (e.g. called absurdly
+     * early). In that case the mutations live in the cached values and the
+     * normal NeoForge load/correct cycle will persist them.
      */
     @Override
     public void save() {
+        if (SPEC.isLoaded()) {
+            SPEC.save();
+        }
         com.dwinovo.animus.Constants.LOG.info(
-                "[animus-config] updated (api_key length={}, provider={}, model={}); "
-                + "NeoForge will persist on next save tick",
+                "[animus-config] saved (api_key length={}, provider={}, model={})",
                 safe(API_KEY).length(), safe(PROVIDER), safe(MODEL));
     }
 
