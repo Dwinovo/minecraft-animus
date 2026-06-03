@@ -12,7 +12,6 @@ import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.tasks.AttackTargetTaskGoal;
 import com.dwinovo.animus.task.tasks.MineBlockTaskGoal;
 import com.dwinovo.animus.task.tasks.MoveToTaskGoal;
-import com.dwinovo.animus.task.tasks.PathfindAndMineTaskGoal;
 import net.minecraft.core.Vec3i;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -137,7 +136,6 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         this.goalSelector.addGoal(0, new MoveToTaskGoal(this));
         this.goalSelector.addGoal(0, new AttackTargetTaskGoal(this));
         this.goalSelector.addGoal(0, new MineBlockTaskGoal(this));
-        this.goalSelector.addGoal(0, new PathfindAndMineTaskGoal(this));
     }
 
     // ---- inventory ----

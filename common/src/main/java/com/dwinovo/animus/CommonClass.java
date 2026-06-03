@@ -10,7 +10,6 @@ import com.dwinovo.animus.agent.tool.tools.InspectBlockTool;
 import com.dwinovo.animus.agent.tool.tools.LoadSkillTool;
 import com.dwinovo.animus.agent.tool.tools.MineBlockTool;
 import com.dwinovo.animus.agent.tool.tools.MoveToTool;
-import com.dwinovo.animus.agent.tool.tools.PathfindAndMineTool;
 import com.dwinovo.animus.agent.tool.tools.ScanBlocksTool;
 import com.dwinovo.animus.agent.tool.tools.ScanNearbyEntitiesTool;
 import com.dwinovo.animus.agent.tool.tools.TodoWriteTool;
@@ -54,7 +53,6 @@ public class CommonClass {
         ToolRegistry.register(new MoveToTool());
         ToolRegistry.register(new AttackTargetTool());
         ToolRegistry.register(new MineBlockTool());
-        ToolRegistry.register(new PathfindAndMineTool());
         ToolRegistry.register(new GetSelfStatusTool());
         ToolRegistry.register(new GetOwnerStatusTool());
         ToolRegistry.register(new GetStorageTool());

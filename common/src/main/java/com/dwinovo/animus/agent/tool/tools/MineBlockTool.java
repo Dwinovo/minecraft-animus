@@ -3,48 +3,54 @@ package com.dwinovo.animus.agent.tool.tools;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.tasks.MineBlockTaskRecord;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * The {@code mine_block} tool — break a single block within vanilla
- * interaction reach (≈4.5 blocks). Mining time follows vanilla's formula
- * based on the block's hardness and whatever the entity is holding.
+ * The {@code mine_block} tool — intent-level gathering. The LLM declares
+ * <em>what</em> block(s) to gather and <em>how many</em>; the entity does the
+ * rest (find → pathfind, bridging/digging as needed → mine → repeat). No
+ * coordinates, no manual move/scan composition.
  *
  * <h2>Schema</h2>
  * <pre>
  * {
- *   "type": "object",
- *   "properties": {
- *     "x": { "type": "integer" },
- *     "y": { "type": "integer" },
- *     "z": { "type": "integer" }
- *   },
- *   "required": ["x", "y", "z"],
- *   "additionalProperties": false
+ *   "block_ids": ["minecraft:iron_ore", "minecraft:deepslate_iron_ore"],
+ *   "count": 10,
+ *   "radius": 32          // optional, default auto-expands
  * }
  * </pre>
  *
- * <h2>Atomic by design (no built-in pathing)</h2>
- * If the target is out of reach the call fails with {@code "out of reach"} —
- * the LLM should then compose {@code move_to(x, y, z) → mine_block(x, y, z)}.
- * This mirrors Mineflayer's {@code bot.dig} / {@code bot.pathfinder.goto}
- * split and keeps every failure attributable to one clear cause.
+ * <h2>Why a list of block_ids</h2>
+ * A single logical resource often has several block forms (iron_ore +
+ * deepslate_iron_ore; the log variants). Taking a list lets one call gather
+ * "iron" regardless of which stratum it sits in — same convention as
+ * {@code scan_blocks}.
  *
- * <h2>Drops</h2>
- * Vanilla loot table runs with the entity as the breaker, so silk-touch /
- * fortune from a future tool slot will work without extra wiring. Mining a
- * block whose required tool tier you don't have still succeeds (block
- * breaks) but yields no drop — same as a barehand player on stone.
+ * <h2>Partial success</h2>
+ * If fewer than {@code count} exist within range the task still succeeds with
+ * the real {@code mined} number reported, so the LLM can decide whether to
+ * relocate or move on rather than blindly retrying.
  */
 public final class MineBlockTool implements AnimusTool {
 
-    /** 60s at 20 tps. Even obsidian-with-iron-pickaxe finishes inside this. */
-    private static final long DEFAULT_TIMEOUT_TICKS = 60 * 20;
+    private static final int DEFAULT_MAX_RADIUS = 48;
+    private static final int MAX_ALLOWED_RADIUS = 96;
+    private static final int MAX_COUNT = 256;
+    /** Per-block budget is generous; total scales with count so big jobs don't time out. */
+    private static final long TICKS_PER_BLOCK = 30 * 20;   // 30s each
+    private static final long MIN_TIMEOUT_TICKS = 60 * 20; // 1 min floor
 
     @Override
     public String name() {
@@ -53,44 +59,90 @@ public final class MineBlockTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Mine (break) a single block at the given integer coordinates. "
-                + "Requires the block to be within ~4.5 blocks of the entity — "
-                + "if it's farther, the call fails immediately with 'out of "
-                + "reach' and you should call move_to first. Mining time depends "
-                + "on block hardness and whatever the entity is holding (the "
-                + "loot table behaves exactly like a player using that item).";
+        return "Gather blocks by type and quantity. Give the block id(s) and how "
+                + "many you want — the entity finds the nearest ones, walks to "
+                + "them (bridging gaps and digging through obstacles on its own), "
+                + "mines them into its inventory, and repeats until the count is "
+                + "met or none remain nearby. You do NOT provide coordinates or "
+                + "call move_to. Include all variants of a resource in block_ids "
+                + "(e.g. iron_ore AND deepslate_iron_ore). Optional radius caps "
+                + "how far to look (default auto-expands). Returns the actual "
+                + "number mined, which may be less than requested if the deposit "
+                + "runs out.";
     }
 
     @Override
     public Map<String, Object> parameterSchema() {
         Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("x", Map.of("type", "integer",
-                "description", "Target block X coordinate."));
-        properties.put("y", Map.of("type", "integer",
-                "description", "Target block Y coordinate."));
-        properties.put("z", Map.of("type", "integer",
-                "description", "Target block Z coordinate."));
+        properties.put("block_ids", Map.of("type", "array",
+                "description", "Namespaced block id(s) to gather; include all variants.",
+                "items", Map.of("type", "string"),
+                "minItems", 1));
+        properties.put("count", Map.of("type", "integer",
+                "description", "How many blocks to gather.",
+                "minimum", 1, "maximum", MAX_COUNT));
+        properties.put("radius", Map.of("type", "integer",
+                "description", "Optional max search radius in blocks (default auto-expands to "
+                        + DEFAULT_MAX_RADIUS + ").",
+                "minimum", 1, "maximum", MAX_ALLOWED_RADIUS));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
         schema.put("properties", properties);
-        schema.put("required", List.of("x", "y", "z"));
+        schema.put("required", List.of("block_ids", "count"));
         schema.put("additionalProperties", false);
         return schema;
     }
 
     @Override
     public long defaultTimeoutTicks() {
-        return DEFAULT_TIMEOUT_TICKS;
+        return MIN_TIMEOUT_TICKS;
     }
 
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        int x = requireInt(args, "x");
-        int y = requireInt(args, "y");
-        int z = requireInt(args, "z");
-        long deadline = currentGameTime + DEFAULT_TIMEOUT_TICKS;
-        return new MineBlockTaskRecord(toolCallId, deadline, new BlockPos(x, y, z));
+        Set<Block> targets = readBlockIds(args);
+        if (targets.isEmpty()) {
+            throw new IllegalArgumentException("block_ids contained no valid block ids");
+        }
+        int count = requireInt(args, "count");
+        if (count < 1) count = 1;
+        if (count > MAX_COUNT) count = MAX_COUNT;
+
+        int radius = DEFAULT_MAX_RADIUS;
+        if (args.has("radius") && !args.get("radius").isJsonNull()) {
+            radius = args.get("radius").getAsInt();
+            if (radius < 1) radius = 1;
+            if (radius > MAX_ALLOWED_RADIUS) radius = MAX_ALLOWED_RADIUS;
+        }
+
+        String label = labelFor(targets);
+        long timeout = Math.max(MIN_TIMEOUT_TICKS, (long) count * TICKS_PER_BLOCK);
+        long deadline = currentGameTime + timeout;
+        return new MineBlockTaskRecord(toolCallId, deadline, targets, count, radius, label);
+    }
+
+    private static Set<Block> readBlockIds(JsonObject args) {
+        if (!args.has("block_ids") || !args.get("block_ids").isJsonArray()) {
+            throw new IllegalArgumentException("block_ids must be a non-empty array");
+        }
+        JsonArray arr = args.getAsJsonArray("block_ids");
+        Set<Block> out = new LinkedHashSet<>();
+        for (JsonElement el : arr) {
+            if (el == null || el.isJsonNull()) continue;
+            Identifier id = Identifier.tryParse(el.getAsString());
+            if (id == null) continue;
+            Block b = BuiltInRegistries.BLOCK.getValue(id);
+            if (b != null && b != Blocks.AIR) out.add(b);
+        }
+        return out;
+    }
+
+    /** Short label for messages: the first target's path (e.g. "iron_ore"), "+N" if more. */
+    private static String labelFor(Set<Block> targets) {
+        Block first = targets.iterator().next();
+        String path = BuiltInRegistries.BLOCK.getKey(first).getPath();
+        return targets.size() == 1 ? path : path + "+" + (targets.size() - 1);
     }
 
     private static int requireInt(JsonObject args, String key) {

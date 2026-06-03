@@ -11,8 +11,9 @@ import java.util.Map;
 
 /**
  * The {@code move_to} tool — first concrete LLM-facing action in the mod.
- * Targets vanilla {@link net.minecraft.world.entity.ai.navigation.PathNavigation};
- * the typed payload it emits is consumed by {@link com.dwinovo.animus.task.tasks.MoveToTaskGoal}.
+ * The typed payload it emits is consumed by
+ * {@link com.dwinovo.animus.task.tasks.MoveToTaskGoal}, which drives the custom
+ * terrain-modifying pathfinder ({@link com.dwinovo.animus.pathing}).
  *
  * <h2>Schema</h2>
  * <pre>

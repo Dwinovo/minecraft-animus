@@ -15,7 +15,10 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
@@ -25,10 +28,10 @@ import java.util.List;
  * particles / sound / crack-overlay loop that vanilla {@code Player} runs
  * during a hold-to-break dig, plus the destroy-on-completion call.
  *
- * <p>Lives in the {@code task.tasks} package so {@link MineBlockTaskGoal}
- * (atomic in-reach dig) and {@link PathfindAndMineTaskGoal} (walk-then-dig)
- * can share it without duplication. Static {@link #checkMineable} lets the
- * caller pre-validate before kicking off pathing.
+ * <p>Lives in the {@code task.tasks} package so the intent-level
+ * {@link MineBlockTaskGoal} (scan → pathfind → dig loop) and any future
+ * dig site can share it without duplication. Static {@link #checkMineable}
+ * lets the caller pre-validate before kicking off pathing.
  *
  * <h2>Timing formula</h2>
  * Mirrors {@code Player.getDestroyProgress} approximately, minus player-only
@@ -95,6 +98,29 @@ public final class BlockMiningProgress {
     }
 
     /**
+     * Line-of-sight test from the entity's eyes to {@code pos}, mirroring the
+     * raycast a vanilla player's block interaction performs: cast to the block
+     * centre and require the first block hit to be the target itself. If a wall
+     * (or any other block) is hit first the target is occluded — the entity must
+     * not mine through cover.
+     *
+     * <p>Uses {@link ClipContext.Block#OUTLINE} + {@link ClipContext.Fluid#NONE}
+     * (same as {@code Entity.pick}); fluids are transparent to the check so the
+     * bot can still mine a block it's standing in water next to.
+     */
+    public static boolean hasLineOfSight(AnimusEntity entity, BlockPos pos) {
+        Level level = entity.level();
+        Vec3 from = entity.getEyePosition();
+        Vec3 to = Vec3.atCenterOf(pos);
+        BlockHitResult hit = level.clip(new ClipContext(
+                from, to, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, entity));
+        // MISS means the ray reached `to` without hitting any block face — the
+        // target's own shape didn't block it (e.g. ray clipped a corner); treat
+        // as visible. A BLOCK hit must be the target itself to count as visible.
+        return hit.getType() != HitResult.Type.BLOCK || hit.getBlockPos().equals(pos);
+    }
+
+    /**
      * Snapshot starting state and compute the dig budget. Returns
      * {@code false} if the block became invalid between the caller's
      * {@link #checkMineable} and now (race / world edit).
@@ -138,6 +164,15 @@ public final class BlockMiningProgress {
         if (entity.distanceToSqr(center) > REACH_SQR) {
             return Outcome.FAILED_OUT_OF_REACH;
         }
+        // NOTE: no line-of-sight gate here. This engine digs both the LLM's
+        // *target* block AND the obstruction blocks the pathfinder clears to
+        // open a route — and while opening a route the entity is right up
+        // against the blocks it's breaking, so an eye→block raycast is almost
+        // always "occluded" by an adjacent block and would false-positive every
+        // tick. Line-of-sight (anti "mine through a wall") is the caller's
+        // concern: MineBlockTaskGoal checks {@link #hasLineOfSight} before it
+        // commits to mining a target. The pathfinder must be free to dig
+        // point-blank cover.
         BlockState now = level.getBlockState(pos);
         if (!now.equals(startState)) {
             return now.isAir() ? Outcome.FAILED_BLOCK_GONE : Outcome.FAILED_BLOCK_CHANGED;
