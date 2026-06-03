@@ -9,9 +9,7 @@ import net.minecraft.core.BlockPos;
  * <h2>Time-sliced by default</h2>
  * Call {@link #newSearch} and {@code step()} it once per tick — the search
  * spreads its work across ticks so no single tick stalls, even with several
- * entities planning at once. {@link #compute} is a synchronous convenience that
- * simply steps a fresh search to completion in one call, for callers that don't
- * need slicing.
+ * entities planning at once.
  */
 public final class AStar {
 
@@ -40,16 +38,5 @@ public final class AStar {
     /** Begin a resumable, time-sliced search. Step it once per tick. */
     public AStarSearch newSearch(NavContext ctx, BlockPos start, BlockPos goal) {
         return new AStarSearch(ctx, start, goal, maxNodes);
-    }
-
-    /**
-     * Run a search to completion synchronously and return its path. Convenience
-     * for non-time-sliced callers; prefer {@link #newSearch} on the tick path.
-     */
-    public Path compute(NavContext ctx, BlockPos start, BlockPos goal) {
-        AStarSearch search = newSearch(ctx, start, goal);
-        // One unbounded step drives the search straight to a terminal state.
-        search.step(Integer.MAX_VALUE);
-        return search.result();
     }
 }

@@ -36,8 +36,6 @@ public final class NavContext {
 
     /** True if the entity holds at least one scaffolding block. */
     public final boolean hasScaffold;
-    /** Total scaffolding blocks held (for reporting / "need N more" messages). */
-    public final int scaffoldCount;
 
     /** Max blocks the entity may fall without taking dangerous damage. */
     public final int maxFallHeight;
@@ -50,24 +48,20 @@ public final class NavContext {
         this.level = entity.level();
         this.tool = entity.getMainHandItem().copy();
 
-        int count = countScaffold(entity.getInventory());
-        this.scaffoldCount = count;
-        this.hasScaffold = count > 0;
+        this.hasScaffold = hasAnyScaffold(entity.getInventory());
 
         // Survivable fall: vanilla fall damage starts at 3.5 blocks (1 block
         // damage at 4). Cap conservatively at 3 so the bot never hurts itself.
         this.maxFallHeight = 3;
     }
 
-    private static int countScaffold(SimpleContainer inv) {
-        int total = 0;
+    private static boolean hasAnyScaffold(SimpleContainer inv) {
         for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack s = inv.getItem(i);
-            if (isScaffold(s)) {
-                total += s.getCount();
+            if (isScaffold(inv.getItem(i))) {
+                return true;
             }
         }
-        return total;
+        return false;
     }
 
     /**

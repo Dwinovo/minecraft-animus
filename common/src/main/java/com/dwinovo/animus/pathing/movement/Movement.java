@@ -40,19 +40,4 @@ public final class Movement {
         this.toPlace = toPlace == null ? null : toPlace.immutable();
     }
 
-    public boolean requiresPlace() {
-        return toPlace != null;
-    }
-
-    public boolean requiresBreak() {
-        return !toBreak.isEmpty();
-    }
-
-    @Override
-    public String toString() {
-        return kind + "->" + dest.toShortString()
-                + " (cost=" + String.format("%.1f", cost)
-                + (requiresBreak() ? ", break=" + toBreak.size() : "")
-                + (requiresPlace() ? ", place" : "") + ")";
-    }
 }

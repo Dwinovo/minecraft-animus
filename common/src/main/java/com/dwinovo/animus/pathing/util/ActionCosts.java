@@ -26,18 +26,14 @@ public final class ActionCosts {
 
     /** Walking one block on flat ground: 20 / 4.317 b/s. */
     public static final double WALK_ONE_BLOCK = 20.0 / 4.317;
-    /** Sprinting one block: 20 / 5.612 b/s. Unused until we enable sprint. */
-    public static final double SPRINT_ONE_BLOCK = 20.0 / 5.612;
-    /** Walking one block through water: 20 / 2.2 b/s. */
-    public static final double WALK_ONE_IN_WATER = 20.0 / 2.2;
 
     /**
-     * Cost added for placing a scaffolding block (bridging / step-up). Large
-     * on purpose — placing is cheap in real ticks, but we want the bot to
-     * prefer walking around over consuming its limited cobblestone/dirt.
-     * Lower this to make it bridge more eagerly.
+     * Cost added for placing a scaffolding block (bridging / step-up). Placing
+     * is genuinely cheap in real ticks, so this is kept low — the bot bridges
+     * gaps readily rather than taking long detours. Raise it if you want it to
+     * conserve cobblestone/dirt and prefer walking around.
      */
-    public static final double PLACE_BLOCK = 20.0;
+    public static final double PLACE_BLOCK = 3.0;
 
     /**
      * Flat tiebreaker added on top of the tool-aware mining duration so that,
@@ -49,7 +45,7 @@ public final class ActionCosts {
     /** Upward jump (one block) cost, approximated from fall-time symmetry. */
     public static final double JUMP_ONE_BLOCK = 5.0;
 
-    /** Center-to-center distance for a diagonal step (unused in the 4-move set). */
+    /** Center-to-center distance multiplier for a diagonal step. */
     public static final double SQRT_2 = 1.41421356;
 
     /**

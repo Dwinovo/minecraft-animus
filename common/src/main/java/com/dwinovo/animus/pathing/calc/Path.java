@@ -29,8 +29,4 @@ public final class Path {
     public boolean isEmpty() {
         return movements.isEmpty();
     }
-
-    public int size() {
-        return movements.size();
-    }
 }

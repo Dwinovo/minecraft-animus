@@ -2,7 +2,6 @@ package com.dwinovo.animus.pathing.util;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -117,25 +116,9 @@ public final class BlockHelper {
         return level;
     }
 
-    /** Block registry key as a short string, for result/debug payloads. */
-    public static String keyOf(BlockState state) {
-        return net.minecraft.core.registries.BuiltInRegistries.BLOCK
-                .getKey(state.getBlock()).toString();
-    }
-
-    /** True if the two stacked cells above {@code floor} are clear (head + feet room). */
-    public static boolean hasBodyClearance(BlockGetter level, BlockPos floor) {
-        return canWalkThrough(level, floor.above()) && canWalkThrough(level, floor.above(2));
-    }
-
     /** Convenience: full-block solid we are happy to place scaffolding against. */
     public static boolean isReplaceableForPlacement(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         return state.isAir() || state.canBeReplaced();
-    }
-
-    @SuppressWarnings("unused")
-    private static Block unusedKeepImport() {
-        return null;
     }
 }
