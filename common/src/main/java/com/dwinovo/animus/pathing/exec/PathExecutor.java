@@ -7,9 +7,7 @@ import com.dwinovo.animus.pathing.movement.Movement;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.task.tasks.BlockMiningProgress;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -38,7 +36,7 @@ public final class PathExecutor {
 
     public enum Status { RUNNING, ARRIVED, NEEDS_REPLAN, FAILED }
 
-    private enum Phase { PREPARE_BREAK, PREPARE_PLACE, MOVE }
+    private enum Phase { PREPARE_BREAK, PREPARE_PLACE, MOVE, PILLAR_UP }
 
     /** Ticks of near-zero movement during MOVE before we declare a stuck/replan. */
     private static final int STUCK_TICKS = 40;
@@ -56,6 +54,9 @@ public final class PathExecutor {
     private final BlockMiningProgress mining;
     private int breakIndex = 0;
     private boolean miningStarted = false;
+
+    // Pillar sub-state: have we dropped the block beneath us this step yet?
+    private boolean placedPillar = false;
 
     // Stuck detection during MOVE.
     private Vec3 lastPos;
@@ -85,6 +86,7 @@ public final class PathExecutor {
             case PREPARE_BREAK -> tickBreak(mv);
             case PREPARE_PLACE -> tickPlace(mv);
             case MOVE -> tickMove(mv);
+            case PILLAR_UP -> tickPillar(mv);
         };
     }
 
@@ -92,7 +94,9 @@ public final class PathExecutor {
 
     private Status tickBreak(Movement mv) {
         if (breakIndex >= mv.toBreak.size()) {
-            phase = Phase.PREPARE_PLACE;
+            // Pillar places mid-jump (own phase); everything else places its
+            // floor block first, then walks.
+            phase = (mv.kind == Movement.Kind.PILLAR) ? Phase.PILLAR_UP : Phase.PREPARE_PLACE;
             return Status.RUNNING;
         }
         BlockPos target = mv.toBreak.get(breakIndex);
@@ -206,27 +210,73 @@ public final class PathExecutor {
         return Status.RUNNING;
     }
 
+    // ---- PILLAR_UP: jump straight up, place the floor block beneath mid-rise ----
+
+    private Status tickPillar(Movement mv) {
+        Level level = entity.level();
+        double cx = mv.dest.getX() + 0.5;
+        double cz = mv.dest.getZ() + 0.5;
+
+        // Hold the column centre and jump; the body rises onto the placed block.
+        entity.getMoveControl().setWantedPosition(cx, mv.dest.getY(), cz, 0.2);
+        entity.getLookControl().setLookAt(cx, mv.dest.getY() + 1.0, cz);
+        entity.getJumpControl().jump();
+
+        // Once we've cleared the source cell, drop the scaffold under our feet.
+        if (!placedPillar && mv.toPlace != null
+                && entity.getY() >= mv.toPlace.getY() + 0.5) {
+            if (BlockHelper.canWalkOn(level, mv.toPlace)) {
+                placedPillar = true;                 // already solid somehow
+            } else if (BlockHelper.isReplaceableForPlacement(level, mv.toPlace)) {
+                ItemStack stack = takeScaffold();
+                if (stack == null) {
+                    return Status.NEEDS_REPLAN;       // ran out mid-pillar
+                }
+                BlockState state = ((BlockItem) stack.getItem()).getBlock().defaultBlockState();
+                if (!level.setBlock(mv.toPlace, state, 3)) {
+                    return Status.NEEDS_REPLAN;
+                }
+                stack.shrink(1);
+                entity.getInventory().setChanged();
+                placedPillar = true;
+            }
+        }
+
+        // Landed on the new block at destination height.
+        double dx = entity.getX() - cx;
+        double dz = entity.getZ() - cz;
+        boolean horizOk = dx * dx + dz * dz <= ARRIVE_HORIZ_SQR;
+        boolean atHeight = entity.getY() >= mv.dest.getY() - 0.1;
+        if (placedPillar && atHeight && horizOk && entity.onGround()) {
+            advance();
+            return Status.RUNNING;
+        }
+
+        // Stuck (head blocked, can't place, wedged) — replan from here.
+        if (entity.position().distanceToSqr(lastPos) < 0.0025) {
+            if (++stuckCounter >= STUCK_TICKS) {
+                return Status.NEEDS_REPLAN;
+            }
+        } else {
+            stuckCounter = 0;
+            lastPos = entity.position();
+        }
+        return Status.RUNNING;
+    }
+
     private void advance() {
         index++;
         phase = Phase.PREPARE_BREAK;
         breakIndex = 0;
         miningStarted = false;
+        placedPillar = false;
         stuckCounter = 0;
         lastPos = entity.position();
     }
 
     /** Find and return a scaffolding stack from inventory (not yet shrunk), or null. */
     private ItemStack takeScaffold() {
-        SimpleContainer inv = entity.getInventory();
-        for (int i = 0; i < inv.getContainerSize(); i++) {
-            ItemStack s = inv.getItem(i);
-            if (s.isEmpty()) continue;
-            Item item = s.getItem();
-            if (item instanceof BlockItem && NavContext.SCAFFOLD_ITEMS.contains(item)) {
-                return s;
-            }
-        }
-        return null;
+        return NavContext.firstScaffoldItem(entity.getInventory());
     }
 
     /** Release any in-progress mining overlay. Call when the task ends. */

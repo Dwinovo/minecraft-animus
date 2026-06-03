@@ -19,7 +19,7 @@ import java.util.List;
 public final class Movement {
 
     /** Kind tag, used by the executor to pick an animation / phase order. */
-    public enum Kind { TRAVERSE, ASCEND, DESCEND, FALL }
+    public enum Kind { TRAVERSE, ASCEND, DESCEND, FALL, DIAGONAL, PILLAR, DIG_DOWN }
 
     public final Kind kind;
     /** Feet position the entity ends this step at. */

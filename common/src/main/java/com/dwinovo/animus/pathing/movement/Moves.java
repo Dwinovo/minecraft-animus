@@ -16,7 +16,7 @@ import java.util.List;
  * movements (no scaffolding to bridge, unbreakable obstruction, hazard,
  * fall too deep) are simply not emitted.
  *
- * <h2>Primitive set (phase 1)</h2>
+ * <h2>Primitive set (mineflayer-parity)</h2>
  * <ul>
  *   <li><b>Traverse</b> — same-Y step; bridges gaps by placing a floor block
  *       and mines head/feet obstructions.</li>
@@ -24,8 +24,18 @@ import java.util.List;
  *       step block to climb a ledge that isn't there.</li>
  *   <li><b>Descend / Fall</b> — step out and drop to the first safe floor
  *       within {@link NavContext#maxFallHeight}.</li>
+ *   <li><b>Diagonal</b> — same-Y step to a corner cell; emitted only when both
+ *       orthogonal corner cells are open (no corner-clipping), mirrors
+ *       Baritone {@code MovementDiagonal} / mineflayer diagonal moves.</li>
+ *   <li><b>Pillar</b> — jump straight up one block, placing a scaffolding block
+ *       beneath as you rise (mineflayer "move up" / jump-place). Needs a
+ *       scaffold block and head-room.</li>
+ *   <li><b>DigDown</b> — mine the floor block underfoot and drop one (mineflayer
+ *       "dig down"). Only when a solid floor exists one block lower to land on.</li>
  * </ul>
- * Pillar / Parkour / Diagonal are intentionally deferred.
+ * Parkour (gap-jumping without placing) is the remaining mineflayer move, still
+ * deferred — reliable multi-block jumps need precise velocity control that the
+ * vanilla entity {@code MoveControl} doesn't give us.
  */
 public final class Moves {
 
@@ -33,11 +43,19 @@ public final class Moves {
             Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST
     };
 
+    /** The four diagonal corners as orthogonal direction pairs. */
+    private static final Direction[][] DIAGONALS = {
+            {Direction.NORTH, Direction.EAST},
+            {Direction.NORTH, Direction.WEST},
+            {Direction.SOUTH, Direction.EAST},
+            {Direction.SOUTH, Direction.WEST},
+    };
+
     private Moves() {}
 
     /** All feasible movements out of {@code from}. */
     public static List<Movement> generate(NavContext ctx, BlockPos from) {
-        List<Movement> out = new ArrayList<>(12);
+        List<Movement> out = new ArrayList<>(18);
         for (Direction dir : HORIZONTAL) {
             Movement t = traverse(ctx, from, dir);
             if (t != null) out.add(t);
@@ -46,6 +64,14 @@ public final class Moves {
             Movement d = descend(ctx, from, dir);
             if (d != null) out.add(d);
         }
+        for (Direction[] pair : DIAGONALS) {
+            Movement g = diagonal(ctx, from, pair[0], pair[1]);
+            if (g != null) out.add(g);
+        }
+        Movement up = pillar(ctx, from);
+        if (up != null) out.add(up);
+        Movement down = digDown(ctx, from);
+        if (down != null) out.add(down);
         return out;
     }
 
@@ -155,6 +181,80 @@ public final class Moves {
             }
         }
         return null;
+    }
+
+    // ---- Diagonal: same-Y corner step over EXISTING ground only ----
+
+    /**
+     * Pure walking shortcut across a corner. Deliberately conservative: it
+     * neither breaks nor places anything — diagonal bridging/digging produces
+     * the ugly, unnatural "corner-to-corner staircase" (blocks touching only at
+     * their corners), so all terrain modification is left to the cardinal moves,
+     * which lay straight bridges that turn at 90°. A diagonal is emitted only
+     * when the destination is already a clear, standable cell and neither
+     * orthogonal cell we cut between is obstructed (no corner-clipping).
+     */
+    private static Movement diagonal(NavContext ctx, BlockPos from, Direction a, Direction b) {
+        Level level = ctx.level;
+        BlockPos dest = from.relative(a).relative(b);
+
+        // Destination must already be a valid standing spot — solid floor below,
+        // body clearance at feet+head. No placing, no breaking.
+        if (!BlockHelper.isStandable(level, dest)) return null;
+
+        // Both orthogonal cells we pass between must be open at both body
+        // heights, otherwise the entity would clip a corner.
+        BlockPos cornerA = from.relative(a);
+        BlockPos cornerB = from.relative(b);
+        if (!BlockHelper.canWalkThrough(level, cornerA)
+                || !BlockHelper.canWalkThrough(level, cornerA.above())) return null;
+        if (!BlockHelper.canWalkThrough(level, cornerB)
+                || !BlockHelper.canWalkThrough(level, cornerB.above())) return null;
+
+        if (BlockHelper.isHazard(level, dest) || BlockHelper.isHazard(level, dest.above())) return null;
+
+        double cost = ActionCosts.WALK_ONE_BLOCK * ActionCosts.SQRT_2;
+        return new Movement(Movement.Kind.DIAGONAL, dest, cost, List.of(), null);
+    }
+
+    // ---- Pillar: jump up one, placing a block beneath as we rise ----
+
+    private static Movement pillar(NavContext ctx, BlockPos from) {
+        Level level = ctx.level;
+        BlockPos dest = from.above();      // feet end one block up
+        BlockPos newHead = from.above(2);  // head room while standing on the new block
+
+        // Need a scaffold block to drop under our feet (the current feet cell).
+        double placeCost = ctx.costOfPlacing(from);
+        if (placeCost >= ActionCosts.COST_INF) return null;
+
+        double cost = ActionCosts.JUMP_ONE_BLOCK + placeCost;
+        List<BlockPos> toBreak = new ArrayList<>(1);
+        double headBreak = clearCost(ctx, newHead, toBreak);
+        if (headBreak >= ActionCosts.COST_INF) return null;
+        cost += headBreak;
+
+        if (BlockHelper.isHazard(level, dest) || BlockHelper.isHazard(level, newHead)) return null;
+        return new Movement(Movement.Kind.PILLAR, dest, cost, toBreak, from);
+    }
+
+    // ---- DigDown: mine the floor underfoot and drop one ----
+
+    private static Movement digDown(NavContext ctx, BlockPos from) {
+        Level level = ctx.level;
+        BlockPos below = from.below();       // floor block to mine == destination feet
+        BlockPos landing = from.below(2);    // must be solid to stand on after the drop
+
+        if (!BlockHelper.canWalkOn(level, landing)) return null;
+
+        double breakCost = ctx.costOfBreaking(below);
+        if (breakCost >= ActionCosts.COST_INF) return null; // air/unbreakable handled by descend
+        if (BlockHelper.isHazard(level, below) || BlockHelper.isHazard(level, landing)) return null;
+
+        List<BlockPos> toBreak = new ArrayList<>(1);
+        toBreak.add(below.immutable());
+        double cost = breakCost + ActionCosts.fallCost(1);
+        return new Movement(Movement.Kind.DIG_DOWN, below, cost, toBreak, null);
     }
 
     /**
