@@ -14,7 +14,43 @@
 
 设计原则：**Goal 是执行层；LLM 是决策层；ToolCall 是它们之间唯一的接口。** 不要在 Goal 里写策略，也不要在 LLM prompt 里写底层位移/路径逻辑——两边各司其职。
 
-**为什么不用 Brain**：Brain 的 Activity/Schedule/Memory 模型是为"被动 AI"（村民日程、Warden 状态机）设计的，命令式调度需要伪造 memory 状态。Goal 生命周期（canUse → start → tick → stop）和我们 TaskRecord 的状态机（PENDING → RUNNING → SUCCESS/FAILED/TIMEOUT/CANCELLED）几乎天然 1:1 对齐，由 [`LlmTaskGoal`](common/src/main/java/com/dwinovo/animus/task/LlmTaskGoal.java) 这个 50 行的 bridge 就能把两者粘起来。详见该类注释。
+**为什么不用 Brain**：Brain 的 Activity/Schedule/Memory 模型是为"被动 AI"（村民日程、Warden 状态机）设计的，命令式调度需要伪造 memory 状态。Goal 生命周期（canUse → start → tick → stop）和我们 TaskRecord 的状态机（PENDING → RUNNING → SUCCESS/FAILED/TIMEOUT/CANCELLED）几乎天然 1:1 对齐，由 [`LlmTaskGoal`](common/src/main/java/com/dwinovo/animus/task/LlmTaskGoal.java) 这个 bridge 就能把两者粘起来。详见该类注释。
+
+## ToolCall 清单（LLM 能力面）
+
+> 这是 LLM 通过 tool_call 能做的全部事情。注册于 [`CommonClass.registerTools()`](common/src/main/java/com/dwinovo/animus/CommonClass.java)，实现在 `common/.../agent/tool/tools/`。每个工具 = 一份 LLM 看到的 schema + 一个把它翻译成世界行为的 Task。**共 12 个。**
+
+**行动类（改变世界 / 实体状态）**
+
+| 工具 | 参数 | 作用 |
+|---|---|---|
+| `move_to` | `x, y, z, speed` | 走到坐标。**自研地形改造寻路**——会搭桥/垫脚/搭柱/挖障碍/下挖。到目标 ~2 格内算成功；不可达/被挡/超时则失败。 |
+| `mine_block` | `block_ids[], count, radius?` | **意图级采集**：给方块类型和数量,实体自己扫描→自研寻路走过去(搭桥/挖障碍)→挖进背包→重复,直到够数或挖空。不需要坐标。够不到部分如实回报实际数量。 |
+| `attack_target` | `target_entity_id` | 追击并近战某目标直到其死亡/自身死亡/5 分钟超时。id 从感知工具取。⚠️ 追击走 vanilla `MeleeAttackGoal`。 |
+
+**自我 / 库存感知（读自身）**
+
+| 工具 | 参数 | 作用 |
+|---|---|---|
+| `get_self_status` | — | 读自身：HP、坐标、维度、主副手物品、当前攻击目标、移动状态。战斗决策前必调。 |
+| `get_owner_status` | — | 读主人：名字、在线、HP、饥饿、坐标、距离、手持物。follow/protect 决策前调；离线返回 online:false。 |
+| `get_storage` | — | 读自己背包：每个非空槽的 {slot, item_id, count, max_stack}。采集前后核对携带物。 |
+
+**世界感知（读环境）**
+
+| 工具 | 参数 | 作用 |
+|---|---|---|
+| `scan_nearby_entities` | `radius, type_filter` | 列附近实体（hostile/passive/player/all），按距离排序，最多 20 个。每条带 id（喂给 attack_target）、类型、坐标、距离、HP。 |
+| `scan_blocks` | `block_ids[], radius` | 球形范围批量找指定方块，按距离排序。纯感知/勘察用——真要采集直接用 `mine_block`(它自己会找)。 |
+| `inspect_block` | `x, y, z` | 查单个方块：id、硬度、是否有对的工具、预估挖掘 tick、是否在挖掘范围。mine_block 前确认会成功。 |
+| `get_world_info` | — | 读世界：维度、game-time、昼夜（战斗/刷怪规划）、天气。 |
+
+**规划 / 元能力**
+
+| 工具 | 参数 | 作用 |
+|---|---|---|
+| `todowrite` | `todos[]` | 多步任务的待办清单（同一时刻只允许一个 in_progress）。 |
+| `load_skill` | `name` | 按名加载一段 SKILL.md 工作流（编排好的任务链 / 详细操作指南），按需注入上下文。 |
 
 ## 当前进度
 
@@ -28,10 +64,14 @@
 - **零第三方 LLM 依赖**：用 JDK `java.net.http.HttpClient`（Java 25 内置）+ Gson（MC vanilla 自带）直发 OpenAI 协议。无 OkHttp / OpenAI SDK / kotlin-stdlib / jackson / swagger。**mod jar ~260KB**（早期内嵌 OpenAI SDK 时 50MB，砍了 99.5%）。
 - **LlmProvider 抽象** (`common/.../agent/provider/`)：单点 OpenAI ↔ 内部协议适配。`OpenAIProvider` 是默认实现，`DeepSeekProvider` 继承并处理 `reasoning_content` 字段的 round-trip（修 thinking 模式 400 兼容性问题）。Config 字段 `provider: "openai" | "deepseek"` 切换。
 - **LLM 调用在客户端**：每个玩家用自己的 API key、自付 token。服务端不调 LLM。设计原因：避免服务器主人为所有玩家承担 token 消耗 + 玩家不需要把 key 上交服务端。
-- **LLM 任务执行框架**（MVP 端到端跑通）：`common/.../task/`（原子任务生命周期 + GoalSelector 桥接）+ `common/.../agent/`（HTTP transport + provider + LLM 客户端 + ConvoState + 16-turn cap + batch-dedup）+ `common/.../client/agent/`（per-entity `ClientAgentLoop` + `ClientAgentLoopRegistry`）+ 右键 owner Prompt GUI + `ExecuteToolPayload`(C→S) / `TaskResultPayload`(S→C) 双向网包 + 跨 loader `IAnimusConfig`（Fabric JSON / NeoForge ModConfigSpec）。第一个原子工具 `move_to(x,y,z,speed)` 已注册。
-- 还没有 Sensor / Perception / 复合任务链 / streaming / 客户端任务状态可视化（下一阶段）。
+- **LLM 任务执行框架**（端到端跑通，SSE streaming 默认开启）：`common/.../task/`（原子任务生命周期 + GoalSelector 桥接）+ `common/.../agent/`（HTTP transport + provider + LLM 客户端 + ConvoState + turn cap + batch-dedup + stale watchdog）+ `common/.../client/agent/`（per-entity `EntityAgentLoop` + 注册表）+ 右键 owner 对话 GUI（聊天 / 换模型 / 看库存三页签）+ `ExecuteToolPayload`(C→S) / `TaskResultPayload`(S→C) / `AnimusInventoryPayload`(S→C) 网包 + 跨 loader `IAnimusConfig`（Fabric JSON / NeoForge ModConfigSpec）。
+- **12 个 ToolCall 已注册**（见下方[工具清单](#toolcall-清单llm-能力面)）：行动 3 + 自我/库存感知 3 + 世界感知 4 + 规划 2。
+- **自研地形改造寻路**（`common/.../pathing/`）：`move_to` 不再用 vanilla `PathNavigation`，改用 Baritone 风格 A* over 移动原语——会用背包里的圆石/泥土（`animus:scaffolds` tag）**搭桥、垫脚、搭柱上升**，挖穿障碍、下挖楼梯，按真实 tick 成本（走/挖/放）规划。**时间片化**：A* 跨 tick 续算（每 tick 限额节点数），多实体同时规划也不卡服务端。moveset：前后左右 traverse / ascend / descend·fall / 对角（仅走现成地面，不斜搭）/ pillar / dig-down；parkour 暂缓。
+- **`/animus debug` 调试层**：开关后所有自己的宠物头顶实时显示当前任务（如 `move_to 25,150,60` / `idle`），走 SynchedEntityData 同步 + vanilla name-tag 渲染。
+- 仍用 vanilla `PathNavigation` 的：仅攻击追击（`attack_target` → vanilla `MeleeAttackGoal`）。`mine_block` 已用自研寻路。
+- 还没有：周期 Sensor/Perception 快照、复合任务链编排、parkour 跨缝、LLM 瞬时网络错误自动重试（下一阶段候选）。
 
-下一步通常是：① 玩家配置 API key 进 `config/animus.json` 或 `config/animus-common.toml`，启动游戏右键实体试 `move_to`；② 加更多原子工具（`look_at` / `say` / `attack`）；③ 加 Perception 层把附近玩家/方块/伤害事件喂给 LLM；④ 设计复合任务（任务链）编排 + 透明结果回报。
+下一步候选：① Perception 层（周期把附近玩家/方块/伤害事件喂给 LLM，目前靠 scan_* 工具按需拉取）；② 攻击追击切到自研寻路；③ 复合任务链（Skill 内部按序编排原子 task）；④ LLM EOF/SSL 等瞬时错误自动重试；⑤ 卡死时的卡点惩罚集合（确定性 A* 重算同路问题，mineflayer 也缺，研究已确认根治方案）。
 
 ## 技术栈与版本
 
@@ -42,9 +82,9 @@
 | Minecraft | 26.1.2 |
 | Java | 25 |
 | Loader | Fabric (loom 1.15.5) + NeoForge (moddev 2.0.141) |
-| Fabric API | 0.145.4+26.1.2 |
-| NeoForge | 26.1.2.7-beta |
-| Mixin | 0.8.5 + MixinExtras 0.5.3 |
+| Fabric API | 0.148.2+26.1.2 |
+| NeoForge | 26.1.2.50-beta |
+| Mixin | 0.8.7 + MixinExtras 0.5.4 |
 
 注意 **Java 25** —— IDEA Gradle JVM 与 Project SDK 都要切到 25，否则刷新会失败（见 [README.md](README.md)）。
 
