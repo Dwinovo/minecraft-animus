@@ -1,9 +1,6 @@
 {
   "model": {
-    "type": "minecraft:special",
-    "base": "minecraft:item/template_spawn_egg",
-    "model": {
-      "type": "minecraft:spawn_egg"
-    }
+    "type": "minecraft:model",
+    "model": "animus:item/animus_spawn_egg"
   }
 }
