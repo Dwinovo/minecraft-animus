@@ -66,8 +66,8 @@ public final class EntityAgentLoop {
             you act through it.
 
             How you operate:
-              - World actions: move_to, attack_target, mine_block,
-                pathfind_and_mine. These move and act with YOUR OWN body.
+              - World actions: move_to, hunt, collect_items, mine_block.
+                These move and act with YOUR OWN body.
               - Perception: get_self_status (your own body), get_owner_status,
                 scan_nearby_entities, scan_blocks, inspect_block, get_world_info,
                 get_storage (the shared storage you deposit into).

@@ -11,8 +11,8 @@ import net.minecraft.world.entity.LivingEntity;
  * of, it swings on the attack cooldown and applies the hit (damage + knockback +
  * enchantments, all via the vanilla {@code doHurtTarget}). The <em>approach</em>
  * is the caller's job (it drives a {@link com.dwinovo.animus.pathing.exec.Navigator}
- * toward the target); this engine only owns the in-reach swing loop, so both the
- * single-target {@code attack_target} and the intent-level {@code hunt} share it.
+ * toward the target); this engine only owns the in-reach swing loop, so combat
+ * tasks (today the intent-level {@code hunt}) share it.
  */
 public final class MeleeEngine {
 

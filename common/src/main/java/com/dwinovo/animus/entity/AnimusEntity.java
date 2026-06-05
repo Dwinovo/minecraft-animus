@@ -11,7 +11,6 @@ import net.minecraft.world.food.FoodData;
 import com.dwinovo.animus.task.TaskQueue;
 import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.TaskResult;
-import com.dwinovo.animus.task.tasks.AttackTargetTaskGoal;
 import com.dwinovo.animus.task.tasks.CheckFurnaceTaskGoal;
 import com.dwinovo.animus.task.tasks.CollectFurnaceTaskGoal;
 import com.dwinovo.animus.task.tasks.CraftTaskGoal;
@@ -181,7 +180,6 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         super.registerGoals();
         this.goalSelector.addGoal(0, new MeleeAttackGoal(this, 1.2D, true));
         this.goalSelector.addGoal(0, new MoveToTaskGoal(this));
-        this.goalSelector.addGoal(0, new AttackTargetTaskGoal(this));
         this.goalSelector.addGoal(0, new HuntTaskGoal(this));
         this.goalSelector.addGoal(0, new CollectItemsTaskGoal(this));
         this.goalSelector.addGoal(0, new MineBlockTaskGoal(this));

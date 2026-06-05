@@ -19,8 +19,9 @@ import java.util.Map;
 /**
  * The {@code scan_nearby_entities} tool — list every entity within a given
  * radius, optionally filtered by category. Returns id + type + position +
- * distance + HP + category so the LLM can pick a target for
- * {@code attack_target} or know who's around for tactical decisions.
+ * distance + HP + category so the LLM knows who's around for tactical decisions
+ * (threats, crowding, HP). Combat itself is intent-level via {@code hunt}, which
+ * does its own scanning by type.
  *
  * <h2>Truncation</h2>
  * Result list is sorted by distance (closest first) and capped at
@@ -54,8 +55,8 @@ public final class ScanNearbyEntitiesTool implements AnimusTool {
                 + "Use type_filter to narrow: 'hostile' for monsters, 'passive' "
                 + "for animals/items, 'player' for players, 'all' for everything. "
                 + "Returns at most 20 entities; truncated:true means more exist. "
-                + "Each entry has id (use it with attack_target), type, position, "
-                + "distance, hp, and category.";
+                + "Each entry has id, type, position, distance, hp, and category. "
+                + "To fight mobs, use hunt (it scans by type itself).";
     }
 
     @Override

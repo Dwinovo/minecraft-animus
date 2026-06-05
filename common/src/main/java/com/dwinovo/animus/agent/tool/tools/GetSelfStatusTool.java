@@ -35,7 +35,7 @@ public final class GetSelfStatusTool implements AnimusTool {
         return "Read your own current status: HP / max HP, position, dimension, "
                 + "main hand and off hand items, current attack target, and "
                 + "movement state. ALWAYS call this before combat decisions "
-                + "(attack_target, retreat, eat) and periodically during long "
+                + "(hunt, retreat, eat) and periodically during long "
                 + "tasks. No arguments.";
     }
 

@@ -1,7 +1,6 @@
 package com.dwinovo.animus;
 
 import com.dwinovo.animus.agent.tool.ToolRegistry;
-import com.dwinovo.animus.agent.tool.tools.AttackTargetTool;
 import com.dwinovo.animus.agent.tool.tools.GetOwnerStatusTool;
 import com.dwinovo.animus.agent.tool.tools.GetSelfStatusTool;
 import com.dwinovo.animus.agent.tool.tools.GetStorageTool;
@@ -61,7 +60,6 @@ public class CommonClass {
     private static void registerTools() {
         // Entity world-action + entity-perspective perception tools.
         ToolRegistry.register(new MoveToTool());
-        ToolRegistry.register(new AttackTargetTool());
         ToolRegistry.register(new HuntTool());
         ToolRegistry.register(new CollectItemsTool());
         ToolRegistry.register(new MineBlockTool());
