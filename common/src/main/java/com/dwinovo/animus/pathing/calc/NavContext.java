@@ -78,13 +78,35 @@ public final class NavContext {
 
     /**
      * Cost of breaking the block at {@code pos}: tool-aware mining duration in
-     * ticks plus {@link ActionCosts#BREAK_ADDITIONAL}. {@code COST_INF} when
-     * unbreakable, a hazard, or breaking would unleash a fluid flow.
+     * ticks plus {@link ActionCosts#BREAK_ADDITIONAL}. {@code COST_INF} (→ A*
+     * routes around, or the search fails clean) when the break is impossible,
+     * unsafe, or ineffective:
+     * <ul>
+     *   <li>unbreakable (bedrock/barrier), a hazard (lava/fire), or would unleash
+     *       a fluid flow;</li>
+     *   <li>{@link BlockHelper#shouldAvoidBreaking} — a player-placed functional
+     *       block (chest, furnace, bed, …): don't grief it;</li>
+     *   <li>{@link BlockHelper#breakReleasesFallingBlock} — sand/gravel above
+     *       would cave in on the bot;</li>
+     *   <li><b>ineffective break</b> — the block needs the correct tool for drops
+     *       and the entity's held tool isn't it. We refuse the slow, drop-less
+     *       bare-hand/wrong-tool grind: the bot only digs through what its current
+     *       tool handles effectively (dirt/wood/sand bare-handed are fine — those
+     *       need no tool). To tunnel through stone/ore it must equip a proper
+     *       pickaxe first, same lesson as {@code mine_block}.</li>
+     * </ul>
      */
     public double costOfBreaking(BlockPos pos) {
         if (!BlockHelper.isBreakable(level, pos)) return ActionCosts.COST_INF;
         if (BlockHelper.isHazard(level, pos)) return ActionCosts.COST_INF;
         if (BlockHelper.breakWouldCreateFlow(level, pos)) return ActionCosts.COST_INF;
+        if (BlockHelper.shouldAvoidBreaking(level, pos)) return ActionCosts.COST_INF;
+        if (BlockHelper.breakReleasesFallingBlock(level, pos)) return ActionCosts.COST_INF;
+
+        BlockState state = level.getBlockState(pos);
+        if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) {
+            return ActionCosts.COST_INF;   // ineffective with the held tool — route around
+        }
         return miningTicks(pos) + ActionCosts.BREAK_ADDITIONAL;
     }
 

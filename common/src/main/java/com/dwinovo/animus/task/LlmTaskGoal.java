@@ -1,7 +1,11 @@
 package com.dwinovo.animus.task;
 
 import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.pathing.exec.PathTally;
 import net.minecraft.world.entity.ai.goal.Goal;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Abstract base for every atomic-task {@link Goal}. Bridges the
@@ -86,6 +90,7 @@ public abstract class LlmTaskGoal<T extends TaskRecord> extends Goal {
         currentRecord = recordClass.cast(polled);
         currentRecord.setState(TaskState.RUNNING);
         entity.setDebugTask(currentRecord.describe());
+        entity.pathTally().reset();   // start a fresh per-task pathfinder terrain tally
         onStart(currentRecord);
     }
 
@@ -119,7 +124,7 @@ public abstract class LlmTaskGoal<T extends TaskRecord> extends Goal {
             finalState = TaskState.CANCELLED;
             currentRecord.setState(finalState);
         }
-        TaskResult result = buildResult(currentRecord, finalState);
+        TaskResult result = enrichWithPathTally(buildResult(currentRecord, finalState));
         currentRecord.setResult(result);
         entity.getTaskQueue().complete(currentRecord);
         currentRecord = null;
@@ -129,6 +134,33 @@ public abstract class LlmTaskGoal<T extends TaskRecord> extends Goal {
     @Override
     public final boolean requiresUpdateEveryTick() {
         return true;
+    }
+
+    /**
+     * Fold the pathfinder's per-task terrain tally (obstructions dug, scaffolding
+     * placed while travelling) into the result so the model sees what navigation
+     * cost. No-op when nothing was modified. Applies to every task uniformly —
+     * any goal that drives the pathfinder benefits without per-goal wiring.
+     */
+    private TaskResult enrichWithPathTally(TaskResult result) {
+        PathTally tally = entity.pathTally();
+        if (tally.isEmpty()) return result;
+        String dug = tally.describeDug();
+        String placed = tally.describePlaced();
+        Map<String, Object> data = new HashMap<>(result.data());
+        StringBuilder extra = new StringBuilder();
+        if (!dug.isEmpty()) {
+            data.put("path_dug", dug);
+            extra.append("dug ").append(dug);
+        }
+        if (!placed.isEmpty()) {
+            if (extra.length() > 0) extra.append("; ");
+            data.put("path_placed", placed);
+            extra.append("placed ").append(placed).append(" as scaffold");
+        }
+        return new TaskResult(result.success(),
+                result.message() + " (en route: " + extra + ")",
+                result.timedOut(), result.interrupted(), data);
     }
 
     /** First-tick world-mutation hook. Set a terminal state to abort immediately. */

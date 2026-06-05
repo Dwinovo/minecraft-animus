@@ -12,6 +12,7 @@ import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
@@ -89,8 +90,40 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
 
     @Override
     protected void onStart(MineBlockTaskRecord r) {
+        // Harvest gate (fast-fail): if the CURRENTLY HELD tool can't harvest ANY
+        // requested target type, refuse before walking or digging and tell the
+        // model what to equip. Breaking a block the tool can't harvest yields
+        // nothing — a bare "0 mined" teaches the model nothing; the requirement
+        // string does. We deliberately do NOT auto-equip a better tool from the
+        // bag: silently swapping would teach the model the wrong lesson (e.g.
+        // "a wooden pickaxe mined iron ore"). The model must equip the right tool
+        // itself, so its mental model of tool tiers stays correct.
+        // (Mixed-tier calls where SOME types are harvestable proceed; the
+        // per-target gate in tickScan skips the un-harvestable ones.)
+        String blocked = allTargetsHarvestBlocked(r);
+        if (blocked != null) {
+            doneReason = blocked;
+            r.setState(TaskState.FAILED);
+            return;
+        }
         this.currentRadius = Math.min(INITIAL_RADIUS, r.maxRadius);
         this.phase = Phase.SCAN;
+    }
+
+    /**
+     * Guidance string if NONE of the requested target types can be harvested
+     * with the currently-held tool; {@code null} if at least one can. Checks each
+     * block's default state — harvest tier is state-independent for the
+     * ores/stone these calls target.
+     */
+    private String allTargetsHarvestBlocked(MineBlockTaskRecord r) {
+        String lastReason = null;
+        for (Block b : r.targets) {
+            String reason = BlockMiningProgress.harvestRequirement(entity, b.defaultBlockState());
+            if (reason == null) return null;   // at least one harvestable → allow the task
+            lastReason = reason;
+        }
+        return lastReason;
     }
 
     @Override
@@ -130,6 +163,14 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
 
         targetBlock = hit.pos();
         replansForBlock = 0;
+        // Per-target harvest gate: in a mixed block_ids call (some types need a
+        // better tool than others), skip the ones the held tool can't harvest so
+        // we don't waste a dig, while still mining the types we can. onStart
+        // already fast-failed the all-blocked case, so this never starves.
+        if (BlockMiningProgress.harvestRequirement(entity, level.getBlockState(targetBlock)) != null) {
+            skipped.add(targetBlock.immutable());
+            return;   // re-scan next tick for a harvestable target
+        }
         if (withinReach(targetBlock)) {
             beginMining(r);
         } else {

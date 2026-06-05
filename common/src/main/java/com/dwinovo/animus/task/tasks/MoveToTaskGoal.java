@@ -94,6 +94,12 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
         }
         // PLANNING: spend this tick's node budget on the in-flight search.
         if (search != null) {
+            // Hold position while the (time-sliced) search runs. Otherwise the
+            // MoveControl keeps driving toward the PREVIOUS path's last wanted
+            // node, drifting the entity off the cell this search is computing
+            // from — which would make the finished path start in the wrong place.
+            entity.getMoveControl().setWantedPosition(
+                    entity.getX(), entity.getY(), entity.getZ(), 0.0);
             advancePlanning(r);
             return;
         }
@@ -140,6 +146,11 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
         BlockPos start = entity.blockPosition();
         BlockPos goal = BlockPos.containing(r.x, r.y, r.z);
         search = astar.newSearch(planningCtx, start, goal);
+        if (com.dwinovo.animus.pathing.exec.PathExecutor.VERBOSE) {
+            com.dwinovo.animus.Constants.LOG.info(
+                    "[animus-move#{}] replan #{} from {} -> goal {} (hasScaffold={})",
+                    entity.getId(), replans, start, goal, planningCtx.hasScaffold);
+        }
         return true;
     }
 
@@ -161,7 +172,28 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
             lastFailReason = hadScaffold
                     ? "no path to target (obstructed)"
                     : "blocked by a gap and no bridging blocks — give me cobblestone or dirt";
+            if (PathExecutor.VERBOSE) {
+                com.dwinovo.animus.Constants.LOG.info("[animus-move#{}] A* found no usable path: {}",
+                        entity.getId(), lastFailReason);
+            }
             r.setState(closeEnough(r) ? TaskState.SUCCESS : TaskState.FAILED);
+            return;
+        }
+        // ROOT GUARD: the time-sliced A* captured its start when planning began,
+        // but the entity can fall / be pushed during the multi-tick search. If it
+        // has left that start cell, every node in this path is offset from the
+        // entity's real position — executing it drives the entity along a column
+        // it isn't in (the "infinite pillar bounce" bug). Re-search from where the
+        // entity actually is rather than run a stale path.
+        if (!entity.blockPosition().equals(path.start)) {
+            if (PathExecutor.VERBOSE) {
+                com.dwinovo.animus.Constants.LOG.info(
+                        "[animus-move#{}] entity left path start during planning ({} -> {}); re-search from current",
+                        entity.getId(), path.start, entity.blockPosition());
+            }
+            if (!startPlanning(r)) {
+                r.setState(closeEnough(r) ? TaskState.SUCCESS : TaskState.FAILED);
+            }
             return;
         }
         executor = new PathExecutor(entity, path, r.speed);

@@ -2,6 +2,8 @@ package com.dwinovo.animus.pathing.util;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -120,5 +122,28 @@ public final class BlockHelper {
     public static boolean isReplaceableForPlacement(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         return state.isAir() || state.canBeReplaced();
+    }
+
+    /**
+     * A block the bot must never destroy while pathing: any block-entity
+     * (chests, furnaces, hoppers, barrels, shulker boxes, spawners, beacons,
+     * lecterns, …) or a bed. These are player-placed functional/valuable blocks —
+     * route around them, don't grief. Mirrors Baritone's
+     * {@code blocksToAvoidBreaking}; the {@code BlockEntity != null} test is a
+     * cheap, broad proxy that catches essentially every griefable block.
+     */
+    public static boolean shouldAvoidBreaking(BlockGetter level, BlockPos pos) {
+        if (level.getBlockEntity(pos) != null) return true;
+        return level.getBlockState(pos).getBlock() instanceof BedBlock;
+    }
+
+    /**
+     * Would breaking {@code pos} drop a {@link FallingBlock} (sand / gravel /
+     * anvil / concrete powder) sitting directly above it onto the bot? Refuse so
+     * we never bury or suffocate ourselves. Mirrors mineflayer's
+     * {@code dontMineUnderFallingBlock}.
+     */
+    public static boolean breakReleasesFallingBlock(BlockGetter level, BlockPos pos) {
+        return level.getBlockState(pos.above()).getBlock() instanceof FallingBlock;
     }
 }

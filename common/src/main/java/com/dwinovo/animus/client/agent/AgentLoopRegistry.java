@@ -16,7 +16,7 @@ import java.util.Optional;
  *
  * <h2>Threading</h2>
  * Client main thread only — every entry point (payload handler, chat screen,
- * interact handler, client-tick watchdog) runs on it. No locks.
+ * interact handler) runs on it. No locks.
  */
 public final class AgentLoopRegistry {
 
@@ -44,18 +44,5 @@ public final class AgentLoopRegistry {
     public static void clear() {
         ENTITY_LOOPS.clear();
         ClientAnimusInventories.clear();
-    }
-
-    /**
-     * Per-client-tick fan-out. Each entity loop runs its stale-result
-     * watchdog. Snapshots the values so a loop mutating the map mid-iteration
-     * doesn't blow up the iterator.
-     */
-    public static void tickAll() {
-        if (ENTITY_LOOPS.isEmpty()) return;
-        EntityAgentLoop[] snapshot = ENTITY_LOOPS.values().toArray(new EntityAgentLoop[0]);
-        for (EntityAgentLoop loop : snapshot) {
-            loop.tick();
-        }
     }
 }

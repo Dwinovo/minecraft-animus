@@ -2,6 +2,7 @@ package com.dwinovo.animus.anim.render;
 
 import com.dwinovo.animus.anim.controller.ControllerSnapshot;
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
 import net.minecraft.resources.Identifier;
 
 /**
@@ -25,6 +26,14 @@ public class AnimusRenderState extends LivingEntityRenderState {
     public Identifier modelKey;
     /** Texture path. */
     public Identifier texture;
+    /**
+     * Resolved render state of the main-hand item, refreshed each extract via
+     * {@code ItemModelResolver.updateForLiving}. The held-item render layer
+     * submits this at the model's hand-locator bone. {@code isEmpty()} when the
+     * Animus holds nothing — the layer then skips. Allocated once per render
+     * state and reused (vanilla pattern for per-entity item render states).
+     */
+    public final ItemStackRenderState heldItem = new ItemStackRenderState();
     /**
      * Per-controller snapshot in registration order. The submit pass iterates
      * this and samples each controller into the shared pose buffer using its

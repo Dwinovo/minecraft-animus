@@ -20,15 +20,19 @@ import com.dwinovo.animus.anim.runtime.PoseMixer;
 import com.dwinovo.animus.anim.runtime.PoseSampler;
 import com.dwinovo.animus.anim.runtime.AnimContext;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.dwinovo.animus.anim.render.layer.HeldItemLayer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
+import net.minecraft.client.renderer.item.ItemModelResolver;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.world.item.ItemStack;
 import org.joml.Quaternionf;
 
 import java.util.ArrayList;
@@ -120,6 +124,8 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
      * via {@link #addRenderLayer(RenderLayer)} from their constructor.
      */
     private final List<RenderLayer> renderLayers = new ArrayList<>();
+    /** Resolves item models for the held-item layer (captured from the render context). */
+    private final ItemModelResolver itemModelResolver;
     /**
      * Per-bone visibility rules keyed by bone name. A bone with one or more
      * rules is visible when <em>any</em> rule votes {@code true}; absence of
@@ -132,6 +138,12 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
     protected AnimusEntityRenderer(EntityRendererProvider.Context ctx) {
         super(ctx);
         this.shadowRadius = DEFAULT_SHADOW_RADIUS;
+        this.itemModelResolver = ctx.getItemModelResolver();
+
+        // Render the main-hand item at the model's hand locator. Universal across
+        // pets — gracefully no-ops on models without a hand bone. Registered
+        // first so it composes under any subclass-added accessory layers.
+        addRenderLayer(new HeldItemLayer());
 
         // Default MoLang inputs.
         addInputProvider(new BasicMolangInputProvider());
@@ -337,6 +349,18 @@ public abstract class AnimusEntityRenderer<T extends Entity> extends EntityRende
             state.isInWater  = living.isInWater();
             state.health     = living.getHealth();
             state.maxHealth  = living.getMaxHealth();
+            // Resolve the main-hand item for the held-item layer. Done here (we
+            // have the entity) so the submit pass stays a pure function of the
+            // render state. Empty hand → cleared render state → layer skips.
+            ItemStack held = living.getMainHandItem();
+            if (held.isEmpty()) {
+                state.heldItem.clear();
+            } else {
+                itemModelResolver.updateForLiving(
+                        state.heldItem, held, ItemDisplayContext.THIRD_PERSON_RIGHT_HAND, living);
+            }
+        } else {
+            state.heldItem.clear();
         }
 
         // Debug head overlay: only capture the task text when the toggle is on

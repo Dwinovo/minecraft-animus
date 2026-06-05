@@ -68,7 +68,11 @@ public final class MineBlockTool implements AnimusTool {
                 + "(e.g. iron_ore AND deepslate_iron_ore). Optional radius caps "
                 + "how far to look (default auto-expands). Returns the actual "
                 + "number mined, which may be less than requested if the deposit "
-                + "runs out.";
+                + "runs out. You must hold a tool that can harvest the target: "
+                + "mining a block your main-hand tool can't harvest fails up front "
+                + "and tells you the minimum tier required (e.g. iron_ore needs a "
+                + "stone pickaxe). Equip the right pickaxe/axe/shovel yourself first "
+                + "(equip_item) — check get_self_status for your main hand.";
     }
 
     @Override

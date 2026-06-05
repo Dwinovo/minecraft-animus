@@ -60,6 +60,7 @@ public final class EntityChatScreen extends Screen {
 
     private View view = View.CHAT;
     private EditBox input;
+    private SimpleButton stopButton;
     private String savedInputText = "";
 
     private int left;
@@ -131,8 +132,9 @@ public final class EntityChatScreen extends Screen {
 
     private void buildChatView() {
         int inputRowY = top + CONTENT_HEIGHT - INPUT_HEIGHT - PADDING;
-        int sendW = 50;
-        int inputWidth = CONTENT_WIDTH - sendW - PADDING * 3;
+        int sendW = 44;
+        int stopW = 44;
+        int inputWidth = CONTENT_WIDTH - sendW - stopW - PADDING * 4;
 
         this.input = new EditBox(this.font, left + PADDING, inputRowY, inputWidth, INPUT_HEIGHT,
                 Component.literal("animus.chat.input"));
@@ -144,6 +146,14 @@ public final class EntityChatScreen extends Screen {
         }
         addRenderableWidget(this.input);
         setInitialFocus(this.input);
+
+        // Stop: owner-triggered interrupt. Enabled state is refreshed each frame
+        // in extractRenderState from loop().canInterrupt().
+        this.stopButton = new SimpleButton(
+                left + PADDING + inputWidth + PADDING, inputRowY, stopW, INPUT_HEIGHT,
+                Component.literal("Stop"), b -> loop().abort());
+        this.stopButton.active = loop().canInterrupt();
+        addRenderableWidget(this.stopButton);
 
         addRenderableWidget(new SimpleButton(
                 left + CONTENT_WIDTH - sendW - PADDING, inputRowY, sendW, INPUT_HEIGHT,
@@ -158,6 +168,7 @@ public final class EntityChatScreen extends Screen {
         }
         this.view = v;
         this.input = null;
+        this.stopButton = null;
         rebuildWidgets();
     }
 
@@ -226,6 +237,10 @@ public final class EntityChatScreen extends Screen {
         g.outline(left, top + TOP_BAR, CONTENT_WIDTH, CONTENT_HEIGHT - TOP_BAR, 0x55FFFFFF);
 
         if (view == View.CHAT) {
+            // Stop is only actionable while a turn runs or prompts are queued.
+            if (this.stopButton != null) {
+                this.stopButton.active = loop().canInterrupt();
+            }
             renderChat(g);
         } else {
             renderModelList(g, mouseX, mouseY);

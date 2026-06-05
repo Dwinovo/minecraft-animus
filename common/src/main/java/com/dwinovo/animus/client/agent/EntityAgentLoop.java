@@ -18,7 +18,9 @@ import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -94,23 +96,34 @@ public final class EntityAgentLoop {
               → "西边 12 格有一只僵尸,要我去清掉吗?"
             """;
 
-    /**
-     * Server-result watchdog timeout. If {@link #pendingToolCallIds} stays
-     * non-empty without any add/remove churn for this long, we assume the
-     * server hung / packet was lost / entity died without our death hook
-     * firing, and we abort the in-flight turn so the loop isn't blocked
-     * forever. The conversation stays intact — the next prompt resumes it.
-     */
-    private static final long STALE_PENDING_TIMEOUT_MS = 30_000L;
-
     private final int vanillaEntityId;
     private final ConvoState convo = new ConvoState();
     private final Set<String> pendingToolCallIds = new HashSet<>();
 
+    /**
+     * Prompts the owner typed while a turn was still in flight (waiting on the
+     * LLM, or on outstanding tool results). They must NOT be spliced into the
+     * conversation immediately: the OpenAI/DeepSeek protocol requires an
+     * {@code assistant} message carrying {@code tool_calls} to be followed
+     * <em>directly</em> by the matching {@code tool} results, with no
+     * {@code user} message in between. So we hold them here and flush them in
+     * at the next protocol-valid point (see {@link #flushBufferedPrompts}).
+     */
+    private final List<String> bufferedPrompts = new ArrayList<>();
+
     private boolean awaitingLlmResponse = false;
     private boolean aborted = false;
-    /** Wall-clock of the last {@link #pendingToolCallIds} mutation. 0 = inactive. */
-    private long lastPendingChangeMs = 0L;
+
+    /**
+     * Bumped every time the owner interrupts a turn ({@link #abort}). Each LLM
+     * dispatch captures the value at send time; when the streamed response
+     * lands {@link #handleResponse} discards it if the generation no longer
+     * matches — i.e. the turn it belongs to was cancelled. This is the
+     * equivalent of Claude Code spinning up a fresh {@code AbortController} per
+     * turn: an in-flight HTTP response from an interrupted turn must never be
+     * spliced back into the conversation or dispatch its tool calls.
+     */
+    private int turnGeneration = 0;
 
     EntityAgentLoop(int vanillaEntityId) {
         this.vanillaEntityId = vanillaEntityId;
@@ -123,10 +136,19 @@ public final class EntityAgentLoop {
     public void submitPrompt(String text) {
         boolean wasAborted = aborted;
         aborted = false;
-        convo.addUser(text);
-        Constants.LOG.info("[animus-entity#{}] user prompt ({} chars){}: {}",
+        // Always buffer first; tryStartTurn() splices buffered prompts into the
+        // conversation only at a protocol-valid point. If we're mid-turn (the
+        // guards in tryStartTurn fire), the prompt stays buffered and gets
+        // flushed once the outstanding assistant/tool round-trip completes —
+        // this avoids inserting a user message between assistant(tool_calls)
+        // and its tool results (which the API rejects with HTTP 400).
+        boolean deferred = awaitingLlmResponse || !pendingToolCallIds.isEmpty();
+        bufferedPrompts.add(text);
+        Constants.LOG.info("[animus-entity#{}] user prompt ({} chars){}{}: {}",
                 vanillaEntityId, text.length(),
-                wasAborted ? " — reset previous abort" : "", truncate(text, 200));
+                wasAborted ? " — reset previous abort" : "",
+                deferred ? " — buffered (mid-turn)" : "",
+                truncate(text, 200));
         tryStartTurn();
     }
 
@@ -137,7 +159,6 @@ public final class EntityAgentLoop {
                     vanillaEntityId, toolCallId);
             return;
         }
-        lastPendingChangeMs = System.currentTimeMillis();
         convo.addToolResult(toolCallId, resultJson);
         Constants.LOG.info("[animus-entity#{}] tool_result id={} (pending={}) → {}",
                 vanillaEntityId, toolCallId, pendingToolCallIds.size(),
@@ -145,29 +166,103 @@ public final class EntityAgentLoop {
         if (pendingToolCallIds.isEmpty()) tryStartTurn();
     }
 
+    // ---- interrupt (owner-triggered, from the chat GUI "Stop" button) ----
+
+    /** A turn is actively running: waiting on the LLM, or on world-action tool results. */
+    public boolean isBusy() {
+        return awaitingLlmResponse || !pendingToolCallIds.isEmpty();
+    }
+
+    /** Owner prompts are queued, waiting to flush into the conversation. */
+    public boolean hasQueuedPrompts() {
+        return !bufferedPrompts.isEmpty();
+    }
+
+    /** There is something an interrupt would act on — drives the Stop button's enabled state. */
+    public boolean canInterrupt() {
+        return isBusy() || hasQueuedPrompts();
+    }
+
     /**
-     * Per-client-tick poll. Drives the {@link #STALE_PENDING_TIMEOUT_MS}
-     * watchdog — aborts the in-flight turn when a server-side task result has
-     * been outstanding without progress for too long. Fanned out by
-     * {@link AgentLoopRegistry#tickAll()} from the loader's client-tick event.
+     * Owner-triggered interrupt — the chat GUI's "Stop" button. Mirrors Claude
+     * Code's {@code handleCancel} (useCancelRequest.ts) two-priority rule:
+     *
+     * <ol>
+     *   <li><b>A turn is in flight</b> → stop it. The in-flight LLM response is
+     *       invalidated via {@link #turnGeneration} (discarded when it lands, so
+     *       it can't dispatch tools after the fact); any world-action tool calls
+     *       still awaiting a server result get a synthetic "interrupted" result
+     *       so every {@code assistant(tool_calls)} keeps matching {@code tool}
+     *       results and the next request stays protocol-valid. Queued prompts are
+     *       <em>preserved</em> — they flush on the next submit, exactly like
+     *       Claude Code keeps its message queue across an interrupt.</li>
+     *   <li><b>Idle but prompts are queued</b> (e.g. typed during a turn that was
+     *       just interrupted and is now held) → drop the queue. Mirrors
+     *       {@code popCommandFromQueue} when there's no running task to cancel.</li>
+     * </ol>
+     *
+     * No-op when nothing is running and nothing is queued.
      */
-    public void tick() {
-        if (pendingToolCallIds.isEmpty()) return;
-        long elapsed = System.currentTimeMillis() - lastPendingChangeMs;
-        if (elapsed >= STALE_PENDING_TIMEOUT_MS) {
-            Constants.LOG.warn("[animus-entity#{}] stale watchdog fired ({} pending for {}s); aborting turn",
-                    vanillaEntityId, pendingToolCallIds.size(), elapsed / 1000);
+    public void abort() {
+        if (isBusy()) {
+            // Priority 1: stop the running turn.
+            turnGeneration++; // any in-flight LLM response is now stale → discarded on arrival
+            boolean wasAwaitingLlm = awaitingLlmResponse;
+            int cancelledTools = pendingToolCallIds.size();
+            awaitingLlmResponse = false;
+
+            // Synthesize cancelled results for outstanding world-action calls so the
+            // assistant(tool_calls) message keeps matching tool results. Real results
+            // arriving later are dropped as "late" by onToolResult (id already removed).
             for (String id : pendingToolCallIds) {
                 convo.addToolResult(id,
-                        "{\"success\":false,\"message\":\"aborted: no server result within "
-                                + (STALE_PENDING_TIMEOUT_MS / 1000) + "s (server hang / packet loss / entity gone)\"}");
+                        "{\"success\":false,\"message\":\"interrupted by owner\"}");
             }
             pendingToolCallIds.clear();
+
+            // If we cut off an in-flight LLM call before its assistant turn was
+            // recorded, the conversation now ends on a user message. Cap it with a
+            // short assistant note so the next prompt doesn't create back-to-back
+            // user messages (some backends reject those — see flushBufferedPrompts).
+            if (wasAwaitingLlm && cancelledTools == 0
+                    && convo.lastMessage() instanceof ConvoState.Msg.User) {
+                convo.addAssistant(new AssistantTurn("(已中断)", List.of(), null));
+            }
+
+            convo.resetTurnCount();
             aborted = true;
+            Constants.LOG.info("[animus-entity#{}] interrupted by owner (awaitingLlm={}, cancelledTools={}, queued={})",
+                    vanillaEntityId, wasAwaitingLlm, cancelledTools, bufferedPrompts.size());
+        } else if (!bufferedPrompts.isEmpty()) {
+            // Priority 2: idle — drop the held queue.
+            int dropped = bufferedPrompts.size();
+            bufferedPrompts.clear();
+            Constants.LOG.info("[animus-entity#{}] interrupt cleared {} queued prompt(s)",
+                    vanillaEntityId, dropped);
         }
     }
 
     // ---- internals ----
+
+    /**
+     * Splice any buffered owner prompts into the conversation as a single
+     * {@code user} message. Only call this at a protocol-valid point (no
+     * assistant reply in flight, no tool results pending) — the callers
+     * ({@link #tryStartTurn}) guarantee that. Multiple buffered prompts are
+     * joined with newlines into one message to avoid back-to-back {@code user}
+     * messages that some backends reject.
+     */
+    private void flushBufferedPrompts() {
+        if (bufferedPrompts.isEmpty()) return;
+        String merged = String.join("\n", bufferedPrompts);
+        bufferedPrompts.clear();
+        convo.addUser(merged);
+        // A fresh owner directive starts a new tool-chain: restart the turn
+        // counter (just log numbering now that the hard cap is gone) and clear
+        // the loop-detection signature so a new directive may legitimately
+        // repeat a tool batch the previous chain happened to end on.
+        convo.resetTurnCount();
+    }
 
     private void tryStartTurn() {
         if (aborted) {
@@ -183,13 +278,15 @@ public final class EntityAgentLoop {
                     vanillaEntityId, pendingToolCallIds.size());
             return;
         }
+        // Safe point: no assistant reply in flight and no tool results
+        // outstanding, so the conversation ends with either a tool result or a
+        // final assistant message — a user message can now be appended legally.
+        flushBufferedPrompts();
         if (convo.snapshot().isEmpty()) return;
-        if (convo.turnCount() >= ConvoState.MAX_TOOL_TURN_COUNT) {
-            Constants.LOG.warn("[animus-entity#{}] turn cap ({}) reached, stopping",
-                    vanillaEntityId, ConvoState.MAX_TOOL_TURN_COUNT);
-            aborted = true;
-            return;
-        }
+        // No hard cap on tool-call turns — a capable agent legitimately chains
+        // many tasks. The only autonomous stop is the loop guard
+        // (ConvoState.recordToolBatchAndCheckLoop: identical batch twice in a
+        // row); genuine runaways are stopped by the owner's interrupt.
         if (!AnimusLlmClient.isConfigured()) {
             Constants.LOG.warn("[animus-entity#{}] API key not set; open the Animus GUI (X) → Settings",
                     vanillaEntityId);
@@ -208,8 +305,11 @@ public final class EntityAgentLoop {
         Constants.LOG.info("[animus-entity#{}] turn {}: convo={} msgs, tools={}",
                 vanillaEntityId, convo.turnCount(), snapshot.size(), tools.size());
 
+        // Capture the current generation; if the owner interrupts before this
+        // call resolves, handleResponse sees the mismatch and discards it.
+        final int gen = turnGeneration;
         AnimusLlmClient.instance().chatStreaming(snapshot, tools, systemPrompt, null)
-                .whenComplete(this::bounceBackToMain);
+                .whenComplete((turn, err) -> bounceBackToMain(gen, turn, err));
     }
 
     private String composeSystemPrompt(String basePrompt) {
@@ -251,12 +351,21 @@ public final class EntityAgentLoop {
         return raw instanceof AnimusEntity ae ? ae : null;
     }
 
-    private void bounceBackToMain(AssistantTurn turn, Throwable err) {
+    private void bounceBackToMain(int gen, AssistantTurn turn, Throwable err) {
         Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> handleResponse(turn, err));
+        mc.execute(() -> handleResponse(gen, turn, err));
     }
 
-    private void handleResponse(AssistantTurn turn, Throwable err) {
+    private void handleResponse(int gen, AssistantTurn turn, Throwable err) {
+        // Owner interrupted this turn while the call was in flight: abort()
+        // already settled the conversation (and, if a newer turn has since
+        // started, awaitingLlmResponse belongs to *that* call). Discard wholesale
+        // — do NOT touch awaitingLlmResponse here, or we'd clear the newer turn's.
+        if (gen != turnGeneration) {
+            Constants.LOG.info("[animus-entity#{}] discarding interrupted LLM response (gen {} != {})",
+                    vanillaEntityId, gen, turnGeneration);
+            return;
+        }
         awaitingLlmResponse = false;
 
         if (err != null) {
@@ -283,6 +392,9 @@ public final class EntityAgentLoop {
                 Constants.LOG.info("[animus-entity#{}] assistant (final, empty content)", vanillaEntityId);
             }
             convo.resetTurnCount();
+            // A prompt that arrived during this final turn was buffered; now that
+            // the chain has settled, start a fresh turn to answer it.
+            if (!bufferedPrompts.isEmpty()) tryStartTurn();
             return;
         }
 
@@ -331,8 +443,10 @@ public final class EntityAgentLoop {
                 continue;
             }
             // World-action tool: ship to server with our vanilla entity id.
+            // No client-side timeout — the server always returns a result, even
+            // on entity death/removal (AnimusEntity.remove flushes CANCELLED
+            // results synchronously), so the loop never waits forever.
             pendingToolCallIds.add(tc.id());
-            lastPendingChangeMs = System.currentTimeMillis();
             Services.NETWORK.sendToServer(new ExecuteToolPayload(
                     vanillaEntityId, tc.id(), tc.name(), tc.arguments()));
             Constants.LOG.info("[animus-entity#{}] dispatch tool={} id={} args={}",

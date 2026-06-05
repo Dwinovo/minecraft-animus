@@ -27,11 +27,10 @@ import java.util.stream.Collectors;
  */
 public final class ConvoState {
 
-    /** Hard cap on LLM calls per chain. Bumped from 16 to 32 to accommodate
-     * multi-step resource-collection flows (e.g. scan + pathfind_and_mine ×N
-     * for "mine 10 iron ore"). Compaction is the longer-term fix. */
-    public static final int MAX_TOOL_TURN_COUNT = 32;
-    /** Identical-batch repeats before we declare a loop. */
+    /** Identical-batch repeats before we declare a loop. There is intentionally
+     * NO cap on the number of tool-call turns — a capable agent legitimately
+     * chains many tasks; only a true repeat-loop (or the owner's interrupt)
+     * stops the chain. {@link #turnCount} is kept purely for log numbering. */
     public static final int MAX_REPEAT_TOOL_BATCH_COUNT = 2;
 
     /** Tagged union for conversation history. */
@@ -60,6 +59,13 @@ public final class ConvoState {
 
     public List<Msg> snapshot() {
         return List.copyOf(messages);
+    }
+
+    /** Most recent message, or {@code null} when the history is empty. Used by
+     *  the agent loop's interrupt path to keep the conversation protocol-valid
+     *  (avoid leaving a trailing {@code user} message after an aborted turn). */
+    public Msg lastMessage() {
+        return messages.isEmpty() ? null : messages.get(messages.size() - 1);
     }
 
     public int turnCount() { return turnCount; }

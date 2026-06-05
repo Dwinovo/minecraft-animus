@@ -20,7 +20,6 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.AddClientReloadListenersEvent;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 
@@ -33,12 +32,6 @@ public class AnimusNeoForgeClient {
     @SubscribeEvent
     static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(InitEntity.ANIMUS.get(), AnimusRenderer::new);
-    }
-
-    /** Per-tick stale-result watchdog fan-out for entity agent loops. */
-    @SubscribeEvent
-    static void onClientTick(ClientTickEvent.Post event) {
-        AgentLoopRegistry.tickAll();
     }
 
     @SubscribeEvent

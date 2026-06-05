@@ -18,7 +18,7 @@
 
 ## ToolCall 清单（LLM 能力面）
 
-> 这是 LLM 通过 tool_call 能做的全部事情。注册于 [`CommonClass.registerTools()`](common/src/main/java/com/dwinovo/animus/CommonClass.java)，实现在 `common/.../agent/tool/tools/`。每个工具 = 一份 LLM 看到的 schema + 一个把它翻译成世界行为的 Task。**共 12 个。**
+> 这是 LLM 通过 tool_call 能做的全部事情。注册于 [`CommonClass.registerTools()`](common/src/main/java/com/dwinovo/animus/CommonClass.java)，实现在 `common/.../agent/tool/tools/`。每个工具 = 一份 LLM 看到的 schema + 一个把它翻译成世界行为的 Task。**共 20 个。**
 
 **行动类（改变世界 / 实体状态）**
 
@@ -26,7 +26,15 @@
 |---|---|---|
 | `move_to` | `x, y, z, speed` | 走到坐标。**自研地形改造寻路**——会搭桥/垫脚/搭柱/挖障碍/下挖。到目标 ~2 格内算成功；不可达/被挡/超时则失败。 |
 | `mine_block` | `block_ids[], count, radius?` | **意图级采集**：给方块类型和数量,实体自己扫描→自研寻路走过去(搭桥/挖障碍)→挖进背包→重复,直到够数或挖空。不需要坐标。够不到部分如实回报实际数量。 |
+| `craft` | `item_id, count` | **意图级合成**(对标 Voyager)：给物品 id 和数量,实体反查配方→从**自己背包**凑齐材料→3×3 配方自动走到附近工作台(或摆一个自带的,**摆出的留在原地不回收、并回报坐标供复用**)→合成。不指定网格/工作台。**不递归**:中间产物缺了就失败并回报缺口(如 `missing 3x oak_planks`),让 LLM 自己先合前置。如实回报实际产出数。 |
+| `equip_item` | `item_id, slot?` | 把背包里的物品**装到身上**才真正生效:工具/武器进主手(加速 `mine_block`、提升近战),护甲进对应槽。省略 slot 按物品类型自动归位;原槽位物品换回背包。这是 `craft` 的价值落点(合出来的镐不装等于没用)。 |
 | `attack_target` | `target_entity_id` | 追击并近战某目标直到其死亡/自身死亡/5 分钟超时。id 从感知工具取。⚠️ 追击走 vanilla `MeleeAttackGoal`。 |
+| `load_furnace` | `input_id, count, fuel_id` | **异步熔炼-装料**：找附近熔炉(或摆一个自带的)→寻路过去→把输入+燃料放进**真实 `FurnaceBlockEntity`** 的格子→**立即返回**炉子坐标。之后 vanilla `serverTick` 自己烧(真实时间+火焰特效,实体不必在场)。燃料类型由 LLM 指定,所需数量由实体按 vanilla `fuelValues` 算。不可熔炼/燃料无效/缺料/无炉且无可摆都给指导性失败。`count≤64`(一个输入槽)。 |
+| `check_furnace` | `x, y, z` | **远程只读**查熔炉工作状态:是否点燃、输入/燃料/产物槽内容、待烧数、约 ETA。不寻路、不在场也能查——用它判断 `load_furnace` 起的烧制好了没,再决定要不要走回去收。未来可推广到别的工作方块。 |
+| `collect_furnace` | `x, y, z` | 寻路到熔炉→把产物槽掏进背包→返回取走数 + 剩余状态(还在烧几个、背包满了剩多少在炉里)。坐标来自 `load_furnace`。没烧好会如实回报"还没好"。 |
+| `place_block` | `block_id, x, y, z` | 在绝对坐标放一个方块:寻路到目标**相邻可站位**(搭桥/挖障同 move_to)→**经 FakePlayer `useItemOn` 对参照方块放置**(走真实 `BlockItem.place`,**朝向正确**:楼梯/原木/箱子/门/床/含水)。吸收 Voyager 的**支撑检查**:目标必须有相邻实体方块,**拒绝浮空放置**;目标格须空/可替换;不持有/非方块/无支撑/无可达站位都给指导性失败。用于火把照明、墙体掩体、封洞、按需摆工作台/熔炉/箱子。 |
+| `use_item` | `item_id, x?, y?, z?` | **右键用物品**(经 FakePlayer 走真实 vanilla 物品逻辑)。给 x/y/z = **用在该方块上**(先寻路到可达):打火石点黑曜石**点燃下界传送门**、末影之眼放进**末地框架**、骨粉催熟、桶放/舀液体。省略坐标 = **对空使用**:扔末影之眼定位要塞等。无效/够不到/没持有都给指导。**仅限作用于世界的用法**——吃/喝不走这里(那会作用到假人身上,不治疗实体)。 |
+| `eat_item` | `item_id` | **吃东西填饱食度**(直接作用于 Animus,不走 FakePlayer)。**过程式**:按食物 `Consumable.consumeSeconds` 持续若干 tick,期间嘴部 `sendParticles` 喷碎屑 + 播 `GENERIC_EAT`;**吃满才结算** `foodData.eat()` 填饱食度(**不再瞬间回血**)+ 套食物效果(金苹果再生/吸收)+ 扣 1、残留容器回背包。中途打断啥也不消耗。回血靠"吃饱着"由饥饿系统慢慢恢复(见下)。`get_self_status` 回报 `food_level`,模型据此决定何时吃。 |
 
 **自我 / 库存感知（读自身）**
 
@@ -61,17 +69,19 @@
 - **双源资源加载**：默认资产走 `assets/animus/`（namespace `animus`），玩家自定义模型走 `<gameDir>/config/animus/models/`（namespace `animus_user`）。
 - **默认模型 Hachiware** 已就位（dwinovo 原创美术资产，重新许可为 CC BY-NC 4.0）。
 - **owner + 驯服系统**：`AnimusEntity extends TamableAnimal`，食物 tag `animus:tame_foods` 控制驯服食材。蹲下右键打开换肤 GUI；普通右键打开 LLM 对话 GUI（仅 owner）。
+- **玩家式饥饿系统**：`AnimusEntity` 持有 vanilla `FoodData`(0-20,NBT 存档 + 同步 `DATA_FOOD_LEVEL`)。`eat_item` 填饱食度;`tickHunger`(自研,因 `FoodData.tick` 绑死 ServerPlayer)在 `customServerAiStep` 跑:饱食度 ≥18 且受伤 → 每 80 tick 慢回 1 HP(消耗饱食度),~600 tick 被动掉一点。**故意不饿死**——空饱食度只是停止回血。`get_self_status` 暴露 `food_level`。这样吃东西是"填饱 + 持续回血"而非瞬间满血。
 - **零第三方 LLM 依赖**：用 JDK `java.net.http.HttpClient`（Java 25 内置）+ Gson（MC vanilla 自带）直发 OpenAI 协议。无 OkHttp / OpenAI SDK / kotlin-stdlib / jackson / swagger。**mod jar ~260KB**（早期内嵌 OpenAI SDK 时 50MB，砍了 99.5%）。
 - **LlmProvider 抽象** (`common/.../agent/provider/`)：单点 OpenAI ↔ 内部协议适配。`OpenAIProvider` 是默认实现，`DeepSeekProvider` 继承并处理 `reasoning_content` 字段的 round-trip（修 thinking 模式 400 兼容性问题）。Config 字段 `provider: "openai" | "deepseek"` 切换。
 - **LLM 调用在客户端**：每个玩家用自己的 API key、自付 token。服务端不调 LLM。设计原因：避免服务器主人为所有玩家承担 token 消耗 + 玩家不需要把 key 上交服务端。
 - **LLM 任务执行框架**（端到端跑通，SSE streaming 默认开启）：`common/.../task/`（原子任务生命周期 + GoalSelector 桥接）+ `common/.../agent/`（HTTP transport + provider + LLM 客户端 + ConvoState + turn cap + batch-dedup + stale watchdog）+ `common/.../client/agent/`（per-entity `EntityAgentLoop` + 注册表）+ 右键 owner 对话 GUI（聊天 / 换模型 / 看库存三页签）+ `ExecuteToolPayload`(C→S) / `TaskResultPayload`(S→C) / `AnimusInventoryPayload`(S→C) 网包 + 跨 loader `IAnimusConfig`（Fabric JSON / NeoForge ModConfigSpec）。
-- **12 个 ToolCall 已注册**（见下方[工具清单](#toolcall-清单llm-能力面)）：行动 3 + 自我/库存感知 3 + 世界感知 4 + 规划 2。
-- **自研地形改造寻路**（`common/.../pathing/`）：`move_to` 不再用 vanilla `PathNavigation`，改用 Baritone 风格 A* over 移动原语——会用背包里的圆石/泥土（`animus:scaffolds` tag）**搭桥、垫脚、搭柱上升**，挖穿障碍、下挖楼梯，按真实 tick 成本（走/挖/放）规划。**时间片化**：A* 跨 tick 续算（每 tick 限额节点数），多实体同时规划也不卡服务端。moveset：前后左右 traverse / ascend / descend·fall / 对角（仅走现成地面，不斜搭）/ pillar / dig-down；parkour 暂缓。
+- **20 个 ToolCall 已注册**（见下方[工具清单](#toolcall-清单llm-能力面)）：行动 11（含 `craft` / `equip_item` + 熔炼三件套 `load_furnace` / `check_furnace` / `collect_furnace` + `place_block` + `use_item` + `eat_item`）+ 自我/库存感知 3 + 世界感知 4 + 规划 2。
+- **FakePlayer 桥接**（`IFakePlayerBridge` Service，Fabric `FakePlayer.get` / NeoForge `FakePlayerFactory.getMinecraft`）：实体是 Mob 不是 Player，右键用物品/正确朝向放置走不了玩家路径，故借**单例共享假人**(固定 profile、复用不累积)代为执行 `gameMode.useItem(On)`。`use_item` 与 `place_block` 都基于它（[`FakePlayerUse`](common/src/main/java/com/dwinovo/animus/task/tasks/FakePlayerUse.java)：摆假人→用→把消耗/返还对账回实体背包）。**回收保证**：`withFakePlayer` 作用域 + finally 在用前用后都 reset(清背包/停用),common 不可能泄漏假人；任务串行,无并发争用。
+- **自研地形改造寻路**（`common/.../pathing/`）：`move_to` 不再用 vanilla `PathNavigation`，改用 Baritone 风格 A* over 移动原语——会用背包里的圆石/泥土（`animus:scaffolds` tag）**搭桥、垫脚、搭柱上升**，挖穿障碍、下挖楼梯，按真实 tick 成本（走/挖/放）规划。**时间片化**：A* 跨 tick 续算（每 tick 限额节点数），多实体同时规划也不卡服务端。moveset：前后左右 traverse / ascend / descend·fall / 对角（仅走现成地面，不斜搭）/ pillar / dig-down；parkour 暂缓。**实时重规划**：`PathExecutor` 的卡死检测按"是否在向当前节点靠近"判定(不是原始逐 tick 位移——位移会被外力推搡/抖动骗过,导致"被推进坑里永久卡死"),且**一旦被推离节点明显变远**(掉坑/被怪/活塞推开)立即 `NEEDS_REPLAN`,`MoveToTaskGoal` 随即从当前位置重新 A*。**清障挖掘的可行性判据**全在 [`NavContext.costOfBreaking`](common/src/main/java/com/dwinovo/animus/pathing/calc/NavContext.java)（`move_to` 与 `mine_block` 寻路共用），返回 `COST_INF` 即不可挖、A\* 绕开：不可破坏（基岩）/ 危险源（熔岩火）/ 会引发液体流动 / **功能方块**（`BlockHelper.shouldAvoidBreaking`：任何 BlockEntity 或床——箱子/熔炉/漏斗等玩家放置物，不拆不 grief）/ **落沙**（`breakReleasesFallingBlock`：正上方是 `FallingBlock`，挖了会塌埋）/ **无效破坏**（方块需正确工具但当前主手不对——拒绝徒手磨石头那种又慢又零掉落的破坏，只挖当前工具能有效处理的；要穿石头/矿必须先 equip 对的镐，与 `mine_block` 同一原则）。**不自动换装**（理由见上方"核心原则"小节）。
 - **`/animus debug` 调试层**：开关后所有自己的宠物头顶实时显示当前任务（如 `move_to 25,150,60` / `idle`），走 SynchedEntityData 同步 + vanilla name-tag 渲染。
 - 仍用 vanilla `PathNavigation` 的：仅攻击追击（`attack_target` → vanilla `MeleeAttackGoal`）。`mine_block` 已用自研寻路。
 - 还没有：周期 Sensor/Perception 快照、复合任务链编排、parkour 跨缝、LLM 瞬时网络错误自动重试（下一阶段候选）。
 
-下一步候选：① Perception 层（周期把附近玩家/方块/伤害事件喂给 LLM，目前靠 scan_* 工具按需拉取）；② 攻击追击切到自研寻路；③ 复合任务链（Skill 内部按序编排原子 task）；④ LLM EOF/SSL 等瞬时错误自动重试；⑤ 卡死时的卡点惩罚集合（确定性 A* 重算同路问题，mineflayer 也缺，研究已确认根治方案）。
+下一步候选：① Perception 层（周期把附近玩家/方块/伤害事件喂给 LLM，目前靠 scan_* 工具按需拉取）；② 攻击追击切到自研寻路；③ 复合任务链（Skill 内部按序编排原子 task）；④ LLM EOF/SSL 等瞬时错误自动重试；⑤ 卡死时的卡点惩罚集合（确定性 A* 重算同路问题，mineflayer 也缺，研究已确认根治方案）；⑥ **放置过的功能方块记忆**：`craft` 摆的工作台、`load_furnace` 摆的熔炉现在都留在世界并在结果里回报坐标；接入实体记忆层后让它记住这些位置、优先复用而不是每次新摆（位置已经从 tool 结果透出，记忆层落地即可消费）。
 
 ## 技术栈与版本
 
@@ -161,7 +171,7 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
 | `molang/` | Mini-Molang AST + 求值（2 vars + 5 funcs，详见 `MolangContext` 注释） |
 | `runtime/` | 纯函数采样（`PoseSampler` / `PoseMixer`）+ per-entity 状态（`Animator`）+ `AnimContext`（占位，未来填 LLM 状态字段） |
 | `controller/` | 多控制器状态机（OVERRIDE / ADDITIVE 模式、淡入淡出、`playOnce` 触发） |
-| `render/` | EntityRenderer 基类（`AnimusEntityRenderer`）+ 顶点提交（`ModelRenderer`）+ 程序性拦截器（`BoneInterceptor` / `HeadLookInterceptor`）+ 可见性规则（`BoneVisibilityRule`） |
+| `render/` | EntityRenderer 基类（`AnimusEntityRenderer`）+ 顶点提交（`ModelRenderer`）+ 程序性拦截器（`BoneInterceptor` / `HeadLookInterceptor`）+ 可见性规则（`BoneVisibilityRule`）+ 渲染层 `render/layer/`（`RenderLayer` 接口，主网格之后按注册序运行；`BoneTransformWalker` 把 PoseStack 推到指定骨骼/locator；`HeldItemLayer` 把主手物品挂到手骨 locator——默认模型用 `RightHandLocator`，无该骨则优雅跳过。物品 `ItemStackRenderState` 在 extract 时经 `ItemModelResolver.updateForLiving` 解析、submit 时提交。**摆放 offset/scale 常量需游戏内目测调**） |
 
 **资源加载有两条路径**：
 
@@ -213,6 +223,19 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
 
 4. **要新建一个 Tool 时**：实现 `AnimusTool` 接口。一个 Tool 可以发多种 TaskRecord（命名 → 类型映射通过 Goal 的 `recordClass` 字段做 `instanceof` 分发，无反射）。在 [`CommonClass.registerTools`](common/src/main/java/com/dwinovo/animus/CommonClass.java) 里注册。
 
+### 核心原则：tool 结果即给模型的"游戏说明书"
+
+**每个 tool_call 的返回 result，无论成功还是失败，都必须承担"指导 LLM 如何玩 Minecraft"的职责。** 模型只能从工具反馈里学会玩游戏——一个干巴巴的 `success:false` 等于什么都没教。result 的 message 要讲清**缺什么 / 为什么失败 / 下一步该干嘛**，把它当成模型的操作手册而不是状态码。
+
+具体要求：
+
+- **失败要可执行**：合成缺料 → 明确说"缺 3 个 oak_planks"（不是"无法合成"）；前置物品缺了 → 报具体缺口让 LLM 自己先合前置。`craft` 的 `missing 3x oak_planks` 就是范例。
+- **挖掘要先判定"有效挖掘"，按当前主手判定，绝不自动换装备**：开挖前判断宠物**当前主手物品**能否真正 harvest 目标方块（产出掉落），不能 harvest 就**直接失败**并告知**最低工具类型+等级**（如 `iron_ore can't be harvested with bare hands — need at least a stone pickaxe`），绝不徒手挖石头白费时间还零掉落。**刻意不做"自动从背包换最优工具"**——虽然 Voyager 的 `collectBlock` 会自动 `equipForBlock`，但那样会**误导模型对工具等级的认知**（玩家装着木镐问"木镐能挖铁矿吗"，引擎偷偷换成石镐挖成功了，模型就以为木镐能挖铁矿）。必须让模型自己 `equip_item`，工具反馈才如实。判定链：`harvestRequirement`（返回 null=可挖，否则=指导串）/ [`MineBlockTaskGoal`](common/src/main/java/com/dwinovo/animus/task/tasks/MineBlockTaskGoal.java)（`onStart` 全部挖不动则前置 fast-fail，`tickScan` 混合 `block_ids` 时跳过挖不动的类型）。
+- **合成缺料提示要对标 Voyager `failedCraftFeedback`**：在该产物的**所有配方里挑"缺得最少"那条**报缺口（[`CraftingEngine.findRecipe`](common/src/main/java/com/dwinovo/animus/task/tasks/CraftingEngine.java) 选 fewest-missing recipe）；且 tag 类材料**按类别命名**而非取首项——`#minecraft:planks` 报 `planks (any type)` 不是 `oak_planks`，无共同后缀的报 `any of: cobblestone, blackstone, …`，否则模型会以为只能用某一种（手里有樱花木板却质疑能不能用就是这个坑）。匹配本身用 `ing.test()` 是认 tag 的，樱花木板**确实能合**。
+- **harvest 判定只作用于 LLM 的目标方块**，不要套到寻路清障的挖掘上——清路不在乎掉落，徒手挖开挡路的土/石是该允许的。
+- **成功也要带可决策的数据**：如实回报实际产出/采集数量（可能少于请求），让 LLM 决定换地方还是收手，而不是盲目重试。
+- 能在 tool **description** 里前置引导的（如"挖矿前先 equip 对的镐、查 get_self_status"），就别只靠失败后才教。
+
 ### 任务框架速查
 
 - **端到端流程**（client-side LLM）：
@@ -226,11 +249,12 @@ Gradle daemon 在 [gradle.properties](gradle.properties) 里关掉了（`org.gra
      → AnimusEntity.customServerAiStep drain outbox → TaskResultPayload(S→C) per record
      → 客户端 ClientAgentLoop.onToolResult → convo.addToolResult → 下一轮 LLM
   ```
-- **任务生命周期**：`queue.enqueue(record)` → `Goal.canUse()` peek 匹配 → `Goal.start()` poll + 标记 RUNNING + 调 `onStart` → `Goal.tick()` 每 tick 检查 deadline + `onTick` → 子类设置终止 state → `Goal.canContinueToUse()` 返回 false → `Goal.stop()` 调 `buildResult` + 写 outbox。
+- **任务生命周期**：`queue.enqueue(record)` → `Goal.canUse()` peek 匹配 → `Goal.start()` poll + 标记 RUNNING + 调 `onStart`（并 `entity.pathTally().reset()`）→ `Goal.tick()` 每 tick 检查 deadline + `onTick` → 子类设置终止 state → `Goal.canContinueToUse()` 返回 false → `Goal.stop()` 调 `buildResult` + **`enrichWithPathTally`**（把寻路沿途挖/放的方块统计追加进结果 message + `path_dug`/`path_placed` data）+ 写 outbox。
+- **寻路副作用回报**：`PathExecutor` 走路时挖掉的障碍 / 放下的脚手架由 `entity.pathTally()`（[`PathTally`](common/src/main/java/com/dwinovo/animus/pathing/exec/PathTally.java)）按方块类型计数,`LlmTaskGoal.stop` 统一折进**每个**涉及寻路的任务结果——模型由此知道导航不是免费的(如 "reached target (en route: dug 4x dirt; placed 6x cobblestone as scaffold)")。贯彻"tool 结果教模型"原则。
 - **跨线程关口唯一一处**：`HttpLlmTransport.post` 的 future 在 JDK HttpClient 的 daemon 线程完成；`ClientAgentLoop.bounceBackToMain` 通过 `Minecraft.getInstance().execute(...)` 投回 client tick 线程。所有 convo / 网包发送只在 client tick 线程发生（single-writer）。
 - **超时计时**：用 `level.getGameTime()`（`/tick freeze` 和 `/tick rate` 都正确响应）。`TaskRecord.deadlineGameTime` 在 tool 翻译时算好（now + 默认 timeout）。
 - **抢占处理**：不做。所有 LLM Goal 都注册在 priority 0，selector 不会让一个 LLM Goal 抢另一个。
-- **死循环防护**：`ConvoState.MAX_TOOL_TURN_COUNT = 16`（硬上限）+ `MAX_REPEAT_TOOL_BATCH_COUNT = 2`（连续两次相同 tool 批次就停）。LLM 返回纯文本则重置计数。
+- **死循环防护**：**无工具调用次数硬上限**（强 agent 连挂很多任务是正常的）——唯一的自主停止是循环检测 `MAX_REPEAT_TOOL_BATCH_COUNT = 2`（连续两次完全相同的 tool 批次就停），真跑飞了靠 owner 的 Stop 中断。`turnCount` 仅用于日志编号，新用户指令 / 纯文本回复时重置（一并清掉循环检测签名）。
 - **LLM 路由关键类**：`HttpLlmTransport`（POST + Gson）→ `LlmProvider.buildRequestBody` / `parseResponseBody` → `AssistantTurn`（含 `content` + `toolCalls` + `extras` 透传 backend 专属字段）。Provider 选择由 `config.provider` 决定。
 - **加新 Provider**（Anthropic native / Gemini 等）：实现 `LlmProvider` 接口；如果是 OpenAI 方言只改 `parseResponseBody` 和 `extractExtras`，参考 `DeepSeekProvider`（30 行）；如果是完全不同协议，从头实现 `buildXxxMessage` + `buildRequestBody` + `parseResponseBody`，参考 `OpenAIProvider`（200 行）。然后在 `AnimusLlmClient.pickProvider` 加 case。
 

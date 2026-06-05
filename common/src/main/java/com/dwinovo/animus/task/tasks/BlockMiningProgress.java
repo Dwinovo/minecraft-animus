@@ -5,7 +5,9 @@ import com.dwinovo.animus.entity.AnimusEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
@@ -95,6 +97,63 @@ public final class BlockMiningProgress {
         if (state.isAir()) return "block is air";
         if (state.getDestroySpeed(level, pos) < 0) return "block is unbreakable";
         return null;
+    }
+
+    /**
+     * Decide whether the entity's current main-hand item can <em>harvest</em>
+     * {@code state} — i.e. actually yield its drops. Returns {@code null} when
+     * the dig is valid (the block needs no special tool, or the held item is the
+     * right tool type <em>and</em> tier). Otherwise returns a short, actionable
+     * guidance string naming the minimum tool required, e.g.
+     * {@code "minecraft:iron_ore can't be harvested with minecraft:wooden_pickaxe
+     * — need at least a stone pickaxe"}.
+     *
+     * <p>This is the "is this a valid dig" gate the LLM-facing {@code mine_block}
+     * tool uses to refuse fruitless mining (breaking a block for zero drops) and
+     * instead tell the model what to equip — the result message is the model's
+     * instruction manual. It is deliberately <strong>not</strong> applied to the
+     * pathfinder's obstruction-clearing digs: clearing a route doesn't care about
+     * drops, only the LLM's harvest target does.
+     */
+    public static String harvestRequirement(AnimusEntity entity, BlockState state) {
+        // Blocks that don't require a specific tool (dirt, wood, sand, ...) always
+        // drop with bare hands — mirrors Player.hasCorrectToolForDrops.
+        if (!state.requiresCorrectToolForDrops()) return null;
+        ItemStack tool = entity.getMainHandItem();
+        if (tool.isCorrectToolForDrops(state)) return null;   // right type + tier
+
+        String blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+        String toolType = requiredToolType(state);
+        String need = toolType == null
+                ? "a stronger tool"
+                : "a " + requiredTier(state) + " " + toolType;
+        return blockId + " can't be harvested with " + describeHeld(tool)
+                + " — need at least " + need;
+    }
+
+    /** The tool type a block's loot expects, from its {@code mineable/*} tag; null if none. */
+    private static String requiredToolType(BlockState s) {
+        if (s.is(BlockTags.MINEABLE_WITH_PICKAXE)) return "pickaxe";
+        if (s.is(BlockTags.MINEABLE_WITH_AXE)) return "axe";
+        if (s.is(BlockTags.MINEABLE_WITH_SHOVEL)) return "shovel";
+        if (s.is(BlockTags.MINEABLE_WITH_HOE)) return "hoe";
+        return null;
+    }
+
+    /** Minimum material tier a block requires, from its {@code needs_*_tool} tag.
+     *  A block that needs the correct tool but carries no tier tag (e.g. stone)
+     *  only needs the wooden tier of the right type. */
+    private static String requiredTier(BlockState s) {
+        if (s.is(BlockTags.NEEDS_DIAMOND_TOOL)) return "diamond";
+        if (s.is(BlockTags.NEEDS_IRON_TOOL)) return "iron";
+        if (s.is(BlockTags.NEEDS_STONE_TOOL)) return "stone";
+        return "wooden";
+    }
+
+    private static String describeHeld(ItemStack tool) {
+        return tool.isEmpty()
+                ? "bare hands"
+                : BuiltInRegistries.ITEM.getKey(tool.getItem()).toString();
     }
 
     /**
