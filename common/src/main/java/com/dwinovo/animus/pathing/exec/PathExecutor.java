@@ -443,6 +443,21 @@ public final class PathExecutor {
         }
     }
 
+    /** True if this path stopped short of the goal (executor signals replan at its end). */
+    public boolean isPartial() {
+        return path.partial;
+    }
+
+    /** Feet position this path ends at — the root for precomputing the next segment. */
+    public BlockPos pathEnd() {
+        return path.end;
+    }
+
+    /** Movements left to execute (for deciding when to precompute the continuation). */
+    public int remainingMovements() {
+        return Math.max(0, path.movements.size() - index);
+    }
+
     /** Release any in-progress mining overlay. Call when the task ends. */
     public void stop() {
         if (index < path.movements.size()) {

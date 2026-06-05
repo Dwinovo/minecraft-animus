@@ -1,11 +1,7 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.pathing.calc.AStar;
-import com.dwinovo.animus.pathing.calc.AStarSearch;
-import com.dwinovo.animus.pathing.calc.NavContext;
-import com.dwinovo.animus.pathing.calc.Path;
-import com.dwinovo.animus.pathing.exec.PathExecutor;
+import com.dwinovo.animus.pathing.exec.Navigator;
 import com.dwinovo.animus.pathing.util.BlockScanner;
 import com.dwinovo.animus.task.LlmTaskGoal;
 import com.dwinovo.animus.task.TaskResult;
@@ -21,15 +17,14 @@ import java.util.Map;
 /**
  * Intent-level miner for {@link MineBlockTaskRecord}: "gather N of these block
  * types — find them, walk there, dig them, repeat." The LLM only says what and
- * how many; this goal owns the entire loop, reusing the three building blocks
- * already in the mod:
+ * how many; this goal owns the loop, reusing the mod's building blocks:
  *
  * <ul>
  *   <li>{@link BlockScanner} — palette-short-circuited spherical search for the
  *       nearest remaining target (re-run as the deposit depletes).</li>
- *   <li>{@link AStar} + {@link PathExecutor} — the time-sliced, terrain-modifying
- *       pathfinder: it bridges gaps, pillars up, and mines through obstructions
- *       to reach the block, exactly like {@code move_to}.</li>
+ *   <li>{@link Navigator} — the shared time-sliced, terrain-modifying pathfinder
+ *       driver: it bridges gaps, pillars up, and mines through obstructions to
+ *       reach the block, planning while it walks, exactly like {@code move_to}.</li>
  *   <li>{@link BlockMiningProgress} — the vanilla-accurate dig (swing, crack
  *       overlay, drops routed into the entity inventory).</li>
  * </ul>
@@ -38,8 +33,8 @@ import java.util.Map;
  * <pre>
  *   SCAN  → find nearest target within the current radius; auto-expand the
  *           radius up to maxRadius; none left → DONE (partial success).
- *   PATH  → time-sliced A* to the block, then drive the PathExecutor until
- *           within mining reach; unreachable/stuck → skip this block, re-SCAN.
+ *   PATH  → drive the Navigator toward the block until within mining reach;
+ *           unreachable → skip this block, re-SCAN.
  *   MINE  → BlockMiningProgress until broken; count++; reached count → DONE;
  *           else → SCAN for the next one.
  * </pre>
@@ -54,18 +49,13 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
 
     private enum Phase { SCAN, PATH, MINE }
 
-    /** Node budget per tick handed to the in-flight A* search (mirrors MoveToTaskGoal). */
-    private static final int NODES_PER_TICK = AStar.DEFAULT_NODES_PER_TICK;
     /** Initial search radius before auto-expansion. */
     private static final int INITIAL_RADIUS = 16;
     /** Radius growth step when the current radius is exhausted. */
     private static final int RADIUS_STEP = 16;
     /** Walking speed toward a target block. */
     private static final double MINE_WALK_SPEED = 1.0;
-    /** Replans allowed per individual block before we give up on it and re-scan. */
-    private static final int MAX_REPLANS_PER_BLOCK = 12;
 
-    private final AStar astar = new AStar();
     private final BlockMiningProgress mining;
 
     private Phase phase = Phase.SCAN;
@@ -73,10 +63,7 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
 
     // Active target block + the route to it.
     private BlockPos targetBlock;
-    private AStarSearch search;
-    private NavContext planningCtx;
-    private PathExecutor executor;
-    private int replansForBlock = 0;
+    private Navigator nav;
     private boolean miningStarted = false;
 
     /** Targets we gave up on (unreachable / un-line-of-sight) so SCAN won't re-pick them. */
@@ -162,7 +149,6 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
         }
 
         targetBlock = hit.pos();
-        replansForBlock = 0;
         // Per-target harvest gate: in a mixed block_ids call (some types need a
         // better tool than others), skip the ones the held tool can't harvest so
         // we don't waste a dig, while still mining the types we can. onStart
@@ -174,50 +160,26 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
         if (withinReach(targetBlock)) {
             beginMining(r);
         } else {
-            startPlanning();
+            beginNav();
             phase = Phase.PATH;
         }
     }
 
-    // ---- PATH: time-sliced A* to the block, then drive the executor ----
+    // ---- PATH: drive the Navigator until within mining reach ----
 
     private void tickPath(MineBlockTaskRecord r) {
-        if (withinReach(targetBlock)) {
-            stopExecutor();
-            beginMining(r);
-            return;
-        }
-        // Still planning this tick?
-        if (search != null) {
-            if (search.step(NODES_PER_TICK) == AStarSearch.State.COMPUTING) {
-                return;
-            }
-            Path path = search.result();
-            search = null;
-            planningCtx = null;
-            if (path == null || path.isEmpty()) {
-                skipBlock();      // can't route to it — abandon, re-scan
-                return;
-            }
-            executor = new PathExecutor(entity, path, MINE_WALK_SPEED);
-            return;
-        }
-        // Executing the path.
-        if (executor == null) {
+        if (nav == null) {
             skipBlock();
             return;
         }
-        switch (executor.tick()) {
+        switch (nav.tick()) {
             case RUNNING -> { /* keep walking */ }
-            case ARRIVED, NEEDS_REPLAN -> {
-                if (withinReach(targetBlock)) {
-                    stopExecutor();
-                    beginMining(r);
-                } else if (!startPlanning()) {
-                    skipBlock();
-                }
+            // ARRIVED == our reached-predicate (withinReach) is true.
+            case ARRIVED -> {
+                stopNav();
+                beginMining(r);
             }
-            case FAILED -> skipBlock();
+            case FAILED -> skipBlock();   // can't route to it — abandon, re-scan
         }
     }
 
@@ -250,11 +212,8 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
                 // rather than spinning here.
                 mining.cleanup(targetBlock);
                 miningStarted = false;
-                if (!startPlanning()) {
-                    skipBlock();
-                } else {
-                    phase = Phase.PATH;
-                }
+                beginNav();
+                phase = Phase.PATH;
             }
         }
     }
@@ -274,35 +233,28 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
         phase = Phase.MINE;
     }
 
-    /** Begin/replan a time-sliced search to the current target. False when out of replan budget. */
-    private boolean startPlanning() {
-        stopExecutor();
-        if (replansForBlock++ >= MAX_REPLANS_PER_BLOCK) {
-            return false;
-        }
-        planningCtx = new NavContext(entity);
-        search = astar.newSearch(planningCtx, entity.blockPosition(), targetBlock);
-        return true;
+    /** Begin driving the shared Navigator toward the current target block. */
+    private void beginNav() {
+        stopNav();
+        nav = new Navigator(entity, targetBlock, MINE_WALK_SPEED, () -> withinReach(targetBlock));
     }
 
     /**
      * Abandon the current target and scan for another. The block is added to a
      * skip set so SCAN won't immediately re-pick the same unreachable one and
-     * spin — without this, a deposit behind unbreakable cover (or that A* can't
-     * route to) would loop until the deadline.
+     * spin — without this, a deposit behind unbreakable cover (or that the
+     * Navigator can't route to) would loop until the deadline.
      */
     private void skipBlock() {
-        stopExecutor();
-        search = null;
-        planningCtx = null;
+        stopNav();
         if (targetBlock != null) skipped.add(targetBlock.immutable());
         phase = Phase.SCAN;
     }
 
-    private void stopExecutor() {
-        if (executor != null) {
-            executor.stop();
-            executor = null;
+    private void stopNav() {
+        if (nav != null) {
+            nav.stop();
+            nav = null;
         }
     }
 
@@ -311,13 +263,10 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
      * sight (no mining through walls).
      *
      * <p>The {@link net.minecraft.world.entity.Entity#onGround() onGround} guard
-     * is what stops the "jump-mine" death loop: for a target overhead the entity
-     * pillars up, and at the apex of each pillar jump it would momentarily fall
-     * inside the 4.5-block radius. Without this guard, that apex flicker aborts
-     * the in-progress pillar (it kills the executor and starts mining), the
-     * entity drops back down out of reach, re-approaches, jumps again — forever.
-     * Requiring solid footing means we only commit to mining once the pillar has
-     * actually completed and the entity is standing on the new block.
+     * keeps us from committing to a dig while airborne mid-pillar: only start
+     * mining once the entity is standing stably on the new block. (With the
+     * re-localization executor a pillar no longer apex-flickers, but mining
+     * while airborne is still wrong, so the guard stays.)
      */
     private boolean withinReach(BlockPos pos) {
         return entity.onGround()
@@ -337,7 +286,7 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
 
     @Override
     protected TaskResult buildResult(MineBlockTaskRecord r, TaskState finalState) {
-        stopExecutor();
+        stopNav();
         if (miningStarted && targetBlock != null) {
             mining.cleanup(targetBlock);
         }
