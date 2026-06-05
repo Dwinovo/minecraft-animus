@@ -16,28 +16,28 @@ import net.minecraft.world.phys.Vec3;
 
 /**
  * Drives an entity along a computed {@link Path}, one {@link Movement} at a
- * time, executing each primitive's terrain edits before walking. Per-tick
- * state machine:
+ * time, executing each primitive's terrain edits before walking.
  *
- * <pre>
- *   for each movement:
- *     PREPARE  → mine every toBreak block (tool-aware, drops to inventory)
- *              → place the scaffold block (toPlace) from inventory
- *     MOVE     → walk/jump toward dest center until arrived
- *   → done
- * </pre>
+ * <h2>Re-localization first (the robustness core)</h2>
+ * Every tick begins by matching the entity's actual feet against the
+ * {@link Movement#validPositions() valid feet-sets} of the current and nearby
+ * movements (Baritone's {@code PathExecutor} model). If an external force
+ * pushed the entity backward, ahead, or it overshot/fell, we resync the path
+ * <em>index</em> in place instead of throwing the path away. Only when the
+ * entity is genuinely off every nearby movement — far off, or off for a while
+ * — do we ask the owning goal to replan. This single mechanism replaces the old
+ * pile of stuck timers / deviation margins / best-distance trackers.
+ *
+ * <h2>Drive</h2>
+ * Steered moves (TRAVERSE/ASCEND/DESCEND/DIAGONAL) hand a wanted-position to the
+ * vanilla {@code MoveControl}. Input-driven moves ({@link Movement#inputDriven()}
+ * — PILLAR) are driven by explicit jump/place cycles at the entity's current
+ * height so MoveControl never auto-jumps and fights us.
  *
  * <h2>Replan signalling</h2>
- * {@link #tick()} returns a {@link Status}. The owning goal reacts:
- * {@code ARRIVED} ends the task, {@code NEEDS_REPLAN} recomputes a fresh path
- * (e.g. ran out of scaffolding, world changed, or stuck), {@code FAILED} is
- * unrecoverable.
- *
- * <h2>Diagnostics</h2>
- * When {@link #VERBOSE} is on, the executor logs a {@code [animus-path#id]} line
- * once per second (position / phase / current node / stuck counter) plus every
- * jump, advance, replan, dig and place — used to diagnose stuck loops. Flip
- * {@code VERBOSE = false} to silence once an issue is understood.
+ * {@link #tick()} returns a {@link Status}: {@code ARRIVED} ends the task,
+ * {@code NEEDS_REPLAN} recomputes a fresh path (off-path, ran out of
+ * scaffolding, world changed), {@code FAILED} is unrecoverable.
  */
 public final class PathExecutor {
 
@@ -48,18 +48,14 @@ public final class PathExecutor {
 
     private enum Phase { PREPARE_BREAK, PREPARE_PLACE, MOVE, PILLAR_UP }
 
-    /** Ticks without progress toward the current node before we declare stuck/replan. */
-    private static final int STUCK_TICKS = 40;
+    /** Movements scanned each side of the current index when resyncing the feet. */
+    private static final int RESYNC_SCAN = 8;
+    /** Consecutive ticks tolerated off-path (but near it) before we replan. */
+    private static final int AWAY_BUDGET = 60;
+    /** >3 blocks off the current movement → definitively shoved off, replan now. */
+    private static final double HARD_DIST_SQR = 9.0;
     /** Horizontal arrival tolerance² (≈0.6 block). */
     private static final double ARRIVE_HORIZ_SQR = 0.36;
-    /**
-     * If we end up this much farther (block²) from the current node than when the
-     * move began, we've been shoved off-path (knocked into a pit, pushed by a
-     * mob/piston) — replan immediately instead of waiting out the stuck window.
-     */
-    private static final double DEVIATION_MARGIN_SQR = 4.0;
-    /** Minimum dist² improvement that counts as "made progress" toward the node. */
-    private static final double PROGRESS_EPS = 0.01;
 
     private final AnimusEntity entity;
     private final Path path;
@@ -73,19 +69,15 @@ public final class PathExecutor {
     private int breakIndex = 0;
     private boolean miningStarted = false;
 
-    // Stuck detection during MOVE: progress toward the current node, not raw
-    // displacement (raw displacement is fooled by being pushed/jittered in place).
-    private int stuckCounter = 0;
-    private double bestDistSqToNode = Double.MAX_VALUE;
-    private double moveStartDistSqToNode = -1.0;
+    /** Ticks spent on the current movement — a stall backstop scaled to its cost. */
+    private int ticksOnCurrent = 0;
+    /** Consecutive ticks the feet matched no nearby movement (off-path). */
+    private int ticksAway = 0;
 
-    // Pillar sub-state. Self-correcting: each cycle pillars from the entity's
-    // ACTUAL feet height (not the stale planned toPlace), so a fall/drift after
-    // planning can't desync it. bestPillarY drives a vertical-progress stuck
-    // check (the right axis for a pillar) instead of position displacement.
+    // Pillar sub-state: each cycle pillars from the entity's ACTUAL feet height,
+    // robust to having landed a block off from the plan.
     private int pillarBaseY;
     private boolean pillarPlacedThisCycle = false;
-    private double bestPillarY = Double.NEGATIVE_INFINITY;
 
     public PathExecutor(AnimusEntity entity, Path path, double speed) {
         this.entity = entity;
@@ -107,24 +99,111 @@ public final class PathExecutor {
             return path.partial ? Status.NEEDS_REPLAN : Status.ARRIVED;
         }
 
+        // 1) RE-LOCALIZE: resync the index to where the entity actually is, or
+        //    signal a replan if it's genuinely off-path.
+        Status reloc = relocalize();
+        if (reloc != null) return reloc;
+        if (index >= path.movements.size()) {
+            return path.partial ? Status.NEEDS_REPLAN : Status.ARRIVED;
+        }
+
         Movement mv = path.movements.get(index);
-        // Per-second heartbeat: position / phase / node / stuck counter.
+
+        // Per-second heartbeat: position / phase / node / counters.
         if (VERBOSE && entity.level().getGameTime() % 20 == 0) {
             Vec3 p = entity.position();
-            String best = bestDistSqToNode == Double.MAX_VALUE
-                    ? "n/a" : String.format("%.2f", bestDistSqToNode);
             plog(String.format(
-                    "t=%d phase=%s idx=%d/%d kind=%s pos=(%.2f,%.2f,%.2f) node=(%d,%d,%d) onGround=%b stuck=%d bestDistSq=%s",
+                    "t=%d phase=%s idx=%d/%d kind=%s pos=(%.2f,%.2f,%.2f) node=(%d,%d,%d) onGround=%b on=%d away=%d",
                     entity.level().getGameTime(), phase, index, path.movements.size(), mv.kind,
                     p.x, p.y, p.z, mv.dest.getX(), mv.dest.getY(), mv.dest.getZ(),
-                    entity.onGround(), stuckCounter, best));
+                    entity.onGround(), ticksOnCurrent, ticksAway));
         }
+
+        // 2) STALL BACKSTOP: if we've spent far longer on this movement than its
+        //    planned cost (in ticks), something the re-localization can't see is
+        //    wrong (walking into a wall that should be clear) — replan.
+        ticksOnCurrent++;
+        int budget = (int) (mv.cost * 4) + 60;
+        if (ticksOnCurrent > budget) {
+            plog(String.format("REPLAN stall: %dt on idx=%d kind=%s (budget=%d)",
+                    ticksOnCurrent, index, mv.kind, budget));
+            return Status.NEEDS_REPLAN;
+        }
+
+        // 3) DRIVE.
         return switch (phase) {
             case PREPARE_BREAK -> tickBreak(mv);
             case PREPARE_PLACE -> tickPlace(mv);
             case MOVE -> tickMove(mv);
             case PILLAR_UP -> tickPillar(mv);
         };
+    }
+
+    // ---- RE-LOCALIZATION ----
+
+    /**
+     * Match the entity's real feet against nearby movements' valid feet-sets.
+     * Returns {@code null} to keep executing (possibly after resyncing the
+     * index), or {@link Status#NEEDS_REPLAN} when the entity is genuinely
+     * off-path.
+     */
+    private Status relocalize() {
+        BlockPos feet = entity.blockPosition();
+        Movement cur = path.movements.get(index);
+        if (cur.validPositions().contains(feet)) {
+            ticksAway = 0;
+            return null;
+        }
+        // Pushed/teleported backward, or fell onto an earlier node: scan back.
+        for (int i = index - 1; i >= Math.max(0, index - RESYNC_SCAN); i--) {
+            if (path.movements.get(i).validPositions().contains(feet)) {
+                jumpToIndex(i, "pushed back");
+                return null;
+            }
+        }
+        // Overshot / pushed ahead / parkoured past: scan forward.
+        int last = path.movements.size() - 1;
+        for (int i = index + 1; i <= Math.min(last, index + RESYNC_SCAN); i++) {
+            if (path.movements.get(i).validPositions().contains(feet)) {
+                jumpToIndex(i, "overshoot");
+                return null;
+            }
+        }
+        // Off every nearby movement. Tolerate briefly (the drive below tries to
+        // walk back onto the path); replan if far off, or off for too long.
+        ticksAway++;
+        double distSqr = distSqToMove(cur);
+        if (distSqr > HARD_DIST_SQR) {
+            plog(String.format("REPLAN off-path: distSq=%.2f from idx=%d (shoved off)", distSqr, index));
+            return Status.NEEDS_REPLAN;
+        }
+        if (ticksAway > AWAY_BUDGET) {
+            plog(String.format("REPLAN off-path: %dt away from idx=%d", ticksAway, index));
+            return Status.NEEDS_REPLAN;
+        }
+        return null;
+    }
+
+    /** Horizontal+vertical dist² from the entity to the nearer of the move's src/dest cells. */
+    private double distSqToMove(Movement mv) {
+        double a = entity.distanceToSqr(Vec3.atBottomCenterOf(mv.src));
+        double b = entity.distanceToSqr(Vec3.atBottomCenterOf(mv.dest));
+        return Math.min(a, b);
+    }
+
+    /** Resync to movement {@code i}, restarting its prepare/move state. */
+    private void jumpToIndex(int i, String why) {
+        if (miningStarted && index < path.movements.size()) {
+            Movement old = path.movements.get(index);
+            if (breakIndex < old.toBreak.size()) {
+                mining.cleanup(old.toBreak.get(breakIndex));
+            }
+        }
+        plog("relocalize (" + why + "): idx " + index + " -> " + i
+                + " kind=" + path.movements.get(i).kind);
+        index = i;
+        resetMoveState();
+        ticksAway = 0;
     }
 
     // ---- PREPARE: break obstructions one at a time ----
@@ -171,7 +250,7 @@ public final class PathExecutor {
                 breakIndex++;
             }
             case FAILED_OUT_OF_REACH -> {
-                // Walk a touch closer by deferring to MOVE replanning.
+                // Walk a touch closer by deferring to replanning.
                 mining.cleanup(target);
                 miningStarted = false;
                 plog("REPLAN: obstruction " + target + " out of reach mid-dig");
@@ -241,78 +320,21 @@ public final class PathExecutor {
         double horizSqr = dx * dx + dz * dz;
         double dyToNode = entity.getY() - mv.dest.getY();
 
-        if (mv.kind == Movement.Kind.ASCEND) {
-            // Step up onto an ASCEND's target block — but only jump when grounded
-            // (one jump per landing, never re-fired mid-air), still below the
-            // target height, and with head-room to rise. Spamming jump() every
-            // tick caused stair over-jumping and the ceiling-bounce-forever loop.
-            if (entity.onGround()
-                    && entity.getY() < mv.dest.getY() - 0.05
-                    && BlockHelper.canWalkThrough(level, entity.blockPosition().above(2))) {
-                entity.getJumpControl().jump();
-                plog(String.format("JUMP ascend pos.y=%.2f nodeY=%d feet=%s",
-                        entity.getY(), mv.dest.getY(), entity.blockPosition()));
-            } else if (!entity.onGround() && horizSqr <= ARRIVE_HORIZ_SQR && dyToNode >= -0.1) {
-                // Self-correcting landing block: we've jumped up and are over the
-                // destination, but there's no block under it to land on (the plan
-                // assumed a step that isn't there — usually because we ended up a
-                // block low). Drop a scaffold into dest.below() so the step
-                // completes, instead of falling back and stalling 40 ticks. Skip
-                // the cell we currently occupy (can't place a block inside us).
-                BlockPos floor = mv.dest.below();
-                if (!BlockHelper.canWalkOn(level, floor)
-                        && BlockHelper.isReplaceableForPlacement(level, floor)
-                        && !floor.equals(entity.blockPosition())) {
-                    ItemStack stack = takeScaffold();
-                    if (stack != null) {
-                        BlockState st = ((BlockItem) stack.getItem()).getBlock().defaultBlockState();
-                        if (level.setBlock(floor, st, 3)) {
-                            stack.shrink(1);
-                            entity.getInventory().setChanged();
-                            entity.pathTally().addPlaced(st.getBlock());
-                            plog("placed ascend landing block " + st.getBlock() + " @ " + floor);
-                        }
-                    }
-                }
-            }
+        // Step up onto an ASCEND's target block: jump only when grounded (one
+        // jump per landing, never re-fired mid-air), still below the target, and
+        // with head-room to rise. The step block itself was already placed in
+        // PREPARE_PLACE, so there's no mid-air landing-block correction here.
+        if (mv.kind == Movement.Kind.ASCEND
+                && entity.onGround()
+                && entity.getY() < mv.dest.getY() - 0.05
+                && BlockHelper.canWalkThrough(level, entity.blockPosition().above(2))) {
+            entity.getJumpControl().jump();
         }
 
-        // Arrive only once actually standing at the destination level: require
-        // onGround (so we never advance mid-jump or mid-fall) plus a tight height
-        // window. The old dy<=0.6-alone test let an ASCEND "arrive" while still
-        // half a block short, which advanced into the next step and re-triggered
-        // a jump — the stair over-jumping.
+        // Arrive once actually standing at the destination level: require
+        // onGround (never advance mid-jump/mid-fall) plus a tight height window.
         if (horizSqr <= ARRIVE_HORIZ_SQR && entity.onGround() && Math.abs(dyToNode) <= 0.5) {
             advance();
-            return Status.RUNNING;
-        }
-
-        // Progress-based stuck detection (toward the current node) instead of raw
-        // per-tick displacement: being pushed or jittered in place moves the body
-        // without getting closer to the node, so displacement was fooled into
-        // resetting the counter forever (the "pushed into a pit, stuck forever"
-        // bug). Track the best dist² to the node and the dist² at move-start.
-        double distSqToNode = horizSqr + dyToNode * dyToNode;
-        if (moveStartDistSqToNode < 0.0) {
-            moveStartDistSqToNode = distSqToNode;
-            bestDistSqToNode = distSqToNode;
-        }
-        // Shoved off-path (knocked into a pit, pushed by a mob/piston): we're now
-        // markedly farther from the node than when this move began → drop the
-        // stale path and replan from where we actually are, right away.
-        if (distSqToNode > moveStartDistSqToNode + DEVIATION_MARGIN_SQR) {
-            plog(String.format("REPLAN deviation: distSq=%.2f > start=%.2f + %.1f (kind=%s)",
-                    distSqToNode, moveStartDistSqToNode, DEVIATION_MARGIN_SQR, mv.kind));
-            return Status.NEEDS_REPLAN;
-        }
-        // No progress toward the node for the whole window → stuck, replan.
-        if (distSqToNode < bestDistSqToNode - PROGRESS_EPS) {
-            bestDistSqToNode = distSqToNode;
-            stuckCounter = 0;
-        } else if (++stuckCounter >= STUCK_TICKS) {
-            plog(String.format("REPLAN stuck: no progress for %dt (kind=%s bestDistSq=%.2f)",
-                    STUCK_TICKS, mv.kind, bestDistSqToNode));
-            return Status.NEEDS_REPLAN;
         }
         return Status.RUNNING;
     }
@@ -324,28 +346,19 @@ public final class PathExecutor {
         double cx = mv.dest.getX() + 0.5;
         double cz = mv.dest.getZ() + 0.5;
         // Drive MoveControl toward the column at the entity's CURRENT height, not
-        // the dest (which is above us): a wantedY above makes vanilla MoveControl
-        // jump on its own to "reach" it, which fights our explicit jump+place
-        // cycle and keeps the body airborne so it can never cleanly ground to
-        // start a pillar step. Rising is entirely our explicit jump's job.
+        // the dest above us: a wantedY above makes vanilla MoveControl jump on
+        // its own to "reach" it, fighting our explicit jump+place cycle. Rising
+        // is entirely our explicit jump's job. Off-column pushes are caught by
+        // re-localization (feet leave the {src,dest} column → off-path).
         entity.getMoveControl().setWantedPosition(cx, entity.getY(), cz, 0.2);
         entity.getLookControl().setLookAt(cx, mv.dest.getY() + 1.0, cz);
 
         double cdx = entity.getX() - cx;
         double cdz = entity.getZ() - cz;
-        double horizSqr = cdx * cdx + cdz * cdz;
-        // Drifted off the column entirely (pushed away) → replan from where we are.
-        if (horizSqr > DEVIATION_MARGIN_SQR) {
-            plog(String.format("REPLAN pillar deviation: horizSq=%.2f (off the column)", horizSqr));
-            return Status.NEEDS_REPLAN;
-        }
-        boolean centred = horizSqr <= 0.10;   // actually over the column (~0.3 block)
+        boolean centred = (cdx * cdx + cdz * cdz) <= 0.10;   // over the column (~0.3 block)
 
-        // Reached the planned top — advance WITHOUT requiring onGround. At the top
-        // the body is often at a jump apex (airborne); gating the advance on
-        // onGround missed that tick, so the pillar replanned instead of finishing
-        // (the "no height gain at topY" bug). feetY is the floored Y, so this only
-        // fires once we're genuinely at/above the target level.
+        // Reached the planned top — advance WITHOUT requiring onGround (the apex
+        // is often airborne; feetY is floored so this only fires at/above target).
         if (entity.blockPosition().getY() >= mv.dest.getY() && centred) {
             advance();
             return Status.RUNNING;
@@ -353,8 +366,7 @@ public final class PathExecutor {
 
         if (entity.onGround()) {
             if (centred) {
-                // Start one pillar cycle from our ACTUAL feet — robust to having
-                // fallen/landed a block lower than the plan assumed.
+                // Start one pillar cycle from our ACTUAL feet height.
                 pillarBaseY = entity.blockPosition().getY();
                 pillarPlacedThisCycle = false;
                 entity.getJumpControl().jump();
@@ -383,32 +395,13 @@ public final class PathExecutor {
                 pillarPlacedThisCycle = true;
             }
         }
-
-        // Vertical-progress stuck: if we stop gaining height (head blocked above
-        // the planned top — pillar genuinely infeasible from here), replan. This is
-        // the progress-based model (same as MOVE) on the axis a pillar cares about,
-        // not a position-displacement check the jump-bounce could fool.
-        if (entity.getY() > bestPillarY + 0.05) {
-            bestPillarY = entity.getY();
-            stuckCounter = 0;
-        } else if (++stuckCounter >= STUCK_TICKS) {
-            plog(String.format("REPLAN pillar stuck: no height gain for %dt (y=%.2f topY=%d)",
-                    STUCK_TICKS, entity.getY(), mv.dest.getY()));
-            return Status.NEEDS_REPLAN;
-        }
         return Status.RUNNING;
     }
 
     private void advance() {
         index++;
-        phase = Phase.PREPARE_BREAK;
-        breakIndex = 0;
-        miningStarted = false;
-        stuckCounter = 0;
-        bestDistSqToNode = Double.MAX_VALUE;
-        moveStartDistSqToNode = -1.0;
-        pillarPlacedThisCycle = false;
-        bestPillarY = Double.NEGATIVE_INFINITY;
+        resetMoveState();
+        ticksAway = 0;
         if (index < path.movements.size()) {
             Movement next = path.movements.get(index);
             plog("advance -> idx " + index + "/" + path.movements.size()
@@ -416,6 +409,15 @@ public final class PathExecutor {
         } else {
             plog("advance -> idx " + index + "/" + path.movements.size() + " (path end)");
         }
+    }
+
+    /** Reset the per-movement prepare/move bookkeeping (kept on index change). */
+    private void resetMoveState() {
+        phase = Phase.PREPARE_BREAK;
+        breakIndex = 0;
+        miningStarted = false;
+        ticksOnCurrent = 0;
+        pillarPlacedThisCycle = false;
     }
 
     /** Find and return a scaffolding stack from inventory (not yet shrunk), or null. */

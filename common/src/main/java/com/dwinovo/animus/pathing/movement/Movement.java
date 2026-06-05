@@ -92,4 +92,15 @@ public final class Movement {
         return set;
     }
 
+    /**
+     * True if this movement is driven by explicit jump/impulse inputs rather
+     * than steered by the vanilla {@code MoveControl} toward {@link #dest}.
+     * Vertical/ballistic moves (PILLAR, and later PARKOUR) must NOT hand a
+     * wantedY above the entity to MoveControl — that makes it auto-jump and
+     * fight our explicit jump cycle — so the executor drives them by hand.
+     */
+    public boolean inputDriven() {
+        return kind == Kind.PILLAR;
+    }
+
 }
