@@ -34,6 +34,13 @@ public final class NavContext {
     public final Level level;
     public final AnimusEntity entity;
 
+    /**
+     * Memoizing read-through view of {@link #level} for this search. All
+     * terrain queries (here and in {@link com.dwinovo.animus.pathing.movement.Moves})
+     * go through it so each cell is fetched once per search.
+     */
+    public final NavSnapshot view;
+
     /** True if the entity holds at least one scaffolding block. */
     public final boolean hasScaffold;
 
@@ -46,6 +53,7 @@ public final class NavContext {
     public NavContext(AnimusEntity entity) {
         this.entity = entity;
         this.level = entity.level();
+        this.view = new NavSnapshot(this.level);
         this.tool = entity.getMainHandItem().copy();
 
         this.hasScaffold = hasAnyScaffold(entity.getInventory());
@@ -71,8 +79,8 @@ public final class NavContext {
      */
     public double costOfPlacing(BlockPos pos) {
         if (!hasScaffold) return ActionCosts.COST_INF;
-        if (!BlockHelper.isReplaceableForPlacement(level, pos)) return ActionCosts.COST_INF;
-        if (BlockHelper.isHazard(level, pos)) return ActionCosts.COST_INF;
+        if (!BlockHelper.isReplaceableForPlacement(view, pos)) return ActionCosts.COST_INF;
+        if (BlockHelper.isHazard(view, pos)) return ActionCosts.COST_INF;
         return ActionCosts.PLACE_BLOCK;
     }
 
@@ -97,13 +105,13 @@ public final class NavContext {
      * </ul>
      */
     public double costOfBreaking(BlockPos pos) {
-        if (!BlockHelper.isBreakable(level, pos)) return ActionCosts.COST_INF;
-        if (BlockHelper.isHazard(level, pos)) return ActionCosts.COST_INF;
-        if (BlockHelper.breakWouldCreateFlow(level, pos)) return ActionCosts.COST_INF;
-        if (BlockHelper.shouldAvoidBreaking(level, pos)) return ActionCosts.COST_INF;
-        if (BlockHelper.breakReleasesFallingBlock(level, pos)) return ActionCosts.COST_INF;
+        if (!BlockHelper.isBreakable(view, pos)) return ActionCosts.COST_INF;
+        if (BlockHelper.isHazard(view, pos)) return ActionCosts.COST_INF;
+        if (BlockHelper.breakWouldCreateFlow(view, pos)) return ActionCosts.COST_INF;
+        if (BlockHelper.shouldAvoidBreaking(view, pos)) return ActionCosts.COST_INF;
+        if (BlockHelper.breakReleasesFallingBlock(view, pos)) return ActionCosts.COST_INF;
 
-        BlockState state = level.getBlockState(pos);
+        BlockState state = view.getBlockState(pos);
         if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) {
             return ActionCosts.COST_INF;   // ineffective with the held tool — route around
         }
@@ -116,8 +124,8 @@ public final class NavContext {
      * reality.
      */
     public double miningTicks(BlockPos pos) {
-        BlockState state = level.getBlockState(pos);
-        float hardness = state.getDestroySpeed(level, pos);
+        BlockState state = view.getBlockState(pos);
+        float hardness = state.getDestroySpeed(view, pos);
         if (hardness <= 0.0f) return 1.0;
         boolean correct = !state.requiresCorrectToolForDrops() || tool.isCorrectToolForDrops(state);
         float toolSpeed = tool.getDestroySpeed(state);

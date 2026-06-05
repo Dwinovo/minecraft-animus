@@ -5,7 +5,7 @@ import com.dwinovo.animus.pathing.util.ActionCosts;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.world.level.Level;
+import net.minecraft.world.level.BlockGetter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -83,7 +83,7 @@ public final class Moves {
     // ---- Traverse: same-Y step, bridge gaps, dig obstructions ----
 
     private static Movement traverse(NavContext ctx, BlockPos from, Direction dir) {
-        Level level = ctx.level;
+        BlockGetter level = ctx.view;
         BlockPos dest = from.relative(dir);
         BlockPos head = dest.above();
 
@@ -115,7 +115,7 @@ public final class Moves {
     // ---- Ascend: up one block, dig head-room, place step if needed ----
 
     private static Movement ascend(NavContext ctx, BlockPos from, Direction dir) {
-        Level level = ctx.level;
+        BlockGetter level = ctx.view;
         BlockPos dest = from.relative(dir).above(); // feet one up & over
         BlockPos destHead = dest.above();
         BlockPos jumpRoom = from.above(2);          // room to jump at the source column
@@ -151,7 +151,7 @@ public final class Moves {
     // ---- Descend / Fall: step out and drop to first safe floor ----
 
     private static Movement descend(NavContext ctx, BlockPos from, Direction dir) {
-        Level level = ctx.level;
+        BlockGetter level = ctx.view;
         BlockPos col = from.relative(dir); // horizontal cell we step into
 
         double cost = ActionCosts.WALK_ONE_BLOCK;
@@ -200,7 +200,7 @@ public final class Moves {
      * orthogonal cell we cut between is obstructed (no corner-clipping).
      */
     private static Movement diagonal(NavContext ctx, BlockPos from, Direction a, Direction b) {
-        Level level = ctx.level;
+        BlockGetter level = ctx.view;
         BlockPos dest = from.relative(a).relative(b);
 
         // Destination must already be a valid standing spot — solid floor below,
@@ -225,7 +225,7 @@ public final class Moves {
     // ---- Pillar: jump up one, placing a block beneath as we rise ----
 
     private static Movement pillar(NavContext ctx, BlockPos from) {
-        Level level = ctx.level;
+        BlockGetter level = ctx.view;
         BlockPos dest = from.above();      // feet end one block up
         BlockPos newHead = from.above(2);  // head room while standing on the new block
 
@@ -246,7 +246,7 @@ public final class Moves {
     // ---- DigDown: mine the floor underfoot and drop one ----
 
     private static Movement digDown(NavContext ctx, BlockPos from) {
-        Level level = ctx.level;
+        BlockGetter level = ctx.view;
         BlockPos below = from.below();       // floor block to mine == destination feet
         BlockPos landing = from.below(2);    // must be solid to stand on after the drop
 
@@ -276,7 +276,7 @@ public final class Moves {
      * and parkour-place are deferred. Neither breaks nor places anything.
      */
     private static Movement parkour(NavContext ctx, BlockPos from, Direction dir) {
-        Level level = ctx.level;
+        BlockGetter level = ctx.view;
         // Only a real gap warrants a jump: a floor immediately ahead means a
         // plain traverse/descend already covers it.
         if (BlockHelper.canWalkOn(level, from.relative(dir).below())) return null;
@@ -311,7 +311,7 @@ public final class Moves {
      * {@link ActionCosts#COST_INF} if unbreakable.
      */
     private static double clearCost(NavContext ctx, BlockPos cell, List<BlockPos> toBreak) {
-        if (BlockHelper.canWalkThrough(ctx.level, cell)) return 0.0;
+        if (BlockHelper.canWalkThrough(ctx.view, cell)) return 0.0;
         double breakCost = ctx.costOfBreaking(cell);
         if (breakCost >= ActionCosts.COST_INF) return ActionCosts.COST_INF;
         toBreak.add(cell.immutable());
