@@ -27,6 +27,20 @@ public final class ActionCosts {
     /** Walking one block on flat ground: 20 / 4.317 b/s. */
     public static final double WALK_ONE_BLOCK = 20.0 / 4.317;
 
+    /** Sprinting one block: 20 / 5.612 b/s (used for parkour jump costing). */
+    public static final double SPRINT_ONE_BLOCK = 20.0 / 5.612;
+
+    /**
+     * Heuristic inflation factor (weighted A*). The octile distance heuristic is
+     * an admissible lower bound, but with terrain modification real per-block
+     * costs run well above {@link #WALK_ONE_BLOCK}, so the bound is weak and a
+     * pure-admissible search over-explores (the multi-second planning hitches in
+     * dug-out terrain). Multiplying h by this (>1) makes the search greedier —
+     * far fewer node expansions for near-optimal paths. Tunable: higher = faster
+     * but more willing to take a slightly longer route.
+     */
+    public static final double COST_HEURISTIC = 1.5;
+
     /**
      * Cost added for placing a scaffolding block (bridging / step-up). Placing
      * is genuinely cheap in real ticks, so this is kept low — the bot bridges
