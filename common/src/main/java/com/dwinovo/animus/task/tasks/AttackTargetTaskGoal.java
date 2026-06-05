@@ -1,9 +1,11 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.pathing.exec.Navigator;
 import com.dwinovo.animus.task.LlmTaskGoal;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 
@@ -11,36 +13,35 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Executor for {@link AttackTargetTaskRecord}. Acts purely as a lifecycle
- * sentinel: it flips {@code entity.setTarget(...)} on at {@link #onStart} so
- * the entity's permanently-registered vanilla {@code MeleeAttackGoal} kicks
- * in (path-find, swing, doHurtTarget, knockback, attack cooldown — all
- * handled by vanilla), then watches each tick for one of:
+ * Executor for {@link AttackTargetTaskRecord}. Chases the target with the shared
+ * terrain-modifying {@link Navigator} (so it can bridge gaps, mine through cover,
+ * and parkour to reach a target the vanilla {@code MeleeAttackGoal}'s plain
+ * navigation couldn't) and lands hits with the shared {@link MeleeEngine} once in
+ * range.
+ *
+ * <p>The Navigator follows a moving goal — the target's live block position — and
+ * its {@code reached} predicate is "within melee range". Each tick the entity is
+ * either still closing (RUNNING) or in range (ARRIVED → swing). We deliberately
+ * do <em>not</em> call {@code setTarget}, so the permanently-registered vanilla
+ * {@code MeleeAttackGoal} stays idle and doesn't fight our Navigator for the
+ * MoveControl.
+ *
+ * <h2>Terminal conditions</h2>
  * <ul>
- *   <li>{@link TaskState#SUCCESS} — target is dead or has been removed from
- *       the level (the kill landed).</li>
- *   <li>{@link TaskState#FAILED} — target id no longer resolves but isn't
- *       known to be dead (despawn / unload / out-of-range invalidation).</li>
- *   <li>{@link TaskState#TIMEOUT} — base-class deadline hit; the LLM picked
- *       a target it can't realistically kill in time, surface that fact.</li>
- *   <li>{@link TaskState#CANCELLED} — selector evicted us, e.g. our own
- *       entity died mid-fight.</li>
+ *   <li>{@code SUCCESS} — target dead or dying.</li>
+ *   <li>{@code FAILED} — target despawned/unloaded, or genuinely unreachable.</li>
+ *   <li>{@code TIMEOUT} — base-class deadline (under-DPS on a tanky target).</li>
+ *   <li>{@code CANCELLED} — our own entity died / selector eviction.</li>
  * </ul>
- *
- * <p>{@link #stop} always clears {@code setTarget(null)} so the vanilla
- * MeleeAttackGoal's {@code canContinueToUse} returns false and the entity
- * stops mid-charge cleanly.
- *
- * <h2>Flag interaction with MeleeAttackGoal</h2>
- * The vanilla {@code MeleeAttackGoal} owns {@code MOVE + LOOK} flags;
- * {@code LlmTaskGoal} declares no flags (see its javadoc on "serial
- * execution"), so this sentinel and the attack goal run side-by-side in
- * the same GoalSelector tick without a mutex conflict.
  */
 public final class AttackTargetTaskGoal extends LlmTaskGoal<AttackTargetTaskRecord> {
 
-    /** Resolved at {@link #onStart}; nulled in {@link #stop}. */
+    /** Chase speed modifier — matches the vanilla MeleeAttackGoal's 1.2. */
+    private static final double CHASE_SPEED = 1.2;
+
     private LivingEntity target;
+    private Navigator nav;
+    private MeleeEngine melee;
 
     public AttackTargetTaskGoal(AnimusEntity entity) {
         super(entity, AttackTargetTaskRecord.TOOL_NAME, AttackTargetTaskRecord.class);
@@ -49,53 +50,61 @@ public final class AttackTargetTaskGoal extends LlmTaskGoal<AttackTargetTaskReco
     @Override
     protected void onStart(AttackTargetTaskRecord r) {
         Entity raw = entity.level().getEntity(r.targetEntityId);
-        if (!(raw instanceof LivingEntity living)) {
-            // Unknown id, non-living (item entity, projectile, etc.), or already removed.
-            r.setState(TaskState.FAILED);
-            return;
-        }
-        if (living == entity) {
-            // Belt-and-braces: tool layer should reject this, but never let
-            // the entity target itself — vanilla MeleeAttackGoal would happily
-            // try and lock the entity into a self-pathing loop.
+        if (!(raw instanceof LivingEntity living) || living == entity) {
+            // Unknown id, non-living, removed, or (belt-and-braces) ourselves.
             r.setState(TaskState.FAILED);
             return;
         }
         if (living.isDeadOrDying()) {
-            // Target was alive when the LLM picked it but died before the
-            // record reached the head of the queue — treat as success, the
-            // outcome the LLM wanted has already happened.
+            // Died before the record reached the head of the queue — the LLM's
+            // intended outcome already happened.
             r.setState(TaskState.SUCCESS);
             return;
         }
         this.target = living;
-        entity.setTarget(living);
+        this.melee = new MeleeEngine(entity);
+        this.nav = new Navigator(entity, this::targetCell, CHASE_SPEED, this::inReach);
+    }
+
+    /** Live goal for the Navigator: the target's block position, or null if gone. */
+    private BlockPos targetCell() {
+        return (target != null && !target.isRemoved()) ? target.blockPosition() : null;
+    }
+
+    private boolean inReach() {
+        return target != null && melee.inReach(target);
     }
 
     @Override
     protected void onTick(AttackTargetTaskRecord r) {
         if (entity.isDeadOrDying()) {
-            // Self-death — selector will evict us in a tick or two; mark
-            // CANCELLED explicitly so buildResult tells the right story.
             r.setState(TaskState.CANCELLED);
             return;
         }
         if (target == null || target.isRemoved()) {
-            // Target despawned / left the loaded area without dying. The
-            // permanent MeleeAttackGoal would just stand idle from here.
             r.setState(TaskState.FAILED);
             return;
         }
         if (target.isDeadOrDying()) {
             r.setState(TaskState.SUCCESS);
+            return;
+        }
+        switch (nav.tick()) {
+            case RUNNING -> { /* still closing the distance */ }
+            case ARRIVED -> {                      // in melee range — swing
+                if (melee.tick(target)) {
+                    r.setState(TaskState.SUCCESS);
+                }
+            }
+            case FAILED -> r.setState(TaskState.FAILED);
         }
     }
 
     @Override
     protected TaskResult buildResult(AttackTargetTaskRecord r, TaskState finalState) {
-        // Always release the target — even on TIMEOUT/CANCELLED the entity
-        // should stop chasing when the task ends.
-        entity.setTarget(null);
+        if (nav != null) nav.stop();
+        entity.getNavigation().stop();
+
         Map<String, Object> data = new HashMap<>();
         data.put("target_entity_id", r.targetEntityId);
         data.put("target_alive", target != null && !target.isRemoved() && !target.isDeadOrDying());
@@ -111,7 +120,8 @@ public final class AttackTargetTaskGoal extends LlmTaskGoal<AttackTargetTaskReco
                     "timed out before target died", true, false, data);
             case CANCELLED -> new TaskResult(false,
                     "attack interrupted (self died or evicted)", false, true, data);
-            case FAILED -> TaskResult.fail("target lost (despawned, unloaded, or invalid id)", data);
+            case FAILED -> TaskResult.fail(
+                    "couldn't reach or hold the target (despawned, unloaded, or unreachable)", data);
             default -> TaskResult.fail("unexpected state: " + finalState, data);
         };
     }

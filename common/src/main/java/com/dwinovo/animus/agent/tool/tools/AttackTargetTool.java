@@ -54,12 +54,14 @@ public final class AttackTargetTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Engage a hostile target in combat. The entity will chase and "
-                + "melee-attack the given target until one of: the target dies "
-                + "(success), the entity dies (cancelled), or 5 minutes elapse "
-                + "(timeout). Use a target_entity_id obtained from the owner or "
-                + "from a perception tool — guessing IDs will fail fast with "
-                + "'target lost'.";
+        return "Engage a hostile target in melee combat. The entity chases the "
+                + "target using the full terrain pathfinder — it will bridge gaps, "
+                + "mine through cover, and jump to close the distance — then swings "
+                + "until one of: the target dies (success), the entity dies "
+                + "(cancelled), the target is genuinely unreachable (failed), or 5 "
+                + "minutes elapse (timeout). Use a target_entity_id from the owner "
+                + "or a perception tool (scan_nearby_entities); guessing IDs fails "
+                + "fast.";
     }
 
     @Override
