@@ -1,11 +1,7 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.pathing.calc.AStar;
-import com.dwinovo.animus.pathing.calc.AStarSearch;
-import com.dwinovo.animus.pathing.calc.NavContext;
-import com.dwinovo.animus.pathing.calc.Path;
-import com.dwinovo.animus.pathing.exec.PathExecutor;
+import com.dwinovo.animus.pathing.exec.Navigator;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.task.LlmTaskGoal;
 import com.dwinovo.animus.task.TaskResult;
@@ -46,17 +42,11 @@ public final class PlaceBlockTaskGoal extends LlmTaskGoal<PlaceBlockTaskRecord> 
 
     private enum Phase { RESOLVE, GOTO, PLACE }
 
-    private static final int NODES_PER_TICK = AStar.DEFAULT_NODES_PER_TICK;
     private static final double WALK_SPEED = 1.0;
-    private static final int MAX_REPLANS = 12;
-
-    private final AStar astar = new AStar();
 
     private Phase phase = Phase.RESOLVE;
     private BlockPos standSpot;
-    private AStarSearch search;
-    private PathExecutor executor;
-    private int replans = 0;
+    private Navigator nav;
 
     private String doneReason = "done";
     private final Map<String, Object> resultData = new HashMap<>();
@@ -69,7 +59,7 @@ public final class PlaceBlockTaskGoal extends LlmTaskGoal<PlaceBlockTaskRecord> 
     protected void onStart(PlaceBlockTaskRecord r) {
         this.phase = Phase.RESOLVE;
         this.standSpot = null;
-        this.replans = 0;
+        this.nav = null;
         this.resultData.clear();
     }
 
@@ -112,47 +102,24 @@ public final class PlaceBlockTaskGoal extends LlmTaskGoal<PlaceBlockTaskRecord> 
             fail("no reachable spot to stand and place at " + coords(r.pos));
             return;
         }
-        if (startPlanning()) {
-            phase = Phase.GOTO;
-        } else {
-            fail("can't path to a spot to place from");
-        }
+        // Walk to the stand spot, but arrival = within reach of the TARGET cell
+        // (we may get close enough before fully reaching standSpot).
+        nav = new Navigator(entity, standSpot, WALK_SPEED, () -> withinReach(r.pos));
+        phase = Phase.GOTO;
     }
 
     private void tickGoto(PlaceBlockTaskRecord r) {
-        if (withinReach(r.pos)) {
-            stopExecutor();
-            phase = Phase.PLACE;
-            return;
-        }
-        if (search != null) {
-            if (search.step(NODES_PER_TICK) == AStarSearch.State.COMPUTING) {
-                return;
-            }
-            Path path = search.result();
-            search = null;
-            if (path == null || path.isEmpty()) {
-                fail("no path to the placement spot");
-                return;
-            }
-            executor = new PathExecutor(entity, path, WALK_SPEED);
-            return;
-        }
-        if (executor == null) {
-            fail("no path to the placement spot");
-            return;
-        }
-        switch (executor.tick()) {
-            case RUNNING -> { /* keep walking */ }
-            case ARRIVED, NEEDS_REPLAN -> {
+        switch (nav.tick()) {
+            case RUNNING -> { /* keep walking; planned while moving */ }
+            case ARRIVED -> { nav.stop(); phase = Phase.PLACE; }
+            case FAILED -> {
                 if (withinReach(r.pos)) {
-                    stopExecutor();
+                    nav.stop();
                     phase = Phase.PLACE;
-                } else if (!startPlanning()) {
-                    fail("can't reach the placement spot");
+                } else {
+                    fail("can't reach a spot to stand and place at " + coords(r.pos));
                 }
             }
-            case FAILED -> fail("can't reach the placement spot");
         }
     }
 
@@ -258,22 +225,6 @@ public final class PlaceBlockTaskGoal extends LlmTaskGoal<PlaceBlockTaskRecord> 
                 && entity.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
     }
 
-    private boolean startPlanning() {
-        stopExecutor();
-        if (replans++ >= MAX_REPLANS) return false;
-        NavContext ctx = new NavContext(entity);
-        search = astar.newSearch(ctx, entity.blockPosition(), standSpot);
-        return true;
-    }
-
-    private void stopExecutor() {
-        if (executor != null) {
-            executor.stop();
-            executor = null;
-        }
-        search = null;
-    }
-
     private static String coords(BlockPos p) {
         return p.getX() + "," + p.getY() + "," + p.getZ();
     }
@@ -285,7 +236,7 @@ public final class PlaceBlockTaskGoal extends LlmTaskGoal<PlaceBlockTaskRecord> 
 
     @Override
     protected TaskResult buildResult(PlaceBlockTaskRecord r, TaskState finalState) {
-        stopExecutor();
+        if (nav != null) nav.stop();
         entity.getNavigation().stop();
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(doneReason, resultData);

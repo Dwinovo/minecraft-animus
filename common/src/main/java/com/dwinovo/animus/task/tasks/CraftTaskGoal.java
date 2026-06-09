@@ -1,11 +1,7 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.pathing.calc.AStar;
-import com.dwinovo.animus.pathing.calc.AStarSearch;
-import com.dwinovo.animus.pathing.calc.NavContext;
-import com.dwinovo.animus.pathing.calc.Path;
-import com.dwinovo.animus.pathing.exec.PathExecutor;
+import com.dwinovo.animus.pathing.exec.Navigator;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.pathing.util.BlockScanner;
 import com.dwinovo.animus.task.LlmTaskGoal;
@@ -36,8 +32,8 @@ import java.util.Set;
  *   <li>{@link CraftingEngine} — reverse-lookup the recipe, match/consume
  *       materials, produce the result (the recipe math).</li>
  *   <li>{@link BlockScanner} — find a nearby crafting table for 3×3 recipes.</li>
- *   <li>{@link AStar} + {@link PathExecutor} — walk to that table, bridging /
- *       digging like {@code move_to} / {@code mine_block}.</li>
+ *   <li>{@link Navigator} — walk to that table, bridging / digging like
+ *       {@code move_to} / {@code mine_block}, planned while moving.</li>
  * </ul>
  *
  * <h2>State machine</h2>
@@ -61,14 +57,9 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
 
     private enum Phase { RESOLVE, FIND_TABLE, GOTO_TABLE, CRAFT }
 
-    private static final int NODES_PER_TICK = AStar.DEFAULT_NODES_PER_TICK;
     private static final double WALK_SPEED = 1.0;
-    /** A table within this many blocks counts as "nearby"; further → place our own. */
-    private static final int MAX_REPLANS = 12;
     /** Bound per-tick crafts so a huge count can't stall the server tick. */
     private static final int CRAFTS_PER_TICK = 16;
-
-    private final AStar astar = new AStar();
 
     private Phase phase = Phase.RESOLVE;
     private CraftingEngine.Plan plan;
@@ -76,9 +67,7 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
     // Crafting-table logistics (3×3 recipes only).
     private BlockPos tablePos;
     private boolean placedTableOurselves = false;
-    private AStarSearch search;
-    private PathExecutor executor;
-    private int replans = 0;
+    private Navigator nav;
 
     private String doneReason = "done";
 
@@ -92,7 +81,7 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
         this.plan = null;
         this.tablePos = null;
         this.placedTableOurselves = false;
-        this.replans = 0;
+        this.nav = null;
     }
 
     @Override
@@ -136,10 +125,9 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
             tablePos = tables.get(0).pos();
             if (withinReach(tablePos)) {
                 phase = Phase.CRAFT;
-            } else if (startPlanning()) {
-                phase = Phase.GOTO_TABLE;
             } else {
-                fail("can't reach a crafting table");
+                nav = new Navigator(entity, tablePos, WALK_SPEED, () -> withinReach(tablePos));
+                phase = Phase.GOTO_TABLE;
             }
             return;
         }
@@ -158,39 +146,17 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
     // ---- GOTO_TABLE: drive the pathfinder to the table ----
 
     private void tickGotoTable(CraftTaskRecord r) {
-        if (withinReach(tablePos)) {
-            stopExecutor();
-            phase = Phase.CRAFT;
-            return;
-        }
-        if (search != null) {
-            if (search.step(NODES_PER_TICK) == AStarSearch.State.COMPUTING) {
-                return;
-            }
-            Path path = search.result();
-            search = null;
-            if (path == null || path.isEmpty()) {
-                fail("no path to the crafting table");
-                return;
-            }
-            executor = new PathExecutor(entity, path, WALK_SPEED);
-            return;
-        }
-        if (executor == null) {
-            fail("no path to the crafting table");
-            return;
-        }
-        switch (executor.tick()) {
-            case RUNNING -> { /* keep walking */ }
-            case ARRIVED, NEEDS_REPLAN -> {
+        switch (nav.tick()) {
+            case RUNNING -> { /* keep walking; planned while moving */ }
+            case ARRIVED -> { nav.stop(); phase = Phase.CRAFT; }
+            case FAILED -> {
                 if (withinReach(tablePos)) {
-                    stopExecutor();
+                    nav.stop();
                     phase = Phase.CRAFT;
-                } else if (!startPlanning()) {
+                } else {
                     fail("can't reach the crafting table");
                 }
             }
-            case FAILED -> fail("can't reach the crafting table");
         }
     }
 
@@ -234,23 +200,6 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
                 && entity.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
     }
 
-    /** Begin/replan a time-sliced search to the table. False when out of replan budget. */
-    private boolean startPlanning() {
-        stopExecutor();
-        if (replans++ >= MAX_REPLANS) return false;
-        NavContext ctx = new NavContext(entity);
-        search = astar.newSearch(ctx, entity.blockPosition(), tablePos);
-        return true;
-    }
-
-    private void stopExecutor() {
-        if (executor != null) {
-            executor.stop();
-            executor = null;
-        }
-        search = null;
-    }
-
     /**
      * Place a carried crafting table on a walkable spot beside the entity.
      * Returns the position placed, or {@code null} if we carry none / no spot.
@@ -292,7 +241,7 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
 
     @Override
     protected TaskResult buildResult(CraftTaskRecord r, TaskState finalState) {
-        stopExecutor();
+        if (nav != null) nav.stop();
         entity.getNavigation().stop();
 
         Map<String, Object> data = new HashMap<>();

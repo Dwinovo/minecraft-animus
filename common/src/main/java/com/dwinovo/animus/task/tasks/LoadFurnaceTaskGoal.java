@@ -1,11 +1,7 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.pathing.calc.AStar;
-import com.dwinovo.animus.pathing.calc.AStarSearch;
-import com.dwinovo.animus.pathing.calc.NavContext;
-import com.dwinovo.animus.pathing.calc.Path;
-import com.dwinovo.animus.pathing.exec.PathExecutor;
+import com.dwinovo.animus.pathing.exec.Navigator;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.pathing.util.BlockScanner;
 import com.dwinovo.animus.task.LlmTaskGoal;
@@ -54,12 +50,8 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
 
     private enum Phase { RESOLVE, FIND_FURNACE, GOTO_FURNACE, LOAD }
 
-    private static final int NODES_PER_TICK = AStar.DEFAULT_NODES_PER_TICK;
     private static final double WALK_SPEED = 1.0;
-    private static final int MAX_REPLANS = 12;
     private static final int SLOT_MAX = 64;
-
-    private final AStar astar = new AStar();
 
     private Phase phase = Phase.RESOLVE;
     private SmeltingRecipe recipe;
@@ -67,9 +59,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
     private String outputLabel = "?";
 
     private BlockPos furnacePos;
-    private AStarSearch search;
-    private PathExecutor executor;
-    private int replans = 0;
+    private Navigator nav;
 
     private String doneReason = "done";
     private final Map<String, Object> resultData = new HashMap<>();
@@ -83,7 +73,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
         this.phase = Phase.RESOLVE;
         this.recipe = null;
         this.furnacePos = null;
-        this.replans = 0;
+        this.nav = null;
         this.resultData.clear();
     }
 
@@ -141,10 +131,9 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
             furnacePos = furnaces.get(0).pos();
             if (withinReach(furnacePos)) {
                 phase = Phase.LOAD;
-            } else if (startPlanning()) {
-                phase = Phase.GOTO_FURNACE;
             } else {
-                fail("can't reach a furnace");
+                nav = new Navigator(entity, furnacePos, WALK_SPEED, () -> withinReach(furnacePos));
+                phase = Phase.GOTO_FURNACE;
             }
             return;
         }
@@ -161,39 +150,17 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
     // ---- GOTO_FURNACE: drive the pathfinder to the furnace ----
 
     private void tickGotoFurnace(LoadFurnaceTaskRecord r) {
-        if (withinReach(furnacePos)) {
-            stopExecutor();
-            phase = Phase.LOAD;
-            return;
-        }
-        if (search != null) {
-            if (search.step(NODES_PER_TICK) == AStarSearch.State.COMPUTING) {
-                return;
-            }
-            Path path = search.result();
-            search = null;
-            if (path == null || path.isEmpty()) {
-                fail("no path to the furnace");
-                return;
-            }
-            executor = new PathExecutor(entity, path, WALK_SPEED);
-            return;
-        }
-        if (executor == null) {
-            fail("no path to the furnace");
-            return;
-        }
-        switch (executor.tick()) {
-            case RUNNING -> { /* keep walking */ }
-            case ARRIVED, NEEDS_REPLAN -> {
+        switch (nav.tick()) {
+            case RUNNING -> { /* keep walking; planned while moving */ }
+            case ARRIVED -> { nav.stop(); phase = Phase.LOAD; }
+            case FAILED -> {
                 if (withinReach(furnacePos)) {
-                    stopExecutor();
+                    nav.stop();
                     phase = Phase.LOAD;
-                } else if (!startPlanning()) {
+                } else {
                     fail("can't reach the furnace");
                 }
             }
-            case FAILED -> fail("can't reach the furnace");
         }
     }
 
@@ -280,22 +247,6 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
                 && entity.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
     }
 
-    private boolean startPlanning() {
-        stopExecutor();
-        if (replans++ >= MAX_REPLANS) return false;
-        NavContext ctx = new NavContext(entity);
-        search = astar.newSearch(ctx, entity.blockPosition(), furnacePos);
-        return true;
-    }
-
-    private void stopExecutor() {
-        if (executor != null) {
-            executor.stop();
-            executor = null;
-        }
-        search = null;
-    }
-
     private BlockPos placeFurnaceBeside() {
         if (entity.getInventory().countItem(Items.FURNACE) <= 0) {
             return null;
@@ -332,7 +283,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
 
     @Override
     protected TaskResult buildResult(LoadFurnaceTaskRecord r, TaskState finalState) {
-        stopExecutor();
+        if (nav != null) nav.stop();
         entity.getNavigation().stop();
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(doneReason, resultData);
