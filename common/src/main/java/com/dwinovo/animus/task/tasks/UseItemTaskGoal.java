@@ -178,8 +178,30 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
         return -1;
     }
 
-    /** A BlockHitResult on the target's face nearest the entity. */
+    /**
+     * A BlockHitResult aimed at {@code target}. For a solid target, clicks the
+     * face nearest the entity (the normal case — e.g. an ender_eye on an
+     * end_portal_frame). For an AIR target (e.g. lighting the interior of a
+     * nether-portal frame), clicks an adjacent solid block with the face
+     * pointing back at the cell: flint&steel places fire on
+     * {@code clickedPos.relative(clickedFace)}, so this drops the fire INTO the
+     * targeted air cell rather than onto the frame's outer face. Direction.values()
+     * tries DOWN first, so the frame floor is preferred — fire lands inside.
+     */
     private BlockHitResult hitToward(BlockPos target) {
+        Level level = entity.level();
+        if (level.getBlockState(target).isAir()) {
+            for (Direction d : Direction.values()) {
+                BlockPos neighbour = target.relative(d);
+                if (!level.getBlockState(neighbour).isAir()) {
+                    Direction face = d.getOpposite();   // neighbour.relative(face) == target
+                    Vec3 hv = Vec3.atCenterOf(neighbour)
+                            .add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
+                    return new BlockHitResult(hv, face, neighbour, false);
+                }
+            }
+            // No solid neighbour — fall through and click the air cell itself.
+        }
         Vec3 ec = entity.getEyePosition();
         Vec3 bc = Vec3.atCenterOf(target);
         double dx = ec.x - bc.x, dy = ec.y - bc.y, dz = ec.z - bc.z;
