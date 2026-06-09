@@ -9,6 +9,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.LinkedHashMap;
@@ -23,6 +24,8 @@ import java.util.Map;
  * <h2>Returned fields</h2>
  * <ul>
  *   <li>{@code block} — registry id (e.g. {@code minecraft:iron_ore})</li>
+ *   <li>{@code properties} — block-state values when present (e.g. an
+ *       end_portal_frame's {@code has_eye}/{@code facing}, a stair's facing)</li>
  *   <li>{@code is_air}, {@code is_solid}, {@code is_liquid}</li>
  *   <li>{@code hardness} — float; -1 means unbreakable (bedrock, barrier)</li>
  *   <li>{@code needs_correct_tool}, {@code current_hand_correct_tool}</li>
@@ -45,10 +48,12 @@ public final class InspectBlockTool implements AnimusTool {
     @Override
     public String description() {
         return "Inspect a single block at the given integer coordinates. "
-                + "Returns block id, hardness, whether you have the correct "
-                + "tool in hand, an estimated dig-tick count, and whether the "
-                + "block is in your 4.5-block mining reach. Call this before "
-                + "mine_block to confirm the operation will actually succeed.";
+                + "Returns block id, its block-state properties when any (e.g. an "
+                + "end_portal_frame's has_eye/facing), hardness, whether you have "
+                + "the correct tool in hand, an estimated dig-tick count, and "
+                + "whether the block is in your 4.5-block mining reach. Call this "
+                + "before mine_block to confirm the operation will succeed, or to "
+                + "check which end_portal_frame cells still need an ender_eye.";
     }
 
     @Override
@@ -96,6 +101,16 @@ public final class InspectBlockTool implements AnimusTool {
         root.addProperty("y", y);
         root.addProperty("z", z);
         root.addProperty("block", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+        // Block-state properties (e.g. end_portal_frame's has_eye/facing, so the
+        // model can tell which of the 12 frames still need an ender_eye; stairs
+        // facing; etc.). Omitted when the block has no properties.
+        if (!state.getProperties().isEmpty()) {
+            JsonObject props = new JsonObject();
+            for (Property<?> p : state.getProperties()) {
+                props.addProperty(p.getName(), propValue(state, p));
+            }
+            root.add("properties", props);
+        }
         root.addProperty("is_air", state.isAir());
         root.addProperty("is_solid", state.isSolid());
         root.addProperty("is_liquid", !state.getFluidState().isEmpty());
@@ -129,6 +144,11 @@ public final class InspectBlockTool implements AnimusTool {
         root.addProperty("in_reach", distSqr <= BlockMiningProgress.REACH_SQR);
 
         return root.toString();
+    }
+
+    /** Serialized value of one block-state property (e.g. "true", "north"). */
+    private static <T extends Comparable<T>> String propValue(BlockState state, Property<T> p) {
+        return p.getName(state.getValue(p));
     }
 
     private static int readInt(JsonObject args, String key) {

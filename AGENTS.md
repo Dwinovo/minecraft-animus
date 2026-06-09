@@ -18,7 +18,7 @@
 
 ## ToolCall 清单（LLM 能力面）
 
-> 这是 LLM 通过 tool_call 能做的全部事情。注册于 [`CommonClass.registerTools()`](common/src/main/java/com/dwinovo/animus/CommonClass.java)，实现在 `common/.../agent/tool/tools/`。每个工具 = 一份 LLM 看到的 schema + 一个把它翻译成世界行为的 Task。**共 20 个。**
+> 这是 LLM 通过 tool_call 能做的全部事情。注册于 [`CommonClass.registerTools()`](common/src/main/java/com/dwinovo/animus/CommonClass.java)，实现在 `common/.../agent/tool/tools/`。每个工具 = 一份 LLM 看到的 schema + 一个把它翻译成世界行为的 Task。**共 23 个。**
 
 **行动类（改变世界 / 实体状态）**
 
@@ -30,6 +30,7 @@
 | `equip_item` | `item_id, slot?` | 把背包里的物品**装到身上**才真正生效:工具/武器进主手(加速 `mine_block`、提升近战),护甲进对应槽。省略 slot 按物品类型自动归位;原槽位物品换回背包。这是 `craft` 的价值落点(合出来的镐不装等于没用)。 |
 | `hunt` | `entity_ids[], count, radius?` | **意图级战斗**(`mine_block` 的怪物同构体)：给怪物类型和数量,实体自己扫描→**自研地形寻路**追击(搭桥/挖墙/跳过去)→近战击杀→吸取掉落→重复,直到够数或刷空。不需要坐标/id。够不到部分如实回报实际击杀数。 |
 | `shoot` | `entity_ids[], count, radius?` | **意图级远程战斗**(`hunt` 的远程版)：给类型和数量,实体自己扫描→寻路靠到弓程+视线内→**拉弓射箭**直到打掉→重复。目标**可含非生命体**(末影水晶 `end_crystal` 必须远程炸;烈焰人远程怪)。**前置门槛**:主手须持弓且背包有箭,缺一上来就指导性失败。 |
+| `locate_stronghold` | — | **直接定位最近要塞**(藏着末地传送门=去末地/打龙的唯一路)。服务端一次 `findNearestMapStructure`(=丢末影之眼的底层调用,但不费眼),回报坐标+方向+距离,范围内没有则提示走远点再试。引导:`move_to` 过去→`scan_blocks` 找 `end_portal_frame` 环→对每个空框架 `use_item` 一颗末影之眼(第 12 颗自动激活传送门)。 |
 | `collect_items` | `item_ids[]?, radius?` | 把附近散落的掉落物**主动走过去捡起**(自研寻路逐个走到、靠自动吸取生效)。可选 `item_ids` 只捡指定物品(省略=全捡)。采集/狩猎后扫干净一片地。回报捡了多少。 |
 | `load_furnace` | `input_id, count, fuel_id` | **异步熔炼-装料**：找附近熔炉(或摆一个自带的)→寻路过去→把输入+燃料放进**真实 `FurnaceBlockEntity`** 的格子→**立即返回**炉子坐标。之后 vanilla `serverTick` 自己烧(真实时间+火焰特效,实体不必在场)。燃料类型由 LLM 指定,所需数量由实体按 vanilla `fuelValues` 算。不可熔炼/燃料无效/缺料/无炉且无可摆都给指导性失败。`count≤64`(一个输入槽)。 |
 | `check_furnace` | `x, y, z` | **远程只读**查熔炉工作状态:是否点燃、输入/燃料/产物槽内容、待烧数、约 ETA。不寻路、不在场也能查——用它判断 `load_furnace` 起的烧制好了没,再决定要不要走回去收。未来可推广到别的工作方块。 |
@@ -76,15 +77,16 @@
 - **LlmProvider 抽象** (`common/.../agent/provider/`)：单点 OpenAI ↔ 内部协议适配。`OpenAIProvider` 是默认实现，`DeepSeekProvider` 继承并处理 `reasoning_content` 字段的 round-trip（修 thinking 模式 400 兼容性问题）。Config 字段 `provider: "openai" | "deepseek"` 切换。
 - **LLM 调用在客户端**：每个玩家用自己的 API key、自付 token。服务端不调 LLM。设计原因：避免服务器主人为所有玩家承担 token 消耗 + 玩家不需要把 key 上交服务端。
 - **LLM 任务执行框架**（端到端跑通，SSE streaming 默认开启）：`common/.../task/`（原子任务生命周期 + GoalSelector 桥接）+ `common/.../agent/`（HTTP transport + provider + LLM 客户端 + ConvoState + turn cap + batch-dedup + stale watchdog）+ `common/.../client/agent/`（per-entity `EntityAgentLoop` + 注册表）+ 右键 owner 对话 GUI（聊天 / 换模型 / 看库存三页签）+ `ExecuteToolPayload`(C→S) / `TaskResultPayload`(S→C) / `AnimusInventoryPayload`(S→C) 网包 + 跨 loader `IAnimusConfig`（Fabric JSON / NeoForge ModConfigSpec）。
-- **22 个 ToolCall 已注册**（见下方[工具清单](#toolcall-清单llm-能力面)）：行动 13（含 `hunt` / `shoot` / `collect_items` / `craft` / `equip_item` + 熔炼三件套 `load_furnace` / `check_furnace` / `collect_furnace` + `place_block` + `use_item` + `eat_item`）+ 自我/库存感知 3 + 世界感知 4 + 规划 2。
+- **23 个 ToolCall 已注册**（见下方[工具清单](#toolcall-清单llm-能力面)）：行动 14（含 `hunt` / `shoot` / `locate_stronghold` / `collect_items` / `craft` / `equip_item` + 熔炼三件套 `load_furnace` / `check_furnace` / `collect_furnace` + `place_block` + `use_item` + `eat_item`）+ 自我/库存感知 3 + 世界感知 4 + 规划 2。
 - **FakePlayer 桥接**（`IFakePlayerBridge` Service，Fabric `FakePlayer.get` / NeoForge `FakePlayerFactory.getMinecraft`）：实体是 Mob 不是 Player，右键用物品/正确朝向放置走不了玩家路径，故借**单例共享假人**(固定 profile、复用不累积)代为执行 `gameMode.useItem(On)`。`use_item` 与 `place_block` 都基于它（[`FakePlayerUse`](common/src/main/java/com/dwinovo/animus/task/tasks/FakePlayerUse.java)：摆假人→用→把消耗/返还对账回实体背包）。**回收保证**：`withFakePlayer` 作用域 + finally 在用前用后都 reset(清背包/停用),common 不可能泄漏假人；任务串行,无并发争用。
 - **自研地形改造寻路**（`common/.../pathing/`）：`move_to` 不再用 vanilla `PathNavigation`，改用 Baritone 风格 A* over 移动原语——会用背包里的圆石/泥土（`animus:scaffolds` tag）**搭桥、垫脚、搭柱上升**，挖穿障碍、下挖楼梯，按真实 tick 成本（走/挖/放）规划。**时间片化**：A* 跨 tick 续算（每 tick 限额节点数），多实体同时规划也不卡服务端。moveset：前后左右 traverse / ascend / descend·fall / 对角（仅走现成地面，不斜搭）/ pillar / dig-down；parkour 暂缓。**实时重规划**：`PathExecutor` 的卡死检测按"是否在向当前节点靠近"判定(不是原始逐 tick 位移——位移会被外力推搡/抖动骗过,导致"被推进坑里永久卡死"),且**一旦被推离节点明显变远**(掉坑/被怪/活塞推开)立即 `NEEDS_REPLAN`,`MoveToTaskGoal` 随即从当前位置重新 A*。**清障挖掘的可行性判据**全在 [`NavContext.costOfBreaking`](common/src/main/java/com/dwinovo/animus/pathing/calc/NavContext.java)（`move_to` 与 `mine_block` 寻路共用），返回 `COST_INF` 即不可挖、A\* 绕开：不可破坏（基岩）/ 危险源（熔岩火）/ 会引发液体流动 / **功能方块**（`BlockHelper.shouldAvoidBreaking`：任何 BlockEntity 或床——箱子/熔炉/漏斗等玩家放置物，不拆不 grief）/ **落沙**（`breakReleasesFallingBlock`：正上方是 `FallingBlock`，挖了会塌埋）/ **无效破坏**（方块需正确工具但当前主手不对——拒绝徒手磨石头那种又慢又零掉落的破坏，只挖当前工具能有效处理的；要穿石头/矿必须先 equip 对的镐，与 `mine_block` 同一原则）。**不自动换装**（理由见上方"核心原则"小节）。
 - **`/animus debug` 调试层**：开关后所有自己的宠物头顶实时显示当前任务（如 `move_to 25,150,60` / `idle`），走 SynchedEntityData 同步 + vanilla name-tag 渲染。
 - **战斗也已切自研寻路**：`hunt`（按类型批量击杀）经共享 `Navigator`（动态目标=移动实体，能搭桥/挖墙/跳过去够目标）+ `MeleeEngine`（到位后的挥砍/冷却/`doHurtTarget`）。**故意不 `setTarget`**,避免常驻 vanilla `MeleeAttackGoal` 抢 MoveControl。原 `attack_target`（精确单体）已删,统一到 `hunt(count=1)`。已无任务用 vanilla `PathNavigation` 做移动。
 - **维度穿越已打通**：agent loop / 三个网包 / 库存镜像全部 re-key 到稳定 `entity.getUUID()`（int `getId()` 跨维度必变、UUID 保留；客户端经 `ClientAnimusLookup` 按 UUID 解析当前实体）——伙伴被重建成新 int id 后仍解析回同一 loop，ConvoState 不丢。伙伴**跟 owner 一起过门**:owner 换维度时（NeoForge `PlayerChangedDimensionEvent` / Fabric 因 5.x 删了 `ServerEntityWorldChangeEvents` 改用 `ServerTickEvents` 轮询维度 key）把旧维度里属于他、未坐下的伙伴 `teleportTo` 到落点。**大脑刻意留客户端**(每个玩家烧自己的 API key,不搬服务端)，因此伙伴无法独立穿越、只能随 owner。
-- 还没有：周期 Sensor/Perception 快照、复合任务链编排、parkour 跨缝、LLM 瞬时网络错误自动重试（下一阶段候选）；传送门**建造** + 末影之眼定位要塞（穿越能力已具备,但造门/找门尚未做成工具）。
+- **朝龙的门/要塞机制已打通**:下界门=`place_block` 摆黑曜石框架 + `use_item` 打火石点燃(目标传**框架内空气格**,vanilla `BaseFireBlock.onPlace` 自动成门);要塞=`locate_stronghold`(服务端 `findNearestMapStructure`)定位 + `use_item` 末影之眼填 12 框架(第 12 颗 vanilla 自动激活末地门);`inspect_block` 现回报 BlockState 属性(可读框架 `has_eye`)。**进末地**靠主人踩门把伙伴 follow 过去(伙伴不能独立穿越,见上条)——这条是提示层约定,非工具。
+- 还没有：周期 Sensor/Perception 快照、复合任务链编排(Skill 仅 markdown,执行层未做,用户明确后置)、parkour 跨缝、LLM 瞬时网络错误自动重试（下一阶段候选）。
 
-下一步候选：① Perception 层（周期把附近玩家/方块/伤害事件喂给 LLM，目前靠 scan_* 工具按需拉取）；② 传送门建造 + 末影之眼定位要塞（朝龙的下一块拼图：黑曜石框架 place_block + 打火石 use_item，丢眼定位）；③ 复合任务链（Skill 内部按序编排原子 task）；④ LLM EOF/SSL 等瞬时错误自动重试；⑤ **放置过的功能方块记忆**：`craft` 摆的工作台、`load_furnace` 摆的熔炉现在都留在世界并在结果里回报坐标；接入实体记忆层后让它记住这些位置、优先复用而不是每次新摆（位置已经从 tool 结果透出，记忆层落地即可消费）。
+下一步候选：① Perception 层（周期把附近玩家/方块/伤害事件喂给 LLM，目前靠 scan_* 工具按需拉取）；② 复合任务链（Skill 内部按序编排原子 task；**用户已明确这是他后面自做的优化,先搁置**）；③ LLM EOF/SSL 等瞬时错误自动重试；④ **放置过的功能方块记忆**：`craft` 摆的工作台、`load_furnace` 摆的熔炉现在都留在世界并在结果里回报坐标；接入实体记忆层后让它记住这些位置、优先复用而不是每次新摆（位置已经从 tool 结果透出，记忆层落地即可消费）。
 
 ## 技术栈与版本
 
