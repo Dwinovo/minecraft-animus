@@ -27,8 +27,14 @@ public final class RangedEngine {
 
     /** Ticks between shots (~1.5s — bow draw + recovery). */
     private static final int SHOOT_INTERVAL = 30;
-    /** Launch velocity (player full-draw is 3.0; a touch lower for a mob). */
-    private static final float ARROW_VELOCITY = 2.6F;
+    /**
+     * Launch velocity. MUST stay 1.6 — the {@code dy + horiz * 0.2}
+     * gravity-compensation lob below is the vanilla skeleton formula, and that
+     * 0.2 arc constant is calibrated for exactly this speed. Faster arrows fly
+     * flatter, so a higher velocity makes the same lob overshoot wildly (the
+     * "works but never hits — sails over the target" bug).
+     */
+    private static final float ARROW_VELOCITY = 1.6F;
     /** Small spread so shots aren't pixel-perfect. */
     private static final float INACCURACY = 1.0F;
 
