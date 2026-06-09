@@ -1,6 +1,7 @@
 package com.dwinovo.animus.network.payload;
 
 import com.dwinovo.animus.Constants;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -9,16 +10,17 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Server → Client: the full contents of one Animus entity's own inventory.
  * Pushed to the owner whenever the inventory changes (mining/pickup insert,
  * chest-menu drag) so the client-side {@code get_storage} tool stays in sync.
  *
- * <p>Keyed by the vanilla {@code entity.getId()}; the client stores it in
+ * <p>Keyed by the stable {@code entity.getUUID()}; the client stores it in
  * {@link com.dwinovo.animus.client.data.ClientAnimusInventories}.
  */
-public record AnimusInventoryPayload(int entityId, List<ItemStack> contents)
+public record AnimusInventoryPayload(UUID entityUuid, List<ItemStack> contents)
         implements CustomPacketPayload {
 
     public static final Type<AnimusInventoryPayload> TYPE = new Type<>(
@@ -26,7 +28,7 @@ public record AnimusInventoryPayload(int entityId, List<ItemStack> contents)
 
     public static final StreamCodec<RegistryFriendlyByteBuf, AnimusInventoryPayload> STREAM_CODEC =
             StreamCodec.composite(
-                    ByteBufCodecs.VAR_INT, AnimusInventoryPayload::entityId,
+                    UUIDUtil.STREAM_CODEC, AnimusInventoryPayload::entityUuid,
                     ItemStack.OPTIONAL_STREAM_CODEC.apply(ByteBufCodecs.list()),
                     AnimusInventoryPayload::contents,
                     AnimusInventoryPayload::new);
@@ -37,8 +39,8 @@ public record AnimusInventoryPayload(int entityId, List<ItemStack> contents)
     /** Client-side handler. Runs on the client main thread. */
     public static void handle(AnimusInventoryPayload p) {
         com.dwinovo.animus.client.data.ClientAnimusInventories.put(
-                p.entityId(), p.contents().toArray(new ItemStack[0]));
+                p.entityUuid(), p.contents().toArray(new ItemStack[0]));
         Constants.LOG.debug("[animus-net] inventory snapshot entity={} ({} slots)",
-                p.entityId(), p.contents().size());
+                p.entityUuid(), p.contents().size());
     }
 }

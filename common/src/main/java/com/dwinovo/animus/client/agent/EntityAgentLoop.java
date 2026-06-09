@@ -22,12 +22,15 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
  * Per-entity agent loop running on the <strong>client</strong>. One instance
- * per Animus the player talks to, keyed by the vanilla {@code entity.getId()}
- * in {@link AgentLoopRegistry}. The agent is bound to that one entity for its
+ * per Animus the player talks to, keyed by the stable {@code entity.getUUID()}
+ * in {@link AgentLoopRegistry} and resolved to the current body via
+ * {@link ClientAnimusLookup} (so it survives the int-id churn of dimension
+ * travel). The agent is bound to that one entity for its
  * whole lifetime — it talks directly to the owner, runs world-action tools on
  * its own body, and survives across many prompts (it is NOT a one-shot
  * sub-agent that self-destructs after a single task).
@@ -96,7 +99,7 @@ public final class EntityAgentLoop {
               → "西边 12 格有一只僵尸,要我去清掉吗?"
             """;
 
-    private final int vanillaEntityId;
+    private final UUID entityUuid;
     private final ConvoState convo = new ConvoState();
     private final Set<String> pendingToolCallIds = new HashSet<>();
 
@@ -125,11 +128,11 @@ public final class EntityAgentLoop {
      */
     private int turnGeneration = 0;
 
-    EntityAgentLoop(int vanillaEntityId) {
-        this.vanillaEntityId = vanillaEntityId;
+    EntityAgentLoop(UUID entityUuid) {
+        this.entityUuid = entityUuid;
     }
 
-    public int vanillaEntityId() { return vanillaEntityId; }
+    public UUID entityUuid() { return entityUuid; }
     public ConvoState convo() { return convo; }
 
     /** Owner typed a prompt in the chat GUI. */
@@ -145,7 +148,7 @@ public final class EntityAgentLoop {
         boolean deferred = awaitingLlmResponse || !pendingToolCallIds.isEmpty();
         bufferedPrompts.add(text);
         Constants.LOG.info("[animus-entity#{}] user prompt ({} chars){}{}: {}",
-                vanillaEntityId, text.length(),
+                entityUuid, text.length(),
                 wasAborted ? " — reset previous abort" : "",
                 deferred ? " — buffered (mid-turn)" : "",
                 truncate(text, 200));
@@ -156,12 +159,12 @@ public final class EntityAgentLoop {
     public void onToolResult(String toolCallId, String resultJson) {
         if (!pendingToolCallIds.remove(toolCallId)) {
             Constants.LOG.debug("[animus-entity#{}] late tool_result id={} ignored",
-                    vanillaEntityId, toolCallId);
+                    entityUuid, toolCallId);
             return;
         }
         convo.addToolResult(toolCallId, resultJson);
         Constants.LOG.info("[animus-entity#{}] tool_result id={} (pending={}) → {}",
-                vanillaEntityId, toolCallId, pendingToolCallIds.size(),
+                entityUuid, toolCallId, pendingToolCallIds.size(),
                 truncate(resultJson, 200));
         if (pendingToolCallIds.isEmpty()) tryStartTurn();
     }
@@ -232,13 +235,13 @@ public final class EntityAgentLoop {
             convo.resetTurnCount();
             aborted = true;
             Constants.LOG.info("[animus-entity#{}] interrupted by owner (awaitingLlm={}, cancelledTools={}, queued={})",
-                    vanillaEntityId, wasAwaitingLlm, cancelledTools, bufferedPrompts.size());
+                    entityUuid, wasAwaitingLlm, cancelledTools, bufferedPrompts.size());
         } else if (!bufferedPrompts.isEmpty()) {
             // Priority 2: idle — drop the held queue.
             int dropped = bufferedPrompts.size();
             bufferedPrompts.clear();
             Constants.LOG.info("[animus-entity#{}] interrupt cleared {} queued prompt(s)",
-                    vanillaEntityId, dropped);
+                    entityUuid, dropped);
         }
     }
 
@@ -266,16 +269,16 @@ public final class EntityAgentLoop {
 
     private void tryStartTurn() {
         if (aborted) {
-            Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: aborted", vanillaEntityId);
+            Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: aborted", entityUuid);
             return;
         }
         if (awaitingLlmResponse) {
-            Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: awaitingLlmResponse", vanillaEntityId);
+            Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: awaitingLlmResponse", entityUuid);
             return;
         }
         if (!pendingToolCallIds.isEmpty()) {
             Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: {} tool result(s) pending",
-                    vanillaEntityId, pendingToolCallIds.size());
+                    entityUuid, pendingToolCallIds.size());
             return;
         }
         // Safe point: no assistant reply in flight and no tool results
@@ -289,7 +292,7 @@ public final class EntityAgentLoop {
         // row); genuine runaways are stopped by the owner's interrupt.
         if (!AnimusLlmClient.isConfigured()) {
             Constants.LOG.warn("[animus-entity#{}] API key not set; open the Animus GUI (X) → Settings",
-                    vanillaEntityId);
+                    entityUuid);
             aborted = true;
             return;
         }
@@ -303,7 +306,7 @@ public final class EntityAgentLoop {
         String systemPrompt = composeSystemPrompt(config.getSystemPrompt());
 
         Constants.LOG.info("[animus-entity#{}] turn {}: convo={} msgs, tools={}",
-                vanillaEntityId, convo.turnCount(), snapshot.size(), tools.size());
+                entityUuid, convo.turnCount(), snapshot.size(), tools.size());
 
         // Capture the current generation; if the owner interrupts before this
         // call resolves, handleResponse sees the mismatch and discards it.
@@ -337,7 +340,7 @@ public final class EntityAgentLoop {
             ownerName = entity.getOwner().getName().getString();
         }
         return "<env>\n"
-                + "  vanilla_entity_id: " + vanillaEntityId + "\n"
+                + "  entity_uuid: " + entityUuid + "\n"
                 + "  owner_name: " + ownerName + "\n"
                 + "  dimension: " + entity.level().dimension().identifier() + "\n"
                 + "  today: " + LocalDate.now() + "\n"
@@ -345,10 +348,7 @@ public final class EntityAgentLoop {
     }
 
     private AnimusEntity resolveEntity() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) return null;
-        var raw = mc.level.getEntity(vanillaEntityId);
-        return raw instanceof AnimusEntity ae ? ae : null;
+        return ClientAnimusLookup.resolve(entityUuid);
     }
 
     private void bounceBackToMain(int gen, AssistantTurn turn, Throwable err) {
@@ -363,19 +363,19 @@ public final class EntityAgentLoop {
         // — do NOT touch awaitingLlmResponse here, or we'd clear the newer turn's.
         if (gen != turnGeneration) {
             Constants.LOG.info("[animus-entity#{}] discarding interrupted LLM response (gen {} != {})",
-                    vanillaEntityId, gen, turnGeneration);
+                    entityUuid, gen, turnGeneration);
             return;
         }
         awaitingLlmResponse = false;
 
         if (err != null) {
             Constants.LOG.warn("[animus-entity#{}] LLM call failed: {}",
-                    vanillaEntityId, unwrap(err));
+                    entityUuid, unwrap(err));
             aborted = true;
             return;
         }
         if (turn == null) {
-            Constants.LOG.warn("[animus-entity#{}] LLM returned null turn", vanillaEntityId);
+            Constants.LOG.warn("[animus-entity#{}] LLM returned null turn", entityUuid);
             aborted = true;
             return;
         }
@@ -387,9 +387,9 @@ public final class EntityAgentLoop {
             // prompt resumes the same conversation with a fresh turn count.
             if (!turn.content().isEmpty()) {
                 Constants.LOG.info("[animus-entity#{}] assistant (final): {}",
-                        vanillaEntityId, turn.content());
+                        entityUuid, turn.content());
             } else {
-                Constants.LOG.info("[animus-entity#{}] assistant (final, empty content)", vanillaEntityId);
+                Constants.LOG.info("[animus-entity#{}] assistant (final, empty content)", entityUuid);
             }
             convo.resetTurnCount();
             // A prompt that arrived during this final turn was buffered; now that
@@ -403,7 +403,7 @@ public final class EntityAgentLoop {
                     .map(LlmToolCall::name)
                     .collect(Collectors.joining(","));
             Constants.LOG.warn("[animus-entity#{}] tool batch loop detected ({}); stopping",
-                    vanillaEntityId, summary);
+                    entityUuid, summary);
             for (LlmToolCall tc : turn.toolCalls()) {
                 convo.addToolResult(tc.id(),
                         "{\"success\":false,\"message\":\"aborted: tool batch loop detected\"}");
@@ -421,7 +421,7 @@ public final class EntityAgentLoop {
             AnimusTool tool = ToolRegistry.resolve(tc.name());
             if (tool == null) {
                 Constants.LOG.warn("[animus-entity#{}] LLM called unknown tool '{}' (id={})",
-                        vanillaEntityId, tc.name(), tc.id());
+                        entityUuid, tc.name(), tc.id());
                 convo.addToolResult(tc.id(),
                         "{\"success\":false,\"message\":\"unknown tool: " + escape(tc.name()) + "\"}");
                 continue;
@@ -430,16 +430,16 @@ public final class EntityAgentLoop {
                 String resultJson;
                 try {
                     JsonObject args = parseArgs(tc.arguments());
-                    ClientToolContext ctx = new ClientToolContext(resolveEntity(), vanillaEntityId);
+                    ClientToolContext ctx = new ClientToolContext(resolveEntity(), entityUuid);
                     resultJson = tool.executeLocal(args, ctx);
                 } catch (RuntimeException ex) {
                     resultJson = "{\"success\":false,\"message\":\"" + escape(ex.getMessage()) + "\"}";
                     Constants.LOG.warn("[animus-entity#{}] local tool {} failed (id={}): {}",
-                            vanillaEntityId, tc.name(), tc.id(), ex.getMessage());
+                            entityUuid, tc.name(), tc.id(), ex.getMessage());
                 }
                 convo.addToolResult(tc.id(), resultJson);
                 Constants.LOG.info("[animus-entity#{}] local-exec tool={} id={} → {}",
-                        vanillaEntityId, tc.name(), tc.id(), truncate(resultJson, 200));
+                        entityUuid, tc.name(), tc.id(), truncate(resultJson, 200));
                 continue;
             }
             // World-action tool: ship to server with our vanilla entity id.
@@ -448,9 +448,9 @@ public final class EntityAgentLoop {
             // results synchronously), so the loop never waits forever.
             pendingToolCallIds.add(tc.id());
             Services.NETWORK.sendToServer(new ExecuteToolPayload(
-                    vanillaEntityId, tc.id(), tc.name(), tc.arguments()));
+                    entityUuid, tc.id(), tc.name(), tc.arguments()));
             Constants.LOG.info("[animus-entity#{}] dispatch tool={} id={} args={}",
-                    vanillaEntityId, tc.name(), tc.id(), truncate(tc.arguments(), 200));
+                    entityUuid, tc.name(), tc.id(), truncate(tc.arguments(), 200));
         }
 
         // If nothing is awaiting a server round-trip (all local-exec / rejected),

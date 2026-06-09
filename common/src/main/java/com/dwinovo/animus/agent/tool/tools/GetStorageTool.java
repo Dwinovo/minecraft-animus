@@ -48,7 +48,7 @@ public final class GetStorageTool implements AnimusTool {
 
     @Override
     public String executeLocal(JsonObject args, ClientToolContext ctx) {
-        ItemStack[] slots = ClientAnimusInventories.get(ctx.vanillaEntityId());
+        ItemStack[] slots = ClientAnimusInventories.get(ctx.entityUuid());
         JsonArray items = new JsonArray();
         int used = 0;
         for (int i = 0; i < slots.length; i++) {

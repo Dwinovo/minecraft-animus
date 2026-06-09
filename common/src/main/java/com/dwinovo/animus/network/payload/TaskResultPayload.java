@@ -2,11 +2,14 @@ package com.dwinovo.animus.network.payload;
 
 import com.dwinovo.animus.Constants;
 import com.dwinovo.animus.client.agent.AgentLoopRegistry;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
+
+import java.util.UUID;
 
 /**
  * Server-to-client payload: result of a previously requested tool execution.
@@ -25,7 +28,7 @@ import net.minecraft.resources.Identifier;
  * Server-side decisions about field shape live in {@code TaskResult}; the
  * network layer just shuttles bytes.
  */
-public record TaskResultPayload(int entityId,
+public record TaskResultPayload(UUID entityUuid,
                                  String toolCallId,
                                  String resultJson) implements CustomPacketPayload {
 
@@ -37,7 +40,7 @@ public record TaskResultPayload(int entityId,
 
     public static final StreamCodec<RegistryFriendlyByteBuf, TaskResultPayload> STREAM_CODEC =
             StreamCodec.composite(
-                    ByteBufCodecs.VAR_INT, TaskResultPayload::entityId,
+                    UUIDUtil.STREAM_CODEC, TaskResultPayload::entityUuid,
                     ByteBufCodecs.stringUtf8(MAX_TOOL_CALL_ID_LENGTH), TaskResultPayload::toolCallId,
                     ByteBufCodecs.stringUtf8(MAX_RESULT_JSON_LENGTH), TaskResultPayload::resultJson,
                     TaskResultPayload::new);
@@ -50,8 +53,8 @@ public record TaskResultPayload(int entityId,
     /** Client-side handler. Runs on client main thread (network layer arranges that). */
     public static void handle(TaskResultPayload p) {
         Constants.LOG.debug("[animus-net] task_result entity={} tool_call_id={} → {}",
-                p.entityId(), p.toolCallId(), truncate(p.resultJson(), 200));
-        AgentLoopRegistry.get(p.entityId())
+                p.entityUuid(), p.toolCallId(), truncate(p.resultJson(), 200));
+        AgentLoopRegistry.get(p.entityUuid())
                 .ifPresent(loop -> loop.onToolResult(p.toolCallId(), p.resultJson()));
     }
 

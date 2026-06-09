@@ -6,6 +6,7 @@ import com.dwinovo.animus.agent.provider.AssistantTurn;
 import com.dwinovo.animus.agent.provider.LlmToolCall;
 import com.dwinovo.animus.anim.api.ModelLibrary;
 import com.dwinovo.animus.client.agent.AgentLoopRegistry;
+import com.dwinovo.animus.client.agent.ClientAnimusLookup;
 import com.dwinovo.animus.client.agent.EntityAgentLoop;
 import com.dwinovo.animus.entity.AnimusEntity;
 import com.dwinovo.animus.network.payload.OpenAnimusInventoryPayload;
@@ -25,6 +26,7 @@ import net.minecraft.util.FormattedCharSequence;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Owner-facing GUI bound to one tamed Animus. Opened on owner right-click.
@@ -55,7 +57,7 @@ public final class EntityChatScreen extends Screen {
     private static final int MAX_TOTAL_LINES = 200;
     private static final int MODEL_ROW_HEIGHT = 14;
 
-    private final int entityId;
+    private final UUID entityUuid;
     private final String targetName;
 
     private View view = View.CHAT;
@@ -72,7 +74,7 @@ public final class EntityChatScreen extends Screen {
 
     private EntityChatScreen(AnimusEntity target) {
         super(Component.literal("Animus - " + target.getName().getString()));
-        this.entityId = target.getId();
+        this.entityUuid = target.getUUID();
         this.targetName = target.getName().getString();
     }
 
@@ -81,13 +83,11 @@ public final class EntityChatScreen extends Screen {
     }
 
     private EntityAgentLoop loop() {
-        return AgentLoopRegistry.getOrCreate(entityId);
+        return AgentLoopRegistry.getOrCreate(entityUuid);
     }
 
     private AnimusEntity resolveEntity() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null) return null;
-        return mc.level.getEntity(entityId) instanceof AnimusEntity ae ? ae : null;
+        return ClientAnimusLookup.resolve(entityUuid);
     }
 
     @Override
@@ -180,7 +180,12 @@ public final class EntityChatScreen extends Screen {
     }
 
     private void openInventory() {
-        Services.NETWORK.sendToServer(new OpenAnimusInventoryPayload(entityId));
+        // GUI request/response is momentary and same-dimension (the body is in
+        // view), so the volatile network int id is valid here — resolve it live.
+        AnimusEntity entity = resolveEntity();
+        if (entity != null) {
+            Services.NETWORK.sendToServer(new OpenAnimusInventoryPayload(entity.getId()));
+        }
     }
 
     private void onSend() {
@@ -221,7 +226,10 @@ public final class EntityChatScreen extends Screen {
                 int rowY = bodyY + i * MODEL_ROW_HEIGHT;
                 if (mouseX >= bodyX && mouseX <= bodyX + bodyWidth
                         && mouseY >= rowY && mouseY < rowY + MODEL_ROW_HEIGHT) {
-                    Services.NETWORK.sendToServer(new SetModelPayload(entityId, models.get(i)));
+                    AnimusEntity entity = resolveEntity();
+                    if (entity != null) {
+                        Services.NETWORK.sendToServer(new SetModelPayload(entity.getId(), models.get(i)));
+                    }
                     return true;
                 }
             }

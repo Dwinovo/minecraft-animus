@@ -209,7 +209,7 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         for (int i = 0; i < inventory.getContainerSize(); i++) {
             list.add(inventory.getItem(i));
         }
-        Services.NETWORK.sendToPlayer(owner, new AnimusInventoryPayload(this.getId(), list));
+        Services.NETWORK.sendToPlayer(owner, new AnimusInventoryPayload(this.getUUID(), list));
     }
 
     // ---- task queue ----
@@ -300,7 +300,7 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
                     ? "{\"success\":false,\"message\":\"no result produced\"}"
                     : result.toJson();
             Services.NETWORK.sendToPlayer(owner, new TaskResultPayload(
-                    this.getId(), rec.getToolCallId(), json));
+                    this.getUUID(), rec.getToolCallId(), json));
         }
     }
 

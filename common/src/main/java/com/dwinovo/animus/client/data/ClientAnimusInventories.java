@@ -4,10 +4,11 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * Client-side mirror of each Animus entity's own inventory, keyed by the
- * vanilla {@code entity.getId()}. Fed by {@link com.dwinovo.animus.network.payload.AnimusInventoryPayload}
+ * Client-side mirror of each Animus entity's own inventory, keyed by the stable
+ * {@code entity.getUUID()}. Fed by {@link com.dwinovo.animus.network.payload.AnimusInventoryPayload}
  * whenever the server-side inventory changes; read by the {@code get_storage}
  * tool so the client-side agent can see what its body is carrying without a
  * server round-trip.
@@ -29,22 +30,22 @@ import java.util.Map;
 public final class ClientAnimusInventories {
 
     private static final ItemStack[] EMPTY = new ItemStack[0];
-    private static final Map<Integer, ItemStack[]> BY_ENTITY = new HashMap<>();
+    private static final Map<UUID, ItemStack[]> BY_ENTITY = new HashMap<>();
 
     private ClientAnimusInventories() {}
 
     /** Replace the cached snapshot for one entity. */
-    public static void put(int entityId, ItemStack[] contents) {
-        BY_ENTITY.put(entityId, contents);
+    public static void put(UUID entityUuid, ItemStack[] contents) {
+        BY_ENTITY.put(entityUuid, contents);
     }
 
     /** Snapshot for one entity, or an empty array if unknown. Never null. */
-    public static ItemStack[] get(int entityId) {
-        return BY_ENTITY.getOrDefault(entityId, EMPTY);
+    public static ItemStack[] get(UUID entityUuid) {
+        return BY_ENTITY.getOrDefault(entityUuid, EMPTY);
     }
 
-    public static void remove(int entityId) {
-        BY_ENTITY.remove(entityId);
+    public static void remove(UUID entityUuid) {
+        BY_ENTITY.remove(entityUuid);
     }
 
     public static void clear() {
