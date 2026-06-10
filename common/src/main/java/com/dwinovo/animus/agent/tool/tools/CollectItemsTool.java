@@ -42,9 +42,11 @@ public final class CollectItemsTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Pick up dropped items off the ground nearby. The entity walks to "
+        return "Pick up dropped items off the ground nearby. The entity travels to "
                 + "each dropped item (it auto-absorbs items it gets close to) until "
-                + "none remain in range. Optionally restrict to specific item_ids "
+                + "none remain in range — terrain is handled automatically: it digs "
+                + "and bridges on its own if drops landed in a pit or across a gap. "
+                + "Optionally restrict to specific item_ids "
                 + "(omit to collect everything). Optional radius (default "
                 + DEFAULT_RADIUS + "). Use after mine_block or hunt to gather "
                 + "scattered drops. Returns how many drops were collected.";
