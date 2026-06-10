@@ -89,6 +89,7 @@ public abstract class LlmTaskGoal<T extends TaskRecord> extends Goal {
         }
         currentRecord = recordClass.cast(polled);
         currentRecord.setState(TaskState.RUNNING);
+        entity.setActiveTask(currentRecord);   // reachable for owner-interrupt cancel
         entity.setDebugTask(currentRecord.describe());
         entity.pathTally().reset();   // start a fresh per-task pathfinder terrain tally
         onStart(currentRecord);
@@ -128,6 +129,7 @@ public abstract class LlmTaskGoal<T extends TaskRecord> extends Goal {
         currentRecord.setResult(result);
         entity.getTaskQueue().complete(currentRecord);
         currentRecord = null;
+        entity.setActiveTask(null);
         entity.setDebugTask(null);   // back to idle
     }
 

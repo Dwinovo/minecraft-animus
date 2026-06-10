@@ -11,6 +11,7 @@ import net.minecraft.world.food.FoodData;
 import com.dwinovo.animus.task.TaskQueue;
 import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.TaskResult;
+import com.dwinovo.animus.task.TaskState;
 import com.dwinovo.animus.task.tasks.CheckFurnaceTaskGoal;
 import com.dwinovo.animus.task.tasks.CollectFurnaceTaskGoal;
 import com.dwinovo.animus.task.tasks.CraftTaskGoal;
@@ -216,9 +217,35 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
 
     // ---- task queue ----
 
+    /**
+     * The record currently being executed by an {@link com.dwinovo.animus.task.LlmTaskGoal}
+     * — it has been polled OUT of the queue, so {@link TaskQueue#cancelAll}
+     * cannot reach it. Tracked here so an owner interrupt can cancel the
+     * running body action too, not just the queued ones.
+     */
+    private TaskRecord activeTask;
+
     public TaskQueue getTaskQueue() {
         if (taskQueue == null) taskQueue = new TaskQueue();
         return taskQueue;
+    }
+
+    /** Called by {@code LlmTaskGoal} on start (the record) and stop (null). */
+    public void setActiveTask(TaskRecord record) {
+        this.activeTask = record;
+    }
+
+    /**
+     * Cancel everything: queued records AND the one currently running. The
+     * running goal sees its state flip off RUNNING, so the GoalSelector stops
+     * it next tick — {@code stop()} builds a CANCELLED result and halts the
+     * body (navigator, mining overlay) through the goal's own teardown.
+     */
+    public void cancelAllTasks(String reason) {
+        getTaskQueue().cancelAll(reason);
+        if (activeTask != null && activeTask.getState() == TaskState.RUNNING) {
+            activeTask.setState(TaskState.CANCELLED);
+        }
     }
 
     /** Per-task pathfinder terrain tally (dug / placed while travelling). */
@@ -349,7 +376,7 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
             // removal, so without this synchronous drain those results would
             // never reach the client and the agent loop would wait forever
             // (there is no client-side stale watchdog anymore).
-            taskQueue.cancelAll("entity removed: " + reason);
+            cancelAllTasks("entity removed: " + reason);
             drainTaskResultsToOwner();
         }
         if (reason.shouldDestroy() && this.level() instanceof ServerLevel sl) {

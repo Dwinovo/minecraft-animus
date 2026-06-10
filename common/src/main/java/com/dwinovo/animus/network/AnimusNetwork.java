@@ -2,6 +2,7 @@ package com.dwinovo.animus.network;
 
 import com.dwinovo.animus.network.payload.AnimusDeathPayload;
 import com.dwinovo.animus.network.payload.AnimusInventoryPayload;
+import com.dwinovo.animus.network.payload.CancelTasksPayload;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
 import com.dwinovo.animus.network.payload.OpenAnimusInventoryPayload;
 import com.dwinovo.animus.network.payload.SetModelPayload;
@@ -36,6 +37,10 @@ public final class AnimusNetwork {
         // C→S: the client-side LLM emitted a tool_call; execute on the owner's Animus.
         Services.NETWORK.registerClientToServer(
                 ExecuteToolPayload.TYPE, ExecuteToolPayload.STREAM_CODEC, ExecuteToolPayload::handle);
+
+        // C→S: owner pressed Stop — cancel the running + queued tasks (body stop).
+        Services.NETWORK.registerClientToServer(
+                CancelTasksPayload.TYPE, CancelTasksPayload.STREAM_CODEC, CancelTasksPayload::handle);
 
         // S→C: tool execution finished; ship the result back to the owner.
         Services.NETWORK.registerServerToClient(

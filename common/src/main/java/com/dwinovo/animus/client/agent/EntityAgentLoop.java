@@ -10,6 +10,7 @@ import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ClientToolContext;
 import com.dwinovo.animus.agent.tool.ToolRegistry;
 import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.network.payload.CancelTasksPayload;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
 import com.dwinovo.animus.platform.Services;
 import com.dwinovo.animus.platform.services.IAnimusConfig;
@@ -23,7 +24,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Per-entity agent loop running on the <strong>client</strong>. One instance
@@ -207,9 +207,13 @@ public final class EntityAgentLoop {
      *       it can't dispatch tools after the fact); any world-action tool calls
      *       still awaiting a server result get a synthetic "interrupted" result
      *       so every {@code assistant(tool_calls)} keeps matching {@code tool}
-     *       results and the next request stays protocol-valid. Queued prompts are
-     *       <em>preserved</em> — they flush on the next submit, exactly like
-     *       Claude Code keeps its message queue across an interrupt.</li>
+     *       results and the next request stays protocol-valid. A
+     *       {@code CancelTasksPayload} also ships to the server so the
+     *       <em>body</em> stops too — without it the entity keeps walking/mining
+     *       to its task deadline while only the conversation halts. Queued
+     *       prompts are <em>preserved</em> — they flush on the next submit,
+     *       exactly like Claude Code keeps its message queue across an
+     *       interrupt.</li>
      *   <li><b>Idle but prompts are queued</b> (e.g. typed during a turn that was
      *       just interrupted and is now held) → drop the queue. Mirrors
      *       {@code popCommandFromQueue} when there's no running task to cancel.</li>
@@ -233,6 +237,11 @@ public final class EntityAgentLoop {
                         "{\"success\":false,\"message\":\"interrupted by owner\"}");
             }
             pendingToolCallIds.clear();
+
+            // Stop the BODY, not just the conversation: tell the server to cancel
+            // the running task and the queue. Harmless no-op when only an LLM
+            // call (no world action) was in flight.
+            Services.NETWORK.sendToServer(new CancelTasksPayload(entityUuid));
 
             // If we cut off an in-flight LLM call before its assistant turn was
             // recorded, the conversation now ends on a user message. Cap it with a
@@ -289,9 +298,7 @@ public final class EntityAgentLoop {
         bufferedPrompts.clear();
         convo.addUser(merged);
         // A fresh owner directive starts a new tool-chain: restart the turn
-        // counter (just log numbering now that the hard cap is gone) and clear
-        // the loop-detection signature so a new directive may legitimately
-        // repeat a tool batch the previous chain happened to end on.
+        // counter (just log numbering now that the hard cap is gone).
         convo.resetTurnCount();
     }
 
@@ -318,10 +325,10 @@ public final class EntityAgentLoop {
         // final assistant message — a user message can now be appended legally.
         flushBufferedPrompts();
         if (convo.snapshot().isEmpty()) return;
-        // No hard cap on tool-call turns — a capable agent legitimately chains
-        // many tasks. The only autonomous stop is the loop guard
-        // (ConvoState.recordToolBatchAndCheckLoop: identical batch twice in a
-        // row); genuine runaways are stopped by the owner's interrupt.
+        // No hard cap on tool-call turns and no loop guard — a capable agent
+        // legitimately chains many tasks, and resuming a timed-out move_to
+        // repeats the exact same call. Runaways are stopped by the owner's
+        // interrupt.
         if (!AnimusLlmClient.isConfigured()) {
             Constants.LOG.warn("[animus-entity#{}] API key not set; open the Animus GUI (X) → Settings",
                     entityUuid);
@@ -427,20 +434,6 @@ public final class EntityAgentLoop {
             // A prompt that arrived during this final turn was buffered; now that
             // the chain has settled, start a fresh turn to answer it.
             if (!bufferedPrompts.isEmpty()) tryStartTurn();
-            return;
-        }
-
-        if (convo.recordToolBatchAndCheckLoop(turn.toolCalls())) {
-            String summary = turn.toolCalls().stream()
-                    .map(LlmToolCall::name)
-                    .collect(Collectors.joining(","));
-            Constants.LOG.warn("[animus-entity#{}] tool batch loop detected ({}); stopping",
-                    entityUuid, summary);
-            for (LlmToolCall tc : turn.toolCalls()) {
-                convo.addToolResult(tc.id(),
-                        "{\"success\":false,\"message\":\"aborted: tool batch loop detected\"}");
-            }
-            aborted = true;
             return;
         }
 

@@ -1,37 +1,29 @@
 package com.dwinovo.animus.agent.llm;
 
 import com.dwinovo.animus.agent.provider.AssistantTurn;
-import com.dwinovo.animus.agent.provider.LlmToolCall;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
- * Per-entity conversation history + loop-detection bookkeeping. Lives on the
- * **client** side now (LLM moved off-server in the per-player-pays-tokens
- * refactor), accessed solely from the client main thread — no synchronisation
- * needed.
+ * Per-entity conversation history. Lives on the **client** side now (LLM moved
+ * off-server in the per-player-pays-tokens refactor), accessed solely from the
+ * client main thread — no synchronisation needed.
  *
  * <h2>Storage type</h2>
  * Plain provider-agnostic DTOs ({@link AssistantTurn} et al.) — no SDK
  * classes leak through. The provider layer translates these to / from wire
  * JSON when building requests and parsing responses.
  *
- * <h2>Loop detection</h2>
- * {@link #recordToolBatchAndCheckLoop} compares the sorted tool-name list of
- * each LLM response against the previous one. Two identical batches in a row
- * triggers an abort — borrowed from TouhouLittleMaid's
- * {@code MAX_REPEAT_TOOL_BATCH_COUNT = 2}, which they validated against real
- * GPT-4 behaviour.
+ * <h2>No loop guard, no turn cap</h2>
+ * There is intentionally no autonomous stop: a capable agent legitimately
+ * chains many tasks, and retrying a timed-out task repeats the exact same
+ * tool call — a signature-based loop detector kept killing that correct
+ * recovery (it aborted a {@code move_to} resume after a mid-journey timeout).
+ * Runaways are stopped by the owner's interrupt; {@link #turnCount} is kept
+ * purely for log numbering.
  */
 public final class ConvoState {
-
-    /** Identical-batch repeats before we declare a loop. There is intentionally
-     * NO cap on the number of tool-call turns — a capable agent legitimately
-     * chains many tasks; only a true repeat-loop (or the owner's interrupt)
-     * stops the chain. {@link #turnCount} is kept purely for log numbering. */
-    public static final int MAX_REPEAT_TOOL_BATCH_COUNT = 2;
 
     /** Tagged union for conversation history. */
     public sealed interface Msg permits Msg.User, Msg.Assistant, Msg.Tool {
@@ -42,8 +34,6 @@ public final class ConvoState {
 
     private final List<Msg> messages = new ArrayList<>();
     private int turnCount = 0;
-    private String lastBatchSignature = "";
-    private int repeatedBatchCount = 0;
 
     public void addUser(String content) {
         messages.add(new Msg.User(content));
@@ -73,42 +63,10 @@ public final class ConvoState {
 
     /**
      * Called when a final text response arrives (no tool_calls). The chain
-     * is settled; the next user message starts a fresh count, so cap doesn't
-     * accumulate across separate user prompts.
+     * is settled; the next user message starts a fresh log-numbering count.
      */
     public void resetTurnCount() {
         turnCount = 0;
-        lastBatchSignature = "";
-        repeatedBatchCount = 0;
-    }
-
-    /**
-     * Record the tool batch from an assistant response and report whether
-     * we've now seen the same batch enough times to bail out.
-     *
-     * <p>The signature includes both the tool name <strong>and the raw
-     * arguments JSON</strong>, sorted. This is critical: signing on name
-     * alone false-positives on legitimate iterative workloads (e.g. mining
-     * a vein of ore with consecutive {@code mine_block(x1,y1,z1)} →
-     * {@code mine_block(x2,y2,z2)} calls). A true ReAct stall almost
-     * always emits identical args turn-after-turn, so including args keeps
-     * the guard's recall while restoring precision.
-     *
-     * @param toolCalls tool calls in this assistant turn, any order
-     * @return {@code true} → abort, {@code false} → continue
-     */
-    public boolean recordToolBatchAndCheckLoop(List<LlmToolCall> toolCalls) {
-        String sig = toolCalls.stream()
-                .map(tc -> tc.name() + ":" + (tc.arguments() == null ? "" : tc.arguments()))
-                .sorted()
-                .collect(Collectors.joining("|"));
-        if (sig.equals(lastBatchSignature)) {
-            repeatedBatchCount++;
-            return repeatedBatchCount >= MAX_REPEAT_TOOL_BATCH_COUNT;
-        }
-        lastBatchSignature = sig;
-        repeatedBatchCount = 1;
-        return false;
     }
 
     /** Wipe history. Called on explicit reset (Phase-2: /animus reset command). */

@@ -41,11 +41,14 @@ public abstract class TaskRecord {
      */
     private final String toolCallId;
     /**
-     * Game-tick (level.getGameTime()) at which this record times out. Computed
-     * once at construction so {@code /tick freeze} / {@code /tick rate} change
-     * are accounted for automatically (gameTime is freeze-aware).
+     * Game-tick (level.getGameTime()) at which this record times out. Stamped
+     * at construction (gameTime is freeze-aware, so {@code /tick freeze} /
+     * {@code /tick rate} are accounted for automatically); a goal whose real
+     * budget depends on world state only known at start may push it later via
+     * {@link #extendDeadlineTo} (e.g. move_to scales with journey distance —
+     * the tool layer can't know that, it has no entity position).
      */
-    private final long deadlineGameTime;
+    private long deadlineGameTime;
 
     private TaskState state = TaskState.PENDING;
     private TaskResult result;
@@ -63,6 +66,11 @@ public abstract class TaskRecord {
     public final long getDeadlineGameTime() { return deadlineGameTime; }
     public final TaskState getState() { return state; }
     public final TaskResult getResult() { return result; }
+
+    /** Push the deadline later (never earlier). Tick-thread only, like all reads. */
+    public final void extendDeadlineTo(long gameTime) {
+        if (gameTime > deadlineGameTime) deadlineGameTime = gameTime;
+    }
 
     /** Called by {@link LlmTaskGoal} as the record transitions through lifecycle. */
     public final void setState(TaskState state) { this.state = state; }

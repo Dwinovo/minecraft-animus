@@ -36,7 +36,9 @@ import java.util.Map;
  */
 public final class MoveToTool implements AnimusTool {
 
-    /** 30 seconds at vanilla 20 tps. Generous so cross-village walks complete. */
+    /** Base budget: 30 seconds at vanilla 20 tps. {@code MoveToTaskGoal.onStart}
+     *  extends this by journey distance (~1s/block, capped) — the tool layer
+     *  can't scale it here because it doesn't know the entity's position. */
     private static final long DEFAULT_TIMEOUT_TICKS = 30 * 20;
 
     private static final double MIN_SPEED = 0.1;
@@ -49,9 +51,18 @@ public final class MoveToTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Walk the entity to the given world coordinates. Returns success when "
-                + "within roughly 2 blocks of the target, or fails if the path is "
-                + "unreachable, blocked, or times out.";
+        return "Travel to the given world coordinates — full terrain-traversing "
+                + "navigation, not just walking. En route it automatically mines "
+                + "through obstructions, digs straight down or up, bridges gaps and "
+                + "pillars upward with cobblestone/dirt from inventory, and jumps "
+                + "small gaps. To descend to a mining depth, just move_to(x, "
+                + "targetY, z) — no need to mine_block your way down. Consumes "
+                + "scaffold blocks and tool durability en route; carry cobblestone "
+                + "or dirt for terrain that needs bridging. The timeout scales with "
+                + "distance; if it still times out it reports the progress made "
+                + "(blocks dug/placed, final position) — call move_to again with "
+                + "the same target to resume from where it stopped. Returns success "
+                + "when within roughly 2 blocks of the target.";
     }
 
     @Override

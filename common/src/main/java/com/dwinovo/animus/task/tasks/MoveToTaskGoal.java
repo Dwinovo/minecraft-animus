@@ -30,6 +30,12 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
     /** ~2 blocks Euclidean — LLM navigation is happy with approximate arrival. */
     private static final double REACHED_DISTANCE_SQR = 4.0;
 
+    /** Per-block journey budget on top of the tool's flat 30s: terrain work
+     *  (pillaring, bridging, digging) runs about a second a block. */
+    private static final long TICKS_PER_BLOCK = 20;
+    /** Hard cap so a genuinely unreachable target still dies in finite time. */
+    private static final long MAX_EXTRA_TICKS = 5 * 60 * 20;
+
     private Navigator nav;
 
     public MoveToTaskGoal(AnimusEntity entity) {
@@ -42,6 +48,13 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
             r.setState(TaskState.SUCCESS);
             return;
         }
+        // Scale the deadline with the actual journey. The tool layer stamped a
+        // flat 30s without knowing where the entity stands; a long or vertical
+        // trip (33 scaffold blocks of pillaring, say) is steady progress, not a
+        // stall, and shouldn't be cut down mid-climb.
+        double dist = Math.sqrt(entity.distanceToSqr(r.x, r.y, r.z));
+        long extra = Math.min(MAX_EXTRA_TICKS, 600 + (long) (dist * TICKS_PER_BLOCK));
+        r.extendDeadlineTo(entity.level().getGameTime() + extra);
         nav = new Navigator(entity, BlockPos.containing(r.x, r.y, r.z), r.speed, () -> closeEnough(r));
     }
 
