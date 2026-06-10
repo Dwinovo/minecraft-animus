@@ -12,6 +12,7 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -54,8 +55,6 @@ public final class PathExecutor {
     private static final int AWAY_BUDGET = 60;
     /** >3 blocks off the current movement → definitively shoved off, replan now. */
     private static final double HARD_DIST_SQR = 9.0;
-    /** Horizontal arrival tolerance² (≈0.6 block). */
-    private static final double ARRIVE_HORIZ_SQR = 0.36;
 
     private final AnimusEntity entity;
     private final Path path;
@@ -75,12 +74,18 @@ public final class PathExecutor {
     private int ticksAway = 0;
 
     // Pillar sub-state: each cycle pillars from the entity's ACTUAL feet height,
-    // robust to having landed a block off from the plan.
-    private int pillarBaseY;
+    // robust to having landed a block off from the plan. MAX_VALUE = no cycle
+    // started for this movement yet, so the airborne place branch stays off
+    // (a previous pillar may have advanced mid-apex, leaving us airborne here).
+    private int pillarBaseY = Integer.MAX_VALUE;
     private boolean pillarPlacedThisCycle = false;
 
-    // Parkour sub-state: true once we've committed the jump (ballistic, no resync).
+    // Parkour sub-state: true once we've committed the jump (ballistic, no
+    // resync), plus the launch direction/speed fixed at takeoff — mid-air we
+    // only counter drag along this vector, never re-aim at the landing.
     private boolean parkourLaunched = false;
+    private double parkourDirX, parkourDirZ;
+    private double parkourVel;
 
     public PathExecutor(AnimusEntity entity, Path path, double speed) {
         this.entity = entity;
@@ -307,6 +312,14 @@ public final class PathExecutor {
             plog("REPLAN: out of scaffolding for " + at);
             return Status.NEEDS_REPLAN;
         }
+        // Vanilla placement refuses any spot intersecting an entity's box — so
+        // must we, or the block materializes inside a body (wedged in a solid
+        // block → suffocation). Re-centre on the source cell until it's clear.
+        if (placementObstructed(at)) {
+            Vec3 src = Vec3.atBottomCenterOf(mv.src);
+            entity.getMoveControl().setWantedPosition(src.x, src.y, src.z, speed);
+            return Status.RUNNING;
+        }
         BlockState state = ((BlockItem) stack.getItem()).getBlock().defaultBlockState();
         if (!level.setBlock(at, state, 3)) {
             plog("REPLAN: setBlock failed for scaffold @ " + at);
@@ -324,14 +337,9 @@ public final class PathExecutor {
 
     private Status tickMove(Movement mv) {
         Level level = entity.level();
-        Vec3 center = new Vec3(mv.dest.getX() + 0.5, mv.dest.getY(), mv.dest.getZ() + 0.5);
-        entity.getMoveControl().setWantedPosition(center.x, center.y, center.z, speed);
-        entity.getLookControl().setLookAt(center.x, center.y + entity.getEyeHeight(), center.z);
-
-        double dx = entity.getX() - center.x;
-        double dz = entity.getZ() - center.z;
-        double horizSqr = dx * dx + dz * dz;
-        double dyToNode = entity.getY() - mv.dest.getY();
+        Vec3 steer = steerTarget(mv);
+        entity.getMoveControl().setWantedPosition(steer.x, steer.y, steer.z, speed);
+        entity.getLookControl().setLookAt(steer.x, steer.y + entity.getEyeHeight(), steer.z);
 
         // Step up onto an ASCEND's target block: jump only when grounded (one
         // jump per landing, never re-fired mid-air), still below the target, and
@@ -344,12 +352,43 @@ public final class PathExecutor {
             entity.getJumpControl().jump();
         }
 
-        // Arrive once actually standing at the destination level: require
-        // onGround (never advance mid-jump/mid-fall) plus a tight height window.
-        if (horizSqr <= ARRIVE_HORIZ_SQR && entity.onGround() && Math.abs(dyToNode) <= 0.5) {
+        // Arrive by CELL occupancy, never centre proximity: demanding ~0.6 of
+        // the centre made every momentum landing walk back to a node it had
+        // already crossed. Standing anywhere in the dest cell is arrived;
+        // onGround keeps us from advancing mid-jump/mid-fall.
+        if (entity.blockPosition().equals(mv.dest) && entity.onGround()) {
             advance();
         }
         return Status.RUNNING;
+    }
+
+    /**
+     * Where to aim MoveControl for a steered move: normally the move's dest,
+     * but once the entity has crossed it — downhill momentum carries the feet
+     * past the node mid-air — aiming there would steer it BACKWARDS (the
+     * mid-air about-face). Aim at the next plain-walking node instead and let
+     * cell-arrival / forward-resync advance the index when we land.
+     */
+    private Vec3 steerTarget(Movement mv) {
+        Vec3 dest = Vec3.atBottomCenterOf(mv.dest);
+        if (!walkKind(mv.kind) || index + 1 >= path.movements.size()) return dest;
+        Movement next = path.movements.get(index + 1);
+        // Only overshoot toward a node that needs no preparation on arrival.
+        if (!walkKind(next.kind) || !next.toBreak.isEmpty() || next.toPlace != null) return dest;
+        double alongX = mv.dest.getX() - mv.src.getX();
+        double alongZ = mv.dest.getZ() - mv.src.getZ();
+        double toX = dest.x - entity.getX();
+        double toZ = dest.z - entity.getZ();
+        if (alongX * toX + alongZ * toZ < 0.0) {
+            return Vec3.atBottomCenterOf(next.dest);
+        }
+        return dest;
+    }
+
+    /** Moves MoveControl can steer straight through without stopping. */
+    private static boolean walkKind(Movement.Kind k) {
+        return k == Movement.Kind.TRAVERSE || k == Movement.Kind.DESCEND
+                || k == Movement.Kind.FALL || k == Movement.Kind.DIAGONAL;
     }
 
     // ---- PILLAR_UP: jump straight up, place the floor block beneath mid-rise ----
@@ -371,8 +410,11 @@ public final class PathExecutor {
         boolean centred = (cdx * cdx + cdz * cdz) <= 0.10;   // over the column (~0.3 block)
 
         // Reached the planned top — advance WITHOUT requiring onGround (the apex
-        // is often airborne; feetY is floored so this only fires at/above target).
-        if (entity.blockPosition().getY() >= mv.dest.getY() && centred) {
+        // is often airborne; feetY is floored so this only fires at/above target)
+        // but only once a floor actually exists beneath, else we're mid-rise
+        // with nothing placed yet and would just fall back through.
+        if (entity.blockPosition().getY() >= mv.dest.getY() && centred
+                && BlockHelper.canWalkOn(level, entity.blockPosition().below())) {
             advance();
             return Status.RUNNING;
         }
@@ -385,11 +427,18 @@ public final class PathExecutor {
                 entity.getJumpControl().jump();
             }
             // not centred → don't jump; let MoveControl centre us.
-        } else if (!pillarPlacedThisCycle && entity.getY() >= pillarBaseY + 0.5) {
-            // Airborne and cleared the base cell → drop a scaffold into it to land on.
+        } else if (!pillarPlacedThisCycle && pillarBaseY != Integer.MAX_VALUE
+                && entity.getY() >= pillarBaseY + 1.0) {
+            // Airborne with the box fully ABOVE the base cell (apex is +1.25, so
+            // +1.0..+1.25 is the placement window) → drop a scaffold in to land
+            // on. At +0.5 — the old threshold — the block materialized inside
+            // our own legs and wedged us into it (the suffocation bug).
             BlockPos base = new BlockPos(mv.dest.getX(), pillarBaseY, mv.dest.getZ());
             if (BlockHelper.canWalkOn(level, base)) {
                 pillarPlacedThisCycle = true;   // already solid somehow
+            } else if (placementObstructed(base)) {
+                // Someone's box still clips the cell — retry within the window.
+                return Status.RUNNING;
             } else if (BlockHelper.isReplaceableForPlacement(level, base)) {
                 ItemStack stack = takeScaffold();
                 if (stack == null) {
@@ -424,43 +473,53 @@ public final class PathExecutor {
             return Status.RUNNING;
         }
 
-        double dx = cx - entity.getX();
-        double dz = cz - entity.getZ();
-        double dist = Math.sqrt(dx * dx + dz * dz);
-        double speedH = parkourSpeed(mv);
-
         if (!parkourLaunched) {
             // Hold at the takeoff until grounded, THEN launch — never let
             // MoveControl walk us off the edge into the gap before we jump.
             entity.getMoveControl().setWantedPosition(entity.getX(), entity.getY(), entity.getZ(), 0.0);
+            double dx = cx - entity.getX();
+            double dz = cz - entity.getZ();
+            double dist = Math.sqrt(dx * dx + dz * dz);
             if (entity.onGround() && dist > 1.0e-3) {
-                entity.setDeltaMovement(dx / dist * speedH, 0.42, dz / dist * speedH);
+                // Commit the whole jump in one impulse. A 0.42 jump is airborne
+                // ~10 ticks to a same-Y landing; with the per-tick re-assert
+                // below, horizontal travel ≈ vel × 10, so size vel to put us at
+                // the landing centre (with a little margin for residual drag).
+                parkourDirX = dx / dist;
+                parkourDirZ = dz / dist;
+                parkourVel = Math.clamp(dist * 0.10, 0.15, 0.55);
+                entity.setDeltaMovement(parkourDirX * parkourVel, 0.42, parkourDirZ * parkourVel);
                 parkourLaunched = true;
-                plog(String.format("parkour launch -> %s v=%.2f", mv.dest, speedH));
+                // Park MoveControl on the landing at speed 0: faces us forward
+                // without it steering (its op would otherwise still point at the
+                // takeoff hold and turn us around mid-flight).
+                entity.getMoveControl().setWantedPosition(cx, mv.dest.getY(), cz, 0.0);
+                plog(String.format("parkour launch -> %s v=%.2f", mv.dest, parkourVel));
             }
             return Status.RUNNING;
         }
 
-        // Airborne & committed: re-assert horizontal momentum toward the landing
-        // (counter drag) while vanilla gravity owns Y.
-        if (!entity.onGround() && dist > 1.0e-3) {
-            entity.setDeltaMovement(dx / dist * speedH, entity.getDeltaMovement().y, dz / dist * speedH);
+        // Airborne & committed: hold the LAUNCH vector against drag while
+        // vanilla gravity owns Y. Never re-aim at the landing mid-air — homing
+        // reverses the velocity once past the centre and drops us into the gap.
+        if (!entity.onGround()) {
+            entity.setDeltaMovement(parkourDirX * parkourVel,
+                    entity.getDeltaMovement().y, parkourDirZ * parkourVel);
             return Status.RUNNING;
         }
 
-        // Touched down (possibly short/off): drop the commit so re-localization or
-        // the arrival check next tick recovers from wherever we actually landed.
-        parkourLaunched = false;
-        return Status.RUNNING;
-    }
-
-    /** Horizontal launch speed (blocks/tick) for a parkour jump of this span. Tunable. */
-    private double parkourSpeed(Movement mv) {
-        int span = Math.max(2, Math.abs(mv.dest.getX() - mv.src.getX())
-                + Math.abs(mv.dest.getZ() - mv.src.getZ()));
-        // A 0.42 jump is airborne ~10-11 ticks; cross `span` blocks in that
-        // window with margin to beat drag.
-        return 0.18 + 0.10 * span;
+        // Touched down somewhere that isn't dest (dest advanced above).
+        BlockPos feet = entity.blockPosition();
+        if (feet.equals(mv.src)) {
+            // Slipped back onto the takeoff — line up and jump again.
+            parkourLaunched = false;
+            return Status.RUNNING;
+        }
+        // Landed short or aside. relocalize() already ran this tick and matched
+        // nothing (an on-path landing would have resynced the index), and there
+        // is no jumping out of the gap from below — replan from where we are.
+        plog("REPLAN parkour landed off-target @ " + feet + " (wanted " + mv.dest + ")");
+        return Status.NEEDS_REPLAN;
     }
 
     private void advance() {
@@ -482,6 +541,7 @@ public final class PathExecutor {
         breakIndex = 0;
         miningStarted = false;
         ticksOnCurrent = 0;
+        pillarBaseY = Integer.MAX_VALUE;
         pillarPlacedThisCycle = false;
         parkourLaunched = false;
     }
@@ -489,6 +549,18 @@ public final class PathExecutor {
     /** Find and return a scaffolding stack from inventory (not yet shrunk), or null. */
     private ItemStack takeScaffold() {
         return NavContext.firstScaffoldItem(entity.getInventory());
+    }
+
+    /**
+     * Would a full block at {@code pos} intersect the navigating entity (or any
+     * other building-blocking entity)? Mirrors the entity-collision half of
+     * vanilla's placement check, which raw {@code setBlock} bypasses.
+     */
+    private boolean placementObstructed(BlockPos pos) {
+        AABB cell = new AABB(pos.getX(), pos.getY(), pos.getZ(),
+                pos.getX() + 1.0, pos.getY() + 1.0, pos.getZ() + 1.0);
+        if (entity.getBoundingBox().intersects(cell)) return true;
+        return !entity.level().getEntities(entity, cell, e -> e.blocksBuilding).isEmpty();
     }
 
     /** Compact summary of the path's movement kinds for the new-path log. */

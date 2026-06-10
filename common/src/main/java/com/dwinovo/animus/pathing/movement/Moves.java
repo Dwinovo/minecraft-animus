@@ -32,10 +32,10 @@ import java.util.List;
  *       scaffold block and head-room.</li>
  *   <li><b>DigDown</b> — mine the floor block underfoot and drop one (mineflayer
  *       "dig down"). Only when a solid floor exists one block lower to land on.</li>
+ *   <li><b>Parkour</b> — a committed running jump across a 2-4 block gap at the
+ *       same level (Baritone {@code MovementParkour}); the executor supplies
+ *       the impulse, the planner only asserts the corridor is jumpable.</li>
  * </ul>
- * Parkour (gap-jumping without placing) is the remaining mineflayer move, still
- * deferred — reliable multi-block jumps need precise velocity control that the
- * vanilla entity {@code MoveControl} doesn't give us.
  */
 public final class Moves {
 
@@ -290,6 +290,12 @@ public final class Moves {
                 BlockPos g = from.relative(dir, i);
                 if (!BlockHelper.canWalkThrough(level, g)
                         || !BlockHelper.canWalkThrough(level, g.above())) {
+                    clear = false;
+                    break;
+                }
+                // The arc rises ~1.25, so over the gap interior the head sweeps
+                // the third cell too — a 3-high ceiling bonks the jump short.
+                if (i < d && !BlockHelper.canWalkThrough(level, g.above(2))) {
                     clear = false;
                     break;
                 }
