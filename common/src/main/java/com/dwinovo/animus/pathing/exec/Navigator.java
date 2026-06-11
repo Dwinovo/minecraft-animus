@@ -171,13 +171,30 @@ public final class Navigator {
             return Status.RUNNING;   // resume next tick; entity simply waits, no freeze hack
         }
         Path path = search.result();
-        boolean hadScaffold = searchCtx.hasScaffold;
+        NavContext failedCtx = searchCtx;
         search = null;
         searchCtx = null;
         if (path == null || path.isEmpty()) {
-            failReason = hadScaffold
-                    ? "no path to target (obstructed)"
-                    : "blocked by a gap and no bridging blocks — give me cobblestone or dirt";
+            if (path != null && !path.partial) {
+                // Complete-but-empty: the start node already satisfied the
+                // near-goal tolerance (the goal cell itself is un-enterable —
+                // e.g. the LLM targeted a furnace's own coordinates). We're as
+                // close as terrain allows; let the task's own predicate decide.
+                failReason = "already as close to the target as terrain allows";
+                return reached.getAsBoolean() ? Status.ARRIVED : Status.FAILED;
+            }
+            if (!failedCtx.hasScaffold) {
+                failReason = "blocked by a gap and no bridging blocks — give me cobblestone or dirt";
+            } else {
+                // Name the first concrete obstacle on the straight line so the
+                // LLM gets a next step ("equip a pickaxe", "water in the way")
+                // instead of a dead "obstructed".
+                String why = (plannedGoal == null) ? null
+                        : failedCtx.diagnoseObstruction(entity.blockPosition(), plannedGoal);
+                failReason = (why != null)
+                        ? "no path to target; the direct route is blocked by " + why
+                        : "no path to target (obstructed)";
+            }
             return reached.getAsBoolean() ? Status.ARRIVED : Status.FAILED;
         }
         current = new PathExecutor(entity, path, speed);

@@ -5,6 +5,9 @@ import com.dwinovo.animus.init.InitTag;
 import com.dwinovo.animus.pathing.util.ActionCosts;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
@@ -132,6 +135,89 @@ public final class NavContext {
         if (toolSpeed <= 0.0f) toolSpeed = 1.0f;
         float divisor = correct ? 30.0f : 100.0f;
         return Math.max(1.0, Math.ceil(hardness * divisor / toolSpeed));
+    }
+
+    /**
+     * Post-mortem for a failed search: walk the straight start→goal line and
+     * name the first break-veto on it, in words the LLM can act on. The real
+     * A* frontier may have died elsewhere, but the straight line is what the
+     * model pictures when it asks "why can't you just go there" — "stone but
+     * I'm holding a sword" or "water behind it" turns a dead "obstructed"
+     * into a next step. Returns {@code null} when the line is clean (the
+     * failure was geometric: gaps, fall limits, search budget).
+     */
+    public String diagnoseObstruction(BlockPos from, BlockPos to) {
+        int steps = (int) Math.ceil(Math.sqrt(from.distSqr(to)));
+        BlockPos last = null;
+        for (int i = 1; i <= steps; i++) {
+            double t = (double) i / steps;
+            BlockPos feet = BlockPos.containing(
+                    from.getX() + 0.5 + (to.getX() - from.getX()) * t,
+                    from.getY() + (to.getY() - from.getY()) * t,
+                    from.getZ() + 0.5 + (to.getZ() - from.getZ()) * t);
+            if (feet.equals(last)) continue;
+            last = feet;
+            for (BlockPos cell : new BlockPos[]{feet, feet.above()}) {
+                if (BlockHelper.canWalkThrough(view, cell)) continue;
+                String veto = explainBreakVeto(cell);
+                if (veto != null) {
+                    return veto + " at (" + cell.getX() + ", " + cell.getY()
+                            + ", " + cell.getZ() + ")";
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Why {@link #costOfBreaking} returns {@code COST_INF} for this cell, as a
+     * sentence fragment for the LLM — or {@code null} if the break is actually
+     * allowed (finite cost). Mirrors the veto order in {@code costOfBreaking}.
+     */
+    private String explainBreakVeto(BlockPos pos) {
+        BlockState state = view.getBlockState(pos);
+        if (!state.getFluidState().isEmpty()) {
+            return state.getFluidState().is(FluidTags.LAVA)
+                    ? "lava" : "water (I can't swim or mine through fluids)";
+        }
+        if (!BlockHelper.isBreakable(view, pos)) {
+            return "unbreakable " + blockId(state);
+        }
+        if (BlockHelper.isHazard(view, pos)) {
+            return "hazardous " + blockId(state);
+        }
+        if (BlockHelper.breakWouldCreateFlow(view, pos)) {
+            return blockId(state) + " (breaking it would release "
+                    + (touchesLava(pos) ? "lava" : "water") + " from an adjacent cell)";
+        }
+        if (BlockHelper.shouldAvoidBreaking(view, pos)) {
+            return blockId(state) + " (a functional block I won't destroy)";
+        }
+        if (BlockHelper.breakReleasesFallingBlock(view, pos)) {
+            return blockId(state) + " (sand/gravel above it would collapse on me)";
+        }
+        if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) {
+            String held = tool.isEmpty()
+                    ? "nothing"
+                    : BuiltInRegistries.ITEM.getKey(tool.getItem()).getPath();
+            return blockId(state) + " (needs the correct tool and I'm holding "
+                    + held + " — equip_item the right pickaxe first)";
+        }
+        return null;
+    }
+
+    private boolean touchesLava(BlockPos pos) {
+        for (Direction dir : Direction.values()) {
+            if (dir == Direction.DOWN) continue;
+            if (view.getBlockState(pos.relative(dir)).getFluidState().is(FluidTags.LAVA)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String blockId(BlockState state) {
+        return BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
     }
 
     /** Pick a scaffolding stack the entity currently holds, or null. */

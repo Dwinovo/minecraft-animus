@@ -60,6 +60,18 @@ public final class ActionCosts {
     public static final double JUMP_ONE_BLOCK = 5.0;
 
     /**
+     * Lower-bound cost of descending one block. The cheapest legal descent is
+     * a 3-block fall ({@code fallCost(3)/3} ≈ 1.89 ticks/block; falls are
+     * capped at {@code maxFallHeight = 3}), and DIG_DOWN / DESCEND edges cost
+     * more — so 1.5 stays admissible. It must be {@code > 0}: a zero down-cost
+     * made the heuristic blind to vertical progress, so every node straight
+     * above a deep target looked "already there" and the partial-path fallback
+     * collapsed to the start node (empty path, spurious "no path" failures on
+     * dig-down journeys).
+     */
+    public static final double DESCEND_ONE_BLOCK = 1.5;
+
+    /**
      * Cost of a parkour jump across {@code blocks} of gap (2..4), in ticks. A
      * 2–3 block gap is a walk-jump; a 4 block gap needs sprint physics, so it's
      * costed against the (faster, thus cheaper-per-block) sprint speed. The flat
