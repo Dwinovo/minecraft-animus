@@ -74,6 +74,8 @@ public class AnimusMod {
         // Game-bus (not mod-bus) listener: bring owned companions along when the
         // owner crosses a dimension.
         NeoForge.EVENT_BUS.addListener(AnimusMod::onPlayerChangedDimension);
+        // Poll chunk-ticket revivals of companions stranded in unloaded chunks.
+        NeoForge.EVENT_BUS.addListener(AnimusMod::onServerTickPost);
 
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on NeoForge.");
@@ -93,6 +95,10 @@ public class AnimusMod {
         if (Services.NETWORK instanceof NeoForgeNetworkChannel ch) {
             ch.flushPending(event);
         }
+    }
+
+    private static void onServerTickPost(net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) {
+        com.dwinovo.animus.network.AnimusRevival.tick(event.getServer());
     }
 
     private static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {

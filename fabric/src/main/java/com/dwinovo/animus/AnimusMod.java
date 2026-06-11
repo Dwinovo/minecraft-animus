@@ -62,6 +62,9 @@ public class AnimusMod implements ModInitializer {
 
         // Bring owned companions along when the owner crosses a dimension.
         ServerTickEvents.END_SERVER_TICK.register(AnimusMod::detectDimensionChanges);
+        // Poll chunk-ticket revivals of companions stranded in unloaded chunks.
+        ServerTickEvents.END_SERVER_TICK.register(
+                com.dwinovo.animus.network.AnimusRevival::tick);
 
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on Fabric.");

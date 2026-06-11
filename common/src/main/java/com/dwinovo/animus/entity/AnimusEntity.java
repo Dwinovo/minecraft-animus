@@ -90,21 +90,34 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     public static final int INVENTORY_SIZE = 27;
 
     /**
-     * Chunk ticket that keeps a WORKING Animus loaded and ticking when it
+     * Chunk ticket that keeps an ENGAGED Animus loaded and ticking when it
      * wanders beyond its owner's view distance (mirrors vanilla's ENDER_PEARL
      * ticket: short timeout, refreshed while alive, self-expires on silence).
-     * SIMULATION is the load-bearing flag — LOADING alone produces border
-     * chunks that don't tick entities. Refreshed every
-     * {@link #CHUNK_TICKET_REFRESH_TICKS} only while a task is RUNNING; an
-     * idle companion unloads with its owner like any pet, and death/cancel/
-     * crash just stop the refresh — no cleanup path to forget.
+     * Three flags, all load-bearing: LOADING alone produces border chunks
+     * that don't tick entities (hence SIMULATION), and a playerless dimension
+     * stops ticking entities entirely after 300 empty ticks unless a ticket
+     * carries KEEP_DIMENSION_ACTIVE — exactly the "owner went to the Nether,
+     * overworld pet froze" case. Refreshed every
+     * {@link #CHUNK_TICKET_REFRESH_TICKS} while engaged (task running/queued,
+     * or any owner-driven tool call within {@link #CHUNK_TICKET_LINGER_TICKS});
+     * a truly idle companion unloads like any pet, and death/cancel/crash
+     * just stop the refresh — no cleanup path to forget.
      */
-    private static final net.minecraft.server.level.TicketType TASK_CHUNK_TICKET =
+    public static final net.minecraft.server.level.TicketType TASK_CHUNK_TICKET =
             new net.minecraft.server.level.TicketType(200L,
                     net.minecraft.server.level.TicketType.FLAG_LOADING
-                            | net.minecraft.server.level.TicketType.FLAG_SIMULATION);
+                            | net.minecraft.server.level.TicketType.FLAG_SIMULATION
+                            | net.minecraft.server.level.TicketType.FLAG_KEEP_DIMENSION_ACTIVE);
     /** Refresh cadence (must stay well under the ticket's 200-tick timeout). */
     private static final int CHUNK_TICKET_REFRESH_TICKS = 60;
+    /**
+     * How long after the last sign of engagement the ticket keeps refreshing.
+     * The agent loop lives on the owner's client: between two tool calls the
+     * server sees NO running task while the LLM thinks (5–30s is normal), and
+     * 200 ticks of ticket timeout would unload the pet mid-mission. Two
+     * minutes comfortably covers think time + the owner typing a follow-up.
+     */
+    private static final int CHUNK_TICKET_LINGER_TICKS = 2400;
     /** Ticket radius in chunks: 5x5 covers pathfinder snapshots and dig radii. */
     private static final int CHUNK_TICKET_RADIUS = 2;
 
@@ -204,6 +217,7 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         this.goalSelector.addGoal(0, new HuntTaskGoal(this));
         this.goalSelector.addGoal(0, new ShootTaskGoal(this));
         this.goalSelector.addGoal(0, new LocateStructureTaskGoal(this));
+        this.goalSelector.addGoal(0, new com.dwinovo.animus.task.tasks.LocateBiomeTaskGoal(this));
         this.goalSelector.addGoal(0, new CollectItemsTaskGoal(this));
         this.goalSelector.addGoal(0, new MineBlockTaskGoal(this));
         this.goalSelector.addGoal(0, new CraftTaskGoal(this));
@@ -294,18 +308,75 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     protected void customServerAiStep(ServerLevel level) {
         super.customServerAiStep(level);
         refreshChunkTicket(level);
+        if (level.getGameTime() % 40 == 0) AnimusLastSeen.update(this);
         drainTaskResultsToOwner();
     }
 
     /**
-     * While a task is RUNNING, periodically re-issue the self-loading chunk
-     * ticket at the current position. The ticket's own timeout handles every
-     * teardown case (task done, cancelled, death, server crash) by simply
-     * expiring once we stop refreshing.
+     * Game time of the last sign the owner's agent loop is driving this pet:
+     * a task running or queued, or any tool payload arriving (queries count —
+     * remote chat is mostly get_self_status). Engagement ends by silence.
+     */
+    private long lastEngagementTime = Long.MIN_VALUE;
+
+    /**
+     * Cross-dimension owner identity check. Vanilla {@code isOwnedBy} resolves
+     * the owner through THIS entity's level ({@code EntityReference} lookup),
+     * so it silently returns false whenever owner and pet are in different
+     * dimensions — every payload handler must use this UUID comparison instead.
+     */
+    public boolean isOwnedByPlayer(java.util.UUID playerUuid) {
+        var ref = this.getOwnerReference();
+        return ref != null && ref.getUUID().equals(playerUuid);
+    }
+
+    /**
+     * The owner as an online player, resolved server-wide — works regardless
+     * of which dimension either side is in. Null when the owner is offline.
+     */
+    public ServerPlayer resolveOwnerPlayer() {
+        var ref = this.getOwnerReference();
+        if (ref == null || !(this.level() instanceof ServerLevel sl)) return null;
+        return sl.getServer().getPlayerList().getPlayer(ref.getUUID());
+    }
+
+    /** Stamp engagement; called by payload handlers on every owner tool call. */
+    public void markEngagement() {
+        if (this.level() instanceof ServerLevel sl) {
+            lastEngagementTime = sl.getGameTime();
+        }
+    }
+
+    /**
+     * Is the owner's agent loop actively driving this pet — a task running or
+     * queued, or a tool call within the linger window? Gates both the chunk
+     * ticket and dimension-follow (an engaged pet stays on its job when the
+     * owner takes a portal; tickets + revival keep it reachable).
+     */
+    public boolean isEngaged() {
+        if ((activeTask != null && activeTask.getState() == TaskState.RUNNING)
+                || (taskQueue != null && taskQueue.pendingCount() > 0)) {
+            return true;
+        }
+        return this.level() instanceof ServerLevel sl
+                && sl.getGameTime() - lastEngagementTime <= CHUNK_TICKET_LINGER_TICKS;
+    }
+
+    /**
+     * While engaged — and for {@link #CHUNK_TICKET_LINGER_TICKS} afterwards —
+     * periodically re-issue the self-loading chunk ticket at the current
+     * position. The ticket's own timeout handles every teardown case (task
+     * done, cancelled, death, server crash) by simply expiring once we stop
+     * refreshing.
      */
     private void refreshChunkTicket(ServerLevel level) {
-        if (activeTask == null || activeTask.getState() != TaskState.RUNNING) return;
-        if (level.getGameTime() % CHUNK_TICKET_REFRESH_TICKS != 0) return;
+        long now = level.getGameTime();
+        if (activeTask != null && activeTask.getState() == TaskState.RUNNING
+                || taskQueue != null && taskQueue.pendingCount() > 0) {
+            lastEngagementTime = now;
+        }
+        if (!isEngaged()) return;
+        if (now % CHUNK_TICKET_REFRESH_TICKS != 0) return;
         level.getChunkSource().addTicketWithRadius(
                 TASK_CHUNK_TICKET, this.chunkPosition(), CHUNK_TICKET_RADIUS);
     }
@@ -314,7 +385,11 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         if (taskQueue == null) return;
         List<TaskRecord> completed = taskQueue.drainCompleted();
         if (completed.isEmpty()) return;
-        if (!(this.getOwner() instanceof ServerPlayer owner)) {
+        // Server-wide owner resolution: the owner may be in another dimension
+        // while this pet works (vanilla getOwner() would return null there and
+        // every result of remote work would be silently dropped).
+        ServerPlayer owner = resolveOwnerPlayer();
+        if (owner == null) {
             com.dwinovo.animus.Constants.LOG.debug(
                     "[animus-entity#{}] dropping {} task result(s) — owner offline",
                     this.getId(), completed.size());
@@ -373,17 +448,27 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
             // removal, so without this synchronous drain those results would
             // never reach the client and the agent loop would wait forever
             // (there is no client-side stale watchdog anymore).
-            cancelAllTasks("entity removed: " + reason);
+            // A dimension change is a CLONE, not an end: teach the model what
+            // happened so it re-orients and carries on in the new body.
+            cancelAllTasks(reason == Entity.RemovalReason.CHANGED_DIMENSION
+                    ? "you crossed into another dimension — call get_self_status to "
+                            + "confirm where you are, then continue your plan"
+                    : "entity removed: " + reason);
             drainTaskResultsToOwner();
         }
         if (reason.shouldDestroy() && this.level() instanceof ServerLevel sl) {
             // Real death (KILLED/DISCARDED) — NOT a dimension change
-            // (CHANGED_DIMENSION.shouldDestroy() is false). Tell the owner's
+            // (CHANGED_DIMENSION.shouldDestroy() is false). Drop the revival
+            // index entry: a dead pet must not be chunk-ticket-revivable.
+            AnimusLastSeen.remove(sl.getServer(), this.getUUID());
+            // Tell the owner's
             // client so its agent loop hard-stops: a dead body can't act, so it
             // must never call the LLM again. Without this the loop keeps
             // dispatching tools into the void and the LLM flails on the
-            // resulting "entity not found" errors.
-            if (this.getOwner() instanceof ServerPlayer owner) {
+            // resulting "entity not found" errors. Server-wide owner resolution:
+            // a pet dying far away must still notify a cross-dimension owner.
+            ServerPlayer owner = resolveOwnerPlayer();
+            if (owner != null) {
                 Services.NETWORK.sendToPlayer(owner,
                         new com.dwinovo.animus.network.payload.AnimusDeathPayload(this.getUUID()));
             }
@@ -405,6 +490,25 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
             }
         }
         super.remove(reason);
+    }
+
+    /**
+     * Cross-dimension travel CLONES the entity (same UUID, new instance), and
+     * the clone starts with cold transient state — no engagement stamp, no
+     * chunk ticket. Vanilla's PORTAL ticket covers the destination for only
+     * 15s; hand the clone a warm start so it survives the LLM round-trip that
+     * re-engages it (the loop itself is UUID-keyed and notices nothing).
+     */
+    @Override
+    public Entity teleport(net.minecraft.world.level.portal.TeleportTransition transition) {
+        Entity result = super.teleport(transition);
+        if (result instanceof AnimusEntity fresh && fresh != this
+                && fresh.level() instanceof ServerLevel sl) {
+            fresh.markEngagement();
+            sl.getChunkSource().addTicketWithRadius(
+                    TASK_CHUNK_TICKET, fresh.chunkPosition(), CHUNK_TICKET_RADIUS);
+        }
+        return result;
     }
 
     @Override

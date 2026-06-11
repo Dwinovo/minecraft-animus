@@ -91,14 +91,26 @@ public record ExecuteToolPayload(UUID entityUuid,
         //       kept ticking by its own chunk tickets.
         AnimusEntity animus = AnimusEntity.findByUuid(player.level().getServer(), p.entityUuid());
         if (animus == null) {
-            replyError(player, p, "entity not found in any dimension (unloaded or dead?)");
+            // Likely sitting in unloaded chunks (idle past the ticket linger, or
+            // a server restart). Try a chunk-ticket revival at its last known
+            // position; if one starts, the retry loop owns the reply.
+            if (com.dwinovo.animus.network.AnimusRevival.tryRevive(
+                    player.level().getServer(), player, p)) {
+                return;
+            }
+            replyError(player, p, "entity not found in any dimension (never seen or dead?)");
             return;
         }
-        // -- 2. owner check (the actual authorization)
-        if (!animus.isOwnedBy(player)) {
+        // -- 2. owner check (the actual authorization). UUID comparison, NOT
+        //       vanilla isOwnedBy — that resolves through the PET's level and
+        //       rejects a cross-dimension owner as "not the owner".
+        if (!animus.isOwnedByPlayer(player.getUUID())) {
             replyError(player, p, "not the owner");
             return;
         }
+        // Any owner-driven tool call counts as engagement: it keeps the pet's
+        // self-loading chunk ticket alive through LLM think-time gaps.
+        animus.markEngagement();
         // -- 3. tool lookup
         AnimusTool tool = ToolRegistry.get(p.toolName());
         if (tool == null) {
@@ -144,7 +156,7 @@ public record ExecuteToolPayload(UUID entityUuid,
                 animus.getTaskQueue().pendingCount());
     }
 
-    private static void replyError(ServerPlayer player, ExecuteToolPayload p, String message) {
+    public static void replyError(ServerPlayer player, ExecuteToolPayload p, String message) {
         Constants.LOG.warn("[animus-net] ✗ execute_tool rejected from {}: tool={} id={} reason={}",
                 player.getName().getString(), p.toolName(), p.toolCallId(), message);
         String json = "{\"success\":false,\"message\":\"" + escape(message) + "\"}";
