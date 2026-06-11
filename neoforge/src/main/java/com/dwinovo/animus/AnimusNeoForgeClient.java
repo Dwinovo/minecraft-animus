@@ -66,6 +66,17 @@ public class AnimusNeoForgeClient {
     }
 
     @SubscribeEvent
+    static void registerKeyMappings(net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent event) {
+        // G → companion roster panel (remote chat entry; no need to stand by the body).
+        event.register(com.dwinovo.animus.client.AnimusKeys.OPEN_ROSTER);
+    }
+
+    @SubscribeEvent
+    static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
+        com.dwinovo.animus.client.AnimusKeys.tick();
+    }
+
+    @SubscribeEvent
     static void registerReloadListeners(AddClientReloadListenersEvent event) {
         Path animusConfigRoot = Minecraft.getInstance().gameDirectory.toPath()
                 .resolve("config").resolve(Constants.MOD_ID);

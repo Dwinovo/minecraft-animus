@@ -1,7 +1,8 @@
 package com.dwinovo.animus.network;
 
 import com.dwinovo.animus.network.payload.AnimusDeathPayload;
-import com.dwinovo.animus.network.payload.AnimusInventoryPayload;
+import com.dwinovo.animus.network.payload.AnimusLocationsPayload;
+import com.dwinovo.animus.network.payload.LocateAnimusPayload;
 import com.dwinovo.animus.network.payload.CancelTasksPayload;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
 import com.dwinovo.animus.network.payload.OpenAnimusInventoryPayload;
@@ -46,11 +47,6 @@ public final class AnimusNetwork {
         Services.NETWORK.registerServerToClient(
                 TaskResultPayload.TYPE, TaskResultPayload.STREAM_CODEC, TaskResultPayload::handle);
 
-        // S→C: an Animus's inventory changed; refresh the owner's client mirror.
-        Services.NETWORK.registerServerToClient(
-                AnimusInventoryPayload.TYPE, AnimusInventoryPayload.STREAM_CODEC,
-                AnimusInventoryPayload::handle);
-
         // S→C: an Animus body died for good; hard-stop the owner's agent loop.
         Services.NETWORK.registerServerToClient(
                 AnimusDeathPayload.TYPE, AnimusDeathPayload.STREAM_CODEC,
@@ -60,5 +56,15 @@ public final class AnimusNetwork {
         Services.NETWORK.registerClientToServer(
                 OpenAnimusInventoryPayload.TYPE, OpenAnimusInventoryPayload.STREAM_CODEC,
                 OpenAnimusInventoryPayload::handle);
+
+        // C→S: roster panel asks where its (possibly far / cross-dimension) pets are.
+        Services.NETWORK.registerClientToServer(
+                LocateAnimusPayload.TYPE, LocateAnimusPayload.STREAM_CODEC,
+                LocateAnimusPayload::handle);
+
+        // S→C: locate answers — position/dimension/HP snapshots per pet.
+        Services.NETWORK.registerServerToClient(
+                AnimusLocationsPayload.TYPE, AnimusLocationsPayload.STREAM_CODEC,
+                AnimusLocationsPayload::handle);
     }
 }

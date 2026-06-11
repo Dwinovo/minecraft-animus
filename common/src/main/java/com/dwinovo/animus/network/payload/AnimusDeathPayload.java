@@ -48,5 +48,6 @@ public record AnimusDeathPayload(UUID entityUuid) implements CustomPacketPayload
         Constants.LOG.info("[animus-net] animus_death entity={} — stopping + disposing loop", p.entityUuid());
         AgentLoopRegistry.get(p.entityUuid()).ifPresent(loop -> loop.onEntityDied());
         AgentLoopRegistry.dispose(p.entityUuid());
+        com.dwinovo.animus.client.agent.AnimusRoster.instance().remove(p.entityUuid());
     }
 }

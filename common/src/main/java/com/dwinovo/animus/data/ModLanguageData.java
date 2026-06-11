@@ -50,6 +50,9 @@ public final class ModLanguageData {
         public static final String GUI_SETTINGS_SAVE        = "animus.gui.settings.save";
         public static final String GUI_SETTINGS_CANCEL      = "animus.gui.settings.cancel";
         public static final String GUI_SETTINGS_SAVED       = "animus.gui.settings.saved";
+
+        /** Hotkey: open the companion roster panel (shown in Controls settings). */
+        public static final String KEY_OPEN_ROSTER = "key.animus.open_roster";
     }
 
     /** Loader-side providers funnel both English and Simplified Chinese through here. */
@@ -77,6 +80,8 @@ public final class ModLanguageData {
         adder.add(Keys.GUI_SETTINGS_SAVE,          "Save");
         adder.add(Keys.GUI_SETTINGS_CANCEL,        "Cancel");
         adder.add(Keys.GUI_SETTINGS_SAVED,         "Saved");
+
+        adder.add(Keys.KEY_OPEN_ROSTER, "Open Companion Roster");
     }
 
     private static void addZh(Adder adder) {
@@ -95,5 +100,7 @@ public final class ModLanguageData {
         adder.add(Keys.GUI_SETTINGS_SAVE,          "保存");
         adder.add(Keys.GUI_SETTINGS_CANCEL,        "取消");
         adder.add(Keys.GUI_SETTINGS_SAVED,         "已保存");
+
+        adder.add(Keys.KEY_OPEN_ROSTER, "打开伙伴名册");
     }
 }

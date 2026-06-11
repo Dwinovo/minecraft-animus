@@ -72,6 +72,11 @@ public class AnimusFabricClient implements ClientModInitializer {
                     }
                 });
 
+        // G → companion roster panel (remote chat entry; no need to stand by the body).
+        KeyMappingHelper.registerKeyMapping(com.dwinovo.animus.client.AnimusKeys.OPEN_ROSTER);
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK
+                .register(client -> com.dwinovo.animus.client.AnimusKeys.tick());
+
         registerClientCommands();
     }
 

@@ -85,14 +85,27 @@ public final class EntityChatScreen extends Screen {
     /** Top of the vitals strip (CHAT view only; chat lines start below it). */
     private int statusY;
 
-    private EntityChatScreen(AnimusEntity target) {
-        super(Component.literal("Animus - " + target.getName().getString()));
-        this.entityUuid = target.getUUID();
-        this.targetName = target.getName().getString();
+    private EntityChatScreen(UUID entityUuid, String targetName) {
+        super(Component.literal("Animus - " + targetName));
+        this.entityUuid = entityUuid;
+        this.targetName = targetName;
     }
 
+    /** Physical entry point: owner right-clicked the body. Enrolls it in the roster. */
     public static void open(AnimusEntity entity) {
-        Minecraft.getInstance().setScreen(new EntityChatScreen(entity));
+        com.dwinovo.animus.client.agent.AnimusRoster.instance()
+                .record(entity.getUUID(), entity.getName().getString());
+        Minecraft.getInstance().setScreen(
+                new EntityChatScreen(entity.getUUID(), entity.getName().getString()));
+    }
+
+    /**
+     * Remote entry point (roster panel / hotkey): no entity instance needed —
+     * everything in this screen resolves the body lazily by UUID and tolerates
+     * it being unloaded, so chat, Stop, and Compact all work at any distance.
+     */
+    public static void openRemote(UUID entityUuid, String name) {
+        Minecraft.getInstance().setScreen(new EntityChatScreen(entityUuid, name));
     }
 
     private EntityAgentLoop loop() {
