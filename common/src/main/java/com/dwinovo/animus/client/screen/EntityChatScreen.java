@@ -23,6 +23,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,6 +59,14 @@ public final class EntityChatScreen extends Screen {
     private static final int MAX_TOTAL_LINES = 200;
     private static final int MODEL_ROW_HEIGHT = 14;
 
+    /** Height of the vitals strip (HP bar + equipment slots) atop the chat body. */
+    private static final int STATUS_HEIGHT = 24;
+    /** Equipment shown left→right in the strip. */
+    private static final EquipmentSlot[] EQUIPMENT_SLOTS = {
+            EquipmentSlot.MAINHAND, EquipmentSlot.OFFHAND, EquipmentSlot.HEAD,
+            EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET,
+    };
+
     private final UUID entityUuid;
     private final String targetName;
 
@@ -71,6 +81,8 @@ public final class EntityChatScreen extends Screen {
     private int bodyY;
     private int bodyWidth;
     private int bodyHeight;
+    /** Top of the vitals strip (CHAT view only; chat lines start below it). */
+    private int statusY;
 
     private EntityChatScreen(AnimusEntity target) {
         super(Component.literal("Animus - " + target.getName().getString()));
@@ -131,6 +143,10 @@ public final class EntityChatScreen extends Screen {
     }
 
     private void buildChatView() {
+        // Reserve the vitals strip (HP + equipment) above the chat lines.
+        this.statusY = this.bodyY;
+        this.bodyY += STATUS_HEIGHT;
+
         int inputRowY = top + CONTENT_HEIGHT - INPUT_HEIGHT - PADDING;
         int sendW = 44;
         int stopW = 44;
@@ -249,10 +265,60 @@ public final class EntityChatScreen extends Screen {
             if (this.stopButton != null) {
                 this.stopButton.active = loop().canInterrupt();
             }
+            renderStatusStrip(g, mouseX, mouseY);
             renderChat(g);
         } else {
             renderModelList(g, mouseX, mouseY);
         }
+    }
+
+    /**
+     * Vitals strip: HP bar (left) + the six equipment slots (right), read live
+     * off the client entity — health and equipment are vanilla-synced to
+     * tracking clients, so no extra networking is needed. Hovering a slot shows
+     * the vanilla item tooltip.
+     */
+    private void renderStatusStrip(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        AnimusEntity entity = resolveEntity();
+        if (entity == null) {
+            g.text(font, Component.literal("(body out of view)"), bodyX, statusY + 5, 0xFF606060);
+            return;
+        }
+
+        float hp = entity.getHealth();
+        float max = entity.getMaxHealth();
+        g.text(font, Component.literal("HP " + fmtHp(hp) + "/" + fmtHp(max)),
+                bodyX, statusY, 0xFFFF6E6E);
+        int barW = 70;
+        int barH = 5;
+        int barY = statusY + 11;
+        g.fill(bodyX, barY, bodyX + barW, barY + barH, 0xFF3A1010);
+        int fill = (int) (barW * Math.clamp(hp / max, 0.0f, 1.0f));
+        if (fill > 0) {
+            g.fill(bodyX, barY, bodyX + fill, barY + barH, 0xFFE53935);
+        }
+        g.outline(bodyX - 1, barY - 1, barW + 2, barH + 2, 0x55FFFFFF);
+
+        int slotStep = 18;
+        int x = bodyX + bodyWidth - EQUIPMENT_SLOTS.length * slotStep + 1;
+        int y = statusY + 1;
+        for (EquipmentSlot slot : EQUIPMENT_SLOTS) {
+            g.fill(x, y, x + 16, y + 16, 0x40000000);
+            g.outline(x, y, 16, 16, 0x33FFFFFF);
+            ItemStack stack = entity.getItemBySlot(slot);
+            if (!stack.isEmpty()) {
+                g.item(stack, x, y);
+                g.itemDecorations(font, stack, x, y);
+                if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
+                    g.setTooltipForNextFrame(font, stack, mouseX, mouseY);
+                }
+            }
+            x += slotStep;
+        }
+    }
+
+    private static String fmtHp(float v) {
+        return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.1f", v);
     }
 
     private void renderChat(GuiGraphicsExtractor g) {
