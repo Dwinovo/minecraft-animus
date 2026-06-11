@@ -6,7 +6,7 @@ import net.minecraft.world.level.block.Block;
 import java.util.Set;
 
 /**
- * Typed task descriptor for the intent-level {@code mine_block} tool: "gather
+ * Typed task descriptor for the intent-level {@code auto_mine} tool: "gather
  * {@code count} of these block types, search/pathfind/dig it yourself". The
  * goal ({@link MineBlockTaskGoal}) owns the whole loop — scan for the nearest
  * target, walk to it with the terrain-modifying pathfinder (bridging / digging
@@ -19,7 +19,7 @@ import java.util.Set;
  */
 public final class MineBlockTaskRecord extends TaskRecord {
 
-    public static final String TOOL_NAME = "mine_block";
+    public static final String TOOL_NAME = "auto_mine";
 
     /** Block types to gather (include variants, e.g. iron_ore + deepslate_iron_ore). */
     public final Set<Block> targets;

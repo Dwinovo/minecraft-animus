@@ -33,7 +33,7 @@ import java.util.Set;
  *       materials, produce the result (the recipe math).</li>
  *   <li>{@link BlockScanner} — find a nearby crafting table for 3×3 recipes.</li>
  *   <li>{@link Navigator} — walk to that table, bridging / digging like
- *       {@code move_to} / {@code mine_block}, planned while moving.</li>
+ *       {@code move_to} / {@code auto_mine}, planned while moving.</li>
  * </ul>
  *
  * <h2>State machine</h2>

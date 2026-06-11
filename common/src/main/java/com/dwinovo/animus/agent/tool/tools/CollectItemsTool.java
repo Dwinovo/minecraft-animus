@@ -48,7 +48,7 @@ public final class CollectItemsTool implements AnimusTool {
                 + "and bridges on its own if drops landed in a pit or across a gap. "
                 + "Optionally restrict to specific item_ids "
                 + "(omit to collect everything). Optional radius (default "
-                + DEFAULT_RADIUS + "). Use after mine_block or hunt to gather "
+                + DEFAULT_RADIUS + "). Use after auto_mine or hunt to gather "
                 + "scattered drops. Returns how many drops were collected.";
     }
 

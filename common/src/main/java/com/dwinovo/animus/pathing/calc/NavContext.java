@@ -104,7 +104,7 @@ public final class NavContext {
      *       bare-hand/wrong-tool grind: the bot only digs through what its current
      *       tool handles effectively (dirt/wood/sand bare-handed are fine — those
      *       need no tool). To tunnel through stone/ore it must equip a proper
-     *       pickaxe first, same lesson as {@code mine_block}.</li>
+     *       pickaxe first, same lesson as {@code auto_mine}.</li>
      * </ul>
      */
     public double costOfBreaking(BlockPos pos) {

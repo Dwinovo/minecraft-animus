@@ -56,7 +56,7 @@ public final class MoveToTool implements AnimusTool {
                 + "through obstructions, digs straight down or up, bridges gaps and "
                 + "pillars upward with cobblestone/dirt from inventory, and jumps "
                 + "small gaps. To descend to a mining depth, just move_to(x, "
-                + "targetY, z) — no need to mine_block your way down. Digging is "
+                + "targetY, z) — no need to auto_mine your way down. Digging is "
                 + "gated by your HELD tool: it only tunnels through blocks your "
                 + "main-hand item can harvest (stone/deepslate need a pickaxe IN "
                 + "HAND — equip_item it before descending; dirt/sand/wood are fine "

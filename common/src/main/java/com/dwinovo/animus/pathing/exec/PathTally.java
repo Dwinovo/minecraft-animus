@@ -15,7 +15,7 @@ import java.util.Map;
  * effects of a move ("reached the target, but dug 4 dirt and spent 6 cobblestone
  * bridging") rather than treating navigation as free.
  *
- * <p>This is the {@code mine_block} target harvest's counterpart for travel:
+ * <p>This is the {@code auto_mine} target harvest's counterpart for travel:
  * intentional harvests/placements go through other code paths and are reported
  * by their own goals; this only counts what pathing incidentally consumed.
  */

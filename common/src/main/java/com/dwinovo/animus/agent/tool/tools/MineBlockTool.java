@@ -18,7 +18,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The {@code mine_block} tool — intent-level gathering. The LLM declares
+ * The {@code auto_mine} tool — intent-level gathering. The LLM declares
  * <em>what</em> block(s) to gather and <em>how many</em>; the entity does the
  * rest (find → pathfind, bridging/digging as needed → mine → repeat). No
  * coordinates, no manual move/scan composition.

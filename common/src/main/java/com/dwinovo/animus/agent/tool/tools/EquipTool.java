@@ -17,7 +17,7 @@ import java.util.Map;
 /**
  * The {@code equip_item} tool — wear/wield an item from the entity's own
  * inventory. This is what makes {@code craft} pay off: a crafted pickaxe only
- * speeds up {@code mine_block} once it's in the main hand, and crafted
+ * speeds up {@code auto_mine} once it's in the main hand, and crafted
  * armor/sword only help in combat once worn.
  *
  * <h2>Schema</h2>
@@ -49,7 +49,7 @@ public final class EquipTool implements AnimusTool {
     public String description() {
         return "Equip an item from the entity's OWN inventory so it actually "
                 + "takes effect — a tool/weapon goes to the main hand (speeds up "
-                + "mine_block, boosts melee), armor to its slot. Omit slot to "
+                + "auto_mine, boosts melee), armor to its slot. Omit slot to "
                 + "auto-route by item type; set it to force a hand or a specific "
                 + "armor piece. Whatever was equipped before is stowed back. Fails "
                 + "if the item isn't in the inventory.";

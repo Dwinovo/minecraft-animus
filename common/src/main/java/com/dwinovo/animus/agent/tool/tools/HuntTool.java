@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The {@code hunt} tool — intent-level combat gathering, the {@code mine_block}
+ * The {@code hunt} tool — intent-level combat gathering, the {@code auto_mine}
  * of mobs. The LLM declares <em>what</em> mob type(s) to kill and <em>how
  * many</em>; the entity finds the nearest, chases it with the full terrain
  * pathfinder (bridging / digging / jumping), melees it to death, picks up drops

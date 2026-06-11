@@ -108,7 +108,7 @@ public final class BlockMiningProgress {
      * {@code "minecraft:iron_ore can't be harvested with minecraft:wooden_pickaxe
      * — need at least a stone pickaxe"}.
      *
-     * <p>This is the "is this a valid dig" gate the LLM-facing {@code mine_block}
+     * <p>This is the "is this a valid dig" gate the LLM-facing {@code auto_mine}
      * tool uses to refuse fruitless mining (breaking a block for zero drops) and
      * instead tell the model what to equip — the result message is the model's
      * instruction manual. It is deliberately <strong>not</strong> applied to the
@@ -267,8 +267,8 @@ public final class BlockMiningProgress {
      * compute drops manually with the entity's held item as the tool
      * (preserves correct-tool / silk-touch / fortune semantics) and never
      * spawn ItemEntities in the world unless the inventory rejects them.
-     * The inventory's {@code setChanged} hook pushes a fresh snapshot to the
-     * owner so the GUI and {@code get_storage} tool see the new items.
+     * The LLM sees the new items through the server-side
+     * {@code get_self_status} query.
      */
     private void breakAndRouteDrops(Level level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
