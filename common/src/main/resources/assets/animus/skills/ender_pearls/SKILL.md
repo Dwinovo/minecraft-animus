@@ -9,7 +9,7 @@ Phase 4 of the dragon route. You need **12 pearls** for up to 12 eyes of ender (
 
 ## Done when
 
-- `get_storage` shows **≥12 ender_pearl**
+- `get_self_status` shows **≥12 ender_pearl**
 
 ## Endermen, from your perspective
 
@@ -29,7 +29,7 @@ Phase 4 of the dragon route. You need **12 pearls** for up to 12 eyes of ender (
 
 ## Hunting loop
 
-1. `equip_item(diamond_sword)`, food check (`get_storage`).
+1. `equip_item(diamond_sword)`, food check (`get_self_status`).
 2. `scan_nearby_entities` to confirm endermen around; reposition with `move_to` if the area is dry.
 3. `hunt(enderman, 4)` in batches → `collect_items` for scattered pearls.
 4. `get_self_status` between batches; HP ≤ 8 → disengage, eat.

@@ -1,6 +1,6 @@
 ---
 name: dragon_combat
-description: Final boss. End arena layout, crystal destruction with shoot (caged ones via auto-pillar + mine_block), dragon attack patterns and the perch melee window, HP discipline over a long fight.
+description: Final boss. End arena layout, crystal destruction with shoot (caged ones via auto-pillar + auto_mine), dragon attack patterns and the perch melee window, HP discipline over a long fight.
 ---
 
 # Skill: dragon_combat
@@ -11,9 +11,9 @@ Phase 6 — the final boss. The Ender Dragon has 200 HP and heals from the end c
 
 The dragon's HP reaches 0: death animation plays, ~the exit portal opens in the central bedrock fountain, a dragon egg appears on top. Tell your owner congratulations.
 
-## Packlist (verify with `get_storage` BEFORE entering the portal)
+## Packlist (verify with `get_self_status` BEFORE entering the portal)
 
-- Diamond sword + bow, **64+ arrows**
+- Diamond sword + bow, **32+ arrows** (10 crystals + air shots + misses)
 - **128+ cobblestone** — the spawn platform is often ~100 blocks from the island and navigation bridges the gap with your blocks
 - **32+ cooked food**, plus a golden_apple if you have one (emergency heal)
 - Armor on, sword in hand (`get_self_status` to confirm)
@@ -33,7 +33,7 @@ The dragon's HP reaches 0: death animation plays, ~the exit portal opens in the 
 Per caged pillar:
 
 1. `move_to(pillar_top_x, top_y + 1, pillar_top_z)` — navigation pillars up the side on its own (this is what the spare cobblestone is for).
-2. `mine_block(iron_bars)` to open the cage.
+2. `auto_mine(iron_bars)` to open the cage.
 3. `move_to` back down/away 8+ blocks, then `shoot(end_crystal, 1)` — never pop a crystal at point-blank; the explosion hits hard.
 
 While you're up high, the dragon may strafe the pillar — if `get_self_status` shows falling HP, finish the bars and get down first.
@@ -65,4 +65,4 @@ This is a long fight. Between every tool call: `get_self_status`; **HP ≤ 10 �
 
 ## If you die
 
-Your run ends where your body fell. If your owner recovers your gear, re-verify the packlist (`get_storage`), reload this skill, and walk back in through the still-active stronghold portal — the dragon keeps whatever damage it already took.
+Your run ends where your body fell. If your owner recovers your gear, re-verify the packlist (`get_self_status`), reload this skill, and walk back in through the still-active stronghold portal — the dragon keeps whatever damage it already took.

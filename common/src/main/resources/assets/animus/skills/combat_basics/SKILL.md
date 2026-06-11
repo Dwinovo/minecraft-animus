@@ -19,7 +19,7 @@ You are an entity, not a player. The differences matter:
 
 1. `get_self_status` — HP, main hand, dimension.
 2. `equip_item` the right weapon (sword for `hunt`; bow for `shoot` — `shoot` fails without a bow in hand and arrows in inventory). **After the fight, re-equip your pickaxe** — navigation digs with the held tool, and a sword in hand makes stone impassable.
-3. `get_storage` — enough food? enough arrows? Restock first, not mid-fight.
+3. `get_self_status` — enough food? enough arrows? Restock first, not mid-fight.
 
 ## Food
 
@@ -37,7 +37,7 @@ Eating is a real timed action (~1.6s of chewing before the heal lands). Eat *bef
 
 | Situation | Tool | Why |
 |---|---|---|
-| Blazes | `shoot` | Their fireballs (5 dmg + fire) punish you on the walk-in; kill from range |
+| Blazes | `shoot` (or `hunt` when arrows are low) | Fireballs (5 dmg + fire) punish the walk-in — range is safer, but melee + plenty of food works thanks to auto-eat |
 | End crystals | `shoot` | They explode — must be destroyed at range |
 | Dragon flying | `shoot` | Can't melee what's airborne |
 | Dragon perched | `hunt` | Melee window; arrows during perch are wasteful |
