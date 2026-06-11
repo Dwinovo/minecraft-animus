@@ -73,6 +73,7 @@ public final class EntityChatScreen extends Screen {
     private View view = View.CHAT;
     private EditBox input;
     private SimpleButton stopButton;
+    private SimpleButton compactButton;
     private String savedInputText = "";
 
     private int left;
@@ -135,6 +136,14 @@ public final class EntityChatScreen extends Screen {
 
         addRenderableWidget(new SimpleButton(x, top, btnW, TOP_BAR - 2,
                 Component.literal("Inventory"), b -> openInventory()));
+        x += btnW + 2;
+
+        // Manual context compaction: summarize the whole history into one
+        // message. Enabled state refreshed each frame (idle + enough history).
+        this.compactButton = new SimpleButton(x, top, btnW, TOP_BAR - 2,
+                Component.literal("Compact"), b -> loop().requestCompact());
+        this.compactButton.active = loop().canCompact();
+        addRenderableWidget(this.compactButton);
 
         int settingsW = 56;
         addRenderableWidget(new SimpleButton(left + CONTENT_WIDTH - settingsW, top,
@@ -185,6 +194,7 @@ public final class EntityChatScreen extends Screen {
         this.view = v;
         this.input = null;
         this.stopButton = null;
+        this.compactButton = null;
         rebuildWidgets();
     }
 
@@ -260,6 +270,9 @@ public final class EntityChatScreen extends Screen {
         g.fill(left, top + TOP_BAR, left + CONTENT_WIDTH, top + CONTENT_HEIGHT, 0xA0000000);
         g.outline(left, top + TOP_BAR, CONTENT_WIDTH, CONTENT_HEIGHT - TOP_BAR, 0x55FFFFFF);
 
+        if (this.compactButton != null) {
+            this.compactButton.active = loop().canCompact();
+        }
         if (view == View.CHAT) {
             // Stop is only actionable while a turn runs or prompts are queued.
             if (this.stopButton != null) {
@@ -386,6 +399,11 @@ public final class EntityChatScreen extends Screen {
                     out.remove(0);
                 }
             }
+        }
+        if (loop().isCompacting()) {
+            out.add(new RenderedLine(
+                    FormattedCharSequence.forward("正在压缩对话历史...", Style.EMPTY),
+                    0xFF808080));
         }
         if (out.isEmpty()) {
             out.add(new RenderedLine(

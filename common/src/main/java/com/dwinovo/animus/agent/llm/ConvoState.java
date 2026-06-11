@@ -4,6 +4,7 @@ import com.dwinovo.animus.agent.provider.AssistantTurn;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Per-entity conversation history. Lives on the **client** side now (LLM moved
@@ -35,16 +36,55 @@ public final class ConvoState {
     private final List<Msg> messages = new ArrayList<>();
     private int turnCount = 0;
 
+    /** Notified after every append — the persistence hook ({@link ConvoLog#append}). */
+    private final Consumer<Msg> sink;
+
+    /** In-memory only (tests, or persistence explicitly disabled). */
+    public ConvoState() {
+        this(m -> { });
+    }
+
+    /** Every appended message is also handed to {@code sink} (e.g. the JSONL log). */
+    public ConvoState(Consumer<Msg> sink) {
+        this.sink = sink;
+    }
+
+    /**
+     * Splice previously persisted history in at construction time, WITHOUT
+     * notifying the sink — these messages are already on disk; re-appending
+     * them would duplicate the file on every game launch.
+     */
+    public void preload(List<Msg> history) {
+        messages.addAll(history);
+    }
+
+    /**
+     * Swap the entire history for {@code replacement} WITHOUT notifying the
+     * sink — used by compaction, which records its boundary in the log through
+     * its own channel ({@link ConvoLog#appendCompactSummary}) rather than as
+     * ordinary appended messages.
+     */
+    public void replaceAll(List<Msg> replacement) {
+        messages.clear();
+        messages.addAll(replacement);
+        resetTurnCount();
+    }
+
     public void addUser(String content) {
-        messages.add(new Msg.User(content));
+        push(new Msg.User(content));
     }
 
     public void addAssistant(AssistantTurn turn) {
-        messages.add(new Msg.Assistant(turn));
+        push(new Msg.Assistant(turn));
     }
 
     public void addToolResult(String toolCallId, String content) {
-        messages.add(new Msg.Tool(toolCallId, content));
+        push(new Msg.Tool(toolCallId, content));
+    }
+
+    private void push(Msg msg) {
+        messages.add(msg);
+        sink.accept(msg);
     }
 
     public List<Msg> snapshot() {
@@ -69,7 +109,10 @@ public final class ConvoState {
         turnCount = 0;
     }
 
-    /** Wipe history. Called on explicit reset (Phase-2: /animus reset command). */
+    /** Wipe in-memory history. Called on explicit reset (Phase-2: /animus reset
+     *  command). NOTE: does not touch the sink's storage — a caller owning a
+     *  {@link ConvoLog} must also {@code delete()} it, or the next launch
+     *  resurrects everything just cleared. */
     public void clear() {
         messages.clear();
         resetTurnCount();

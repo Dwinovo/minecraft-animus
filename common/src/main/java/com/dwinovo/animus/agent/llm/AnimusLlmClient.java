@@ -122,20 +122,29 @@ public final class AnimusLlmClient {
     }
 
     /**
+     * Final turn plus the usage the backend reported for it. {@code promptTokens}
+     * is the request's true context size as the API counted it — the signal the
+     * agent loop's auto-compaction triggers on (no client-side token estimation
+     * needed). Zero when the backend sent no usage frame.
+     */
+    public record ChatResult(AssistantTurn turn, int promptTokens, int totalTokens) {}
+
+    /**
      * Streaming chat completion. Returns a future of the final
-     * {@link AssistantTurn} (built up from all SSE chunks via the provider's
-     * accumulator).
+     * {@link ChatResult} — the {@link AssistantTurn} built up from all SSE
+     * chunks via the provider's accumulator, plus reported token usage.
      *
      * @param messages       conversation history (provider translates to wire)
-     * @param tools          tool list (provider serialises to wire shape)
+     * @param tools          tool list (provider serialises to wire shape;
+     *                       empty = no tools field, e.g. for summarization calls)
      * @param systemPrompt   prepended automatically — pass empty / null to skip
      * @param onChunk        optional per-chunk callback (e.g. for live UI).
      *                       Receives the raw provider chunk JSON. May be null.
      */
-    public CompletableFuture<AssistantTurn> chatStreaming(List<ConvoState.Msg> messages,
-                                                           Collection<AnimusTool> tools,
-                                                           String systemPrompt,
-                                                           Consumer<JsonObject> onChunk) {
+    public CompletableFuture<ChatResult> chatStreaming(List<ConvoState.Msg> messages,
+                                                       Collection<AnimusTool> tools,
+                                                       String systemPrompt,
+                                                       Consumer<JsonObject> onChunk) {
         // -- 1. Build wire-format messages and tool list via provider.
         List<JsonObject> wire = new ArrayList<>(messages.size());
         for (ConvoState.Msg m : messages) {
@@ -173,7 +182,9 @@ public final class AnimusLlmClient {
         }).thenApply(v -> {
             AssistantTurn turn = provider.finalizeStream(acc);
             logCallSummary(t0, acc, turn);
-            return turn;
+            return new ChatResult(turn,
+                    jsonInt(acc.usage, "prompt_tokens"),
+                    jsonInt(acc.usage, "total_tokens"));
         });
     }
 

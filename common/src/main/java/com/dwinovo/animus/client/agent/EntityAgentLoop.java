@@ -2,6 +2,7 @@ package com.dwinovo.animus.client.agent;
 
 import com.dwinovo.animus.Constants;
 import com.dwinovo.animus.agent.llm.AnimusLlmClient;
+import com.dwinovo.animus.agent.llm.ConvoLog;
 import com.dwinovo.animus.agent.llm.ConvoState;
 import com.dwinovo.animus.agent.provider.AssistantTurn;
 import com.dwinovo.animus.agent.provider.LlmToolCall;
@@ -18,6 +19,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
 
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -99,8 +101,58 @@ public final class EntityAgentLoop {
               → "西边 12 格有一只僵尸,要我去清掉吗?"
             """;
 
+    // ---- context compaction (mirrors Claude Code's /compact machinery) ----
+
+    /**
+     * Assumed model context window. TODO: surface as a config field once the
+     * settings GUI grows a slot for it; 64k matches the smallest window among
+     * the supported providers' current flagship chat models.
+     */
+    private static final int CONTEXT_WINDOW_TOKENS = 64_000;
+    /**
+     * Headroom under the window at which auto-compaction fires (Claude Code's
+     * {@code AUTOCOMPACT_BUFFER_TOKENS}): the next turn adds tool results and
+     * a fresh system prompt on top of the last measured request, and the
+     * summarization call itself must still fit.
+     */
+    private static final int AUTO_COMPACT_BUFFER_TOKENS = 13_000;
+    /** Don't bother summarizing a conversation shorter than this. */
+    private static final int MIN_COMPACT_MESSAGES = 8;
+    /** Circuit breaker: stop auto-retrying after this many consecutive failures. */
+    private static final int MAX_COMPACT_FAILURES = 3;
+
+    private static final String COMPACT_SYSTEM_PROMPT =
+            "You are a helpful AI assistant tasked with summarizing conversations "
+            + "between a Minecraft companion entity (the Animus) and its owner.";
+
+    /**
+     * The summarization request, appended as the final user message over the
+     * full history. Adapted from Claude Code's compact prompt to what a
+     * Minecraft body must never forget: coordinates, inventory, lessons.
+     */
+    private static final String COMPACT_PROMPT = """
+            请将以上整段对话压缩成一份详细摘要。这份摘要将完全替代之前的对话历史，\
+            成为你后续行动的唯一记忆——任何没写进摘要的信息都会永久丢失，所以请把还会用到的信息全部保留。
+
+            按以下结构输出：
+            1. 主人的指令与意图：所有明确的请求，以及当前正在执行哪一个。
+            2. 世界知识：所有提到过的重要坐标（基地、传送门、熔炉、工作台、矿点、要塞等）、维度和地标。坐标数字必须逐字保留。
+            3. 自身状态：最近已知的 HP、装备、背包中的关键物品及数量。
+            4. 已完成的事项：按时间顺序简述。
+            5. 失败与教训：失败过的操作、原因、以及学到的约束（例如某处有岩浆、某条路线不可达、某方块需要特定工具）。
+            6. 待办任务：计划中尚未完成的事项及其状态。
+            7. 当前工作与下一步：摘要请求前正在做什么，接下来的第一步是什么。
+
+            只输出摘要本身。不要调用工具，不要添加摘要以外的评论。""";
+
+    /** Wrapper that turns the raw summary into the new history's first user message. */
+    private static final String SUMMARY_HEADER =
+            "[对话历史已压缩] 以下是此前全部对话的摘要，请将其作为既成事实继续工作：\n\n";
+
     private final UUID entityUuid;
-    private final ConvoState convo = new ConvoState();
+    /** JSONL persistence under {@code config/animus/conversations/<uuid>.jsonl}. */
+    private final ConvoLog log;
+    private final ConvoState convo;
     private final Set<String> pendingToolCallIds = new HashSet<>();
 
     /**
@@ -116,6 +168,13 @@ public final class EntityAgentLoop {
 
     private boolean awaitingLlmResponse = false;
     private boolean aborted = false;
+
+    /** A summarization call is in flight; blocks normal turns until it lands. */
+    private boolean compacting = false;
+    /** Context size of the last request as the API counted it (0 = unknown yet). */
+    private int lastPromptTokens = 0;
+    /** Consecutive compaction failures — circuit breaker for the auto path. */
+    private int compactFailures = 0;
 
     /**
      * Set once the body dies for good (see {@link #onEntityDied}). Terminal: a
@@ -137,6 +196,43 @@ public final class EntityAgentLoop {
 
     EntityAgentLoop(UUID entityUuid) {
         this.entityUuid = entityUuid;
+        Path conversationsDir = Minecraft.getInstance().gameDirectory.toPath()
+                .resolve("config").resolve("animus").resolve("conversations");
+        this.log = ConvoLog.forEntity(conversationsDir, entityUuid);
+        this.convo = new ConvoState(log::append);
+        restoreFromDisk();
+    }
+
+    /**
+     * Replay the persisted conversation tail into memory and heal whatever a
+     * dead session left dangling, so the first request after a relaunch is
+     * protocol-valid:
+     * <ul>
+     *   <li>assistant tool_calls whose results never arrived (the game closed
+     *       mid-task) get synthetic "interrupted" results — the same trick as
+     *       the owner's Stop button; the synthetic results also append to the
+     *       file, healing it on disk;</li>
+     *   <li>a trailing user message (closed while waiting on the LLM) is
+     *       capped with a short assistant note, mirroring {@link #abort}, so
+     *       the next prompt doesn't create back-to-back user messages.</li>
+     * </ul>
+     */
+    private void restoreFromDisk() {
+        List<ConvoState.Msg> history = log.load(ConvoLog.DEFAULT_LOAD_LIMIT);
+        if (history.isEmpty()) return;
+        convo.preload(history);
+
+        List<String> dangling = ConvoLog.unansweredToolCallIds(history);
+        for (String id : dangling) {
+            convo.addToolResult(id,
+                    "{\"success\":false,\"message\":\"interrupted: the game was closed before this finished\"}");
+        }
+        if (convo.lastMessage() instanceof ConvoState.Msg.User) {
+            convo.addAssistant(new AssistantTurn("(已中断)", List.of(), null));
+        }
+        Constants.LOG.info("[animus-entity#{}] restored {} msg(s) from disk{}",
+                entityUuid, history.size(),
+                dangling.isEmpty() ? "" : " (healed " + dangling.size() + " dangling tool call(s))");
     }
 
     public UUID entityUuid() { return entityUuid; }
@@ -182,9 +278,19 @@ public final class EntityAgentLoop {
 
     // ---- interrupt (owner-triggered, from the chat GUI "Stop" button) ----
 
-    /** A turn is actively running: waiting on the LLM, or on world-action tool results. */
+    /** A turn is actively running: waiting on the LLM, on tool results, or compacting. */
     public boolean isBusy() {
-        return awaitingLlmResponse || !pendingToolCallIds.isEmpty();
+        return awaitingLlmResponse || compacting || !pendingToolCallIds.isEmpty();
+    }
+
+    /** A summarization call is currently in flight (drives the GUI status line). */
+    public boolean isCompacting() {
+        return compacting;
+    }
+
+    /** Manual compaction is actionable right now (drives the Compact button). */
+    public boolean canCompact() {
+        return !dead && !isBusy() && convo.snapshot().size() >= MIN_COMPACT_MESSAGES;
     }
 
     /** Owner prompts are queued, waiting to flush into the conversation. */
@@ -223,11 +329,13 @@ public final class EntityAgentLoop {
      */
     public void abort() {
         if (isBusy()) {
-            // Priority 1: stop the running turn.
+            // Priority 1: stop the running turn (or the in-flight compaction —
+            // its response is generation-stamped too, so it gets discarded).
             turnGeneration++; // any in-flight LLM response is now stale → discarded on arrival
             boolean wasAwaitingLlm = awaitingLlmResponse;
             int cancelledTools = pendingToolCallIds.size();
             awaitingLlmResponse = false;
+            compacting = false;
 
             // Synthesize cancelled results for outstanding world-action calls so the
             // assistant(tool_calls) message keeps matching tool results. Real results
@@ -277,6 +385,7 @@ public final class EntityAgentLoop {
         dead = true;
         turnGeneration++;
         awaitingLlmResponse = false;
+        compacting = false;
         pendingToolCallIds.clear();
         bufferedPrompts.clear();
         Constants.LOG.info("[animus-entity#{}] body died — loop hard-stopped", entityUuid);
@@ -315,6 +424,10 @@ public final class EntityAgentLoop {
             Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: awaitingLlmResponse", entityUuid);
             return;
         }
+        if (compacting) {
+            Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: compacting", entityUuid);
+            return;
+        }
         if (!pendingToolCallIds.isEmpty()) {
             Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: {} tool result(s) pending",
                     entityUuid, pendingToolCallIds.size());
@@ -336,6 +449,19 @@ public final class EntityAgentLoop {
             return;
         }
 
+        // Auto-compaction gate: the last request's true context size (as the
+        // API counted it) is within the buffer of the window — summarize FIRST,
+        // then this method re-runs and dispatches the turn on the compacted
+        // history. Mirrors Claude Code's autoCompactIfNeeded.
+        if (lastPromptTokens >= CONTEXT_WINDOW_TOKENS - AUTO_COMPACT_BUFFER_TOKENS
+                && convo.snapshot().size() >= MIN_COMPACT_MESSAGES
+                && compactFailures < MAX_COMPACT_FAILURES) {
+            Constants.LOG.info("[animus-entity#{}] auto-compacting: last prompt {} tokens >= {} - {}",
+                    entityUuid, lastPromptTokens, CONTEXT_WINDOW_TOKENS, AUTO_COMPACT_BUFFER_TOKENS);
+            startCompaction(true);
+            return;
+        }
+
         convo.incrementTurn();
         awaitingLlmResponse = true;
 
@@ -351,7 +477,78 @@ public final class EntityAgentLoop {
         // call resolves, handleResponse sees the mismatch and discards it.
         final int gen = turnGeneration;
         AnimusLlmClient.instance().chatStreaming(snapshot, tools, systemPrompt, null)
-                .whenComplete((turn, err) -> bounceBackToMain(gen, turn, err));
+                .whenComplete((res, err) -> bounceBackToMain(gen, res, err));
+    }
+
+    // ---- compaction ----
+
+    /**
+     * Owner pressed the GUI's Compact button. Runs the same machinery as the
+     * automatic path; silently ignored when a turn is in flight or there is
+     * too little history to be worth a summarization call.
+     */
+    public void requestCompact() {
+        if (!canCompact()) {
+            Constants.LOG.info("[animus-entity#{}] manual compact ignored (busy={}, msgs={})",
+                    entityUuid, isBusy(), convo.snapshot().size());
+            return;
+        }
+        if (!AnimusLlmClient.isConfigured()) return;
+        startCompaction(false);
+    }
+
+    /**
+     * Fire the summarization call: full history + the compact prompt as the
+     * final user message, NO tools, a minimal system prompt (skills XML and the
+     * persona would only waste the very tokens we're trying to reclaim).
+     */
+    private void startCompaction(boolean auto) {
+        compacting = true;
+        List<ConvoState.Msg> request = new ArrayList<>(convo.snapshot());
+        request.add(new ConvoState.Msg.User(COMPACT_PROMPT));
+        Constants.LOG.info("[animus-entity#{}] compaction started ({}, {} msgs)",
+                entityUuid, auto ? "auto" : "manual", request.size() - 1);
+        final int gen = turnGeneration;
+        AnimusLlmClient.instance().chatStreaming(request, List.of(), COMPACT_SYSTEM_PROMPT, null)
+                .whenComplete((res, err) -> Minecraft.getInstance().execute(
+                        () -> finishCompaction(gen, auto, res, err)));
+    }
+
+    private void finishCompaction(int gen, boolean auto,
+                                  AnimusLlmClient.ChatResult res, Throwable err) {
+        if (gen != turnGeneration) {
+            Constants.LOG.info("[animus-entity#{}] discarding interrupted compaction (gen {} != {})",
+                    entityUuid, gen, turnGeneration);
+            return;   // abort() already reset the compacting flag
+        }
+        compacting = false;
+
+        String summary = (err == null && res != null) ? res.turn().content() : null;
+        if (summary == null || summary.isBlank()) {
+            compactFailures++;
+            Constants.LOG.warn("[animus-entity#{}] compaction failed ({}/{}): {}",
+                    entityUuid, compactFailures, MAX_COMPACT_FAILURES,
+                    err != null ? unwrap(err) : "empty summary");
+            // The conversation is untouched — the next turn just runs uncompacted.
+            if (auto || !bufferedPrompts.isEmpty()) tryStartTurn();
+            return;
+        }
+
+        String wrapped = SUMMARY_HEADER + summary.strip();
+        // Boundary into the JSONL first (relaunches replay the compacted view;
+        // the raw pre-compaction history stays in the file as an archive), then
+        // swap the in-memory history without re-notifying the sink.
+        log.appendCompactSummary(wrapped);
+        convo.replaceAll(List.of(new ConvoState.Msg.User(wrapped)));
+        lastPromptTokens = 0;   // unknown until the next request reports usage
+        compactFailures = 0;
+        Constants.LOG.info("[animus-entity#{}] compaction done ({}): history → 1 summary msg ({} chars)",
+                entityUuid, auto ? "auto" : "manual", wrapped.length());
+
+        // Auto-compaction interrupted a turn that was about to dispatch —
+        // resume it so the task chain continues on the compacted history. After
+        // a MANUAL compact we stay idle unless prompts queued up meanwhile.
+        if (auto || !bufferedPrompts.isEmpty()) tryStartTurn();
     }
 
     private String composeSystemPrompt(String basePrompt) {
@@ -390,12 +587,12 @@ public final class EntityAgentLoop {
         return ClientAnimusLookup.resolve(entityUuid);
     }
 
-    private void bounceBackToMain(int gen, AssistantTurn turn, Throwable err) {
+    private void bounceBackToMain(int gen, AnimusLlmClient.ChatResult res, Throwable err) {
         Minecraft mc = Minecraft.getInstance();
-        mc.execute(() -> handleResponse(gen, turn, err));
+        mc.execute(() -> handleResponse(gen, res, err));
     }
 
-    private void handleResponse(int gen, AssistantTurn turn, Throwable err) {
+    private void handleResponse(int gen, AnimusLlmClient.ChatResult res, Throwable err) {
         // Owner interrupted this turn while the call was in flight: abort()
         // already settled the conversation (and, if a newer turn has since
         // started, awaitingLlmResponse belongs to *that* call). Discard wholesale
@@ -413,10 +610,16 @@ public final class EntityAgentLoop {
             aborted = true;
             return;
         }
-        if (turn == null) {
+        if (res == null || res.turn() == null) {
             Constants.LOG.warn("[animus-entity#{}] LLM returned null turn", entityUuid);
             aborted = true;
             return;
+        }
+        AssistantTurn turn = res.turn();
+        // True context size of the request we just made — the auto-compaction
+        // signal. 0 when the backend sent no usage frame (then auto never fires).
+        if (res.promptTokens() > 0) {
+            lastPromptTokens = res.promptTokens();
         }
 
         convo.addAssistant(turn);
