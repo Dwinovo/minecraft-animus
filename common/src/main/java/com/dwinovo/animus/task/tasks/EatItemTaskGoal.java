@@ -39,8 +39,8 @@ public final class EatItemTaskGoal extends LlmTaskGoal<EatItemTaskRecord> {
     protected void onStart(EatItemTaskRecord r) {
         this.eatTicks = 0;
         this.healed = 0.0f;
-        if (entity.getInventory().countItem(r.item) <= 0) {
-            fail("no " + r.label + " in inventory to eat");
+        if (!entity.ensureInInventory(r.item)) {
+            fail("no " + r.label + " in inventory or hands to eat");
             return;
         }
         if (!Eating.isEdible(r.item)) {

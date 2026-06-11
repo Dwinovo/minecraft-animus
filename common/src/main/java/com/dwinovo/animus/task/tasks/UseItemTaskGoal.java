@@ -78,8 +78,10 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
             fail("not on a server level");
             return;
         }
-        if (firstSlotOf(r.item) < 0) {
-            fail("no " + r.label + " in inventory to use");
+        // ensureInInventory pulls the stack back out of a hand slot if that's
+        // where it lives (equipping moves items out of the backpack container).
+        if (!entity.ensureInInventory(r.item)) {
+            fail("no " + r.label + " in inventory or hands to use");
             return;
         }
         if (r.target == null) {
@@ -141,6 +143,7 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
     }
 
     private void tickUse(UseItemTaskRecord r) {
+        entity.ensureInInventory(r.item);   // may have been re-equipped during the walk
         int slot = firstSlotOf(r.item);
         if (slot < 0) {
             fail("no " + r.label + " left to use");

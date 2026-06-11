@@ -10,6 +10,7 @@ import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * Performs a real vanilla right-click item interaction on behalf of an Animus,
@@ -34,7 +35,17 @@ public final class FakePlayerUse {
 
     private FakePlayerUse() {}
 
-    /** Use the stack in {@code invSlot} against a block face. Returns the vanilla result. */
+    /**
+     * Use the stack in {@code invSlot} against a block face. Returns the vanilla result.
+     *
+     * <p>Two-stage: first the normal {@code useItemOn} (block-interaction path —
+     * flint&steel, ender eyes, bonemeal, placements). If that PASSes without
+     * effect, fall back to aiming the fake player's eyes at the target and
+     * right-clicking "in air": items like {@code BucketItem} implement
+     * {@code use()} with their OWN eye-ray fluid pick instead of {@code useOn},
+     * so the block path is a structural no-op for them — the cause of the
+     * classic "using bucket on source water had no effect".
+     */
     public static InteractionResult useOnBlock(AnimusEntity entity, int invSlot, BlockHitResult hit) {
         ServerLevel level = (ServerLevel) entity.level();
         return Services.FAKE_PLAYER.withFakePlayer(level, fp -> {
@@ -43,6 +54,11 @@ public final class FakePlayerUse {
             fp.setItemInHand(InteractionHand.MAIN_HAND, copy);
             InteractionResult res = fp.gameMode.useItemOn(
                     fp, level, fp.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, hit);
+            if (!res.consumesAction()) {
+                aimAt(fp, hit.getLocation());
+                res = fp.gameMode.useItem(
+                        fp, level, fp.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND);
+            }
             reconcile(entity, invSlot, fp);
             return res;
         });
@@ -68,6 +84,20 @@ public final class FakePlayerUse {
         fp.setYRot(entity.getYRot());
         fp.setXRot(entity.getXRot());
         fp.setYHeadRot(entity.getYRot());
+    }
+
+    /** Point the fake player's eyes at {@code target} so eye-ray items (buckets) hit it. */
+    private static void aimAt(ServerPlayer fp, Vec3 target) {
+        Vec3 eye = fp.getEyePosition();
+        double dx = target.x - eye.x;
+        double dy = target.y - eye.y;
+        double dz = target.z - eye.z;
+        double horizontal = Math.sqrt(dx * dx + dz * dz);
+        float yaw = (float) Math.toDegrees(Math.atan2(dz, dx)) - 90.0f;
+        float pitch = (float) -Math.toDegrees(Math.atan2(dy, horizontal));
+        fp.setYRot(yaw);
+        fp.setYHeadRot(yaw);
+        fp.setXRot(pitch);
     }
 
     /**

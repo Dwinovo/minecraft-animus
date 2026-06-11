@@ -85,7 +85,7 @@ public final class PlaceBlockTaskGoal extends LlmTaskGoal<PlaceBlockTaskRecord> 
             failSuggesting(level, r.pos, "target " + coords(r.pos) + " is occupied by "
                     + net.minecraft.core.registries.BuiltInRegistries.BLOCK
                             .getKey(level.getBlockState(r.pos).getBlock()).getPath()
-                    + " — mine it first, or place at a free cell");
+                    + " — break_block that exact cell first, or place at a free cell");
             return;
         }
         if (solidNeighbour(level, r.pos) == null) {

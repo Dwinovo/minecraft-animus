@@ -1,17 +1,21 @@
 package com.dwinovo.animus;
 
 import com.dwinovo.animus.agent.tool.ToolRegistry;
+import com.dwinovo.animus.agent.tool.tools.BreakBlockTool;
+import com.dwinovo.animus.agent.tool.tools.DepositItemsTool;
+import com.dwinovo.animus.agent.tool.tools.DropItemsTool;
 import com.dwinovo.animus.agent.tool.tools.GetOwnerStatusTool;
 import com.dwinovo.animus.agent.tool.tools.GetSelfStatusTool;
-import com.dwinovo.animus.agent.tool.tools.GetStorageTool;
 import com.dwinovo.animus.agent.tool.tools.GetWorldInfoTool;
 import com.dwinovo.animus.agent.tool.tools.InspectBlockTool;
 import com.dwinovo.animus.agent.tool.tools.LoadSkillTool;
+import com.dwinovo.animus.agent.tool.tools.TakeItemsTool;
+import com.dwinovo.animus.agent.tool.tools.WaitTool;
 import com.dwinovo.animus.agent.tool.tools.CraftTool;
 import com.dwinovo.animus.agent.tool.tools.EquipTool;
 import com.dwinovo.animus.agent.tool.tools.HuntTool;
 import com.dwinovo.animus.agent.tool.tools.ShootTool;
-import com.dwinovo.animus.agent.tool.tools.LocateStrongholdTool;
+import com.dwinovo.animus.agent.tool.tools.LocateStructureTool;
 import com.dwinovo.animus.agent.tool.tools.CollectItemsTool;
 import com.dwinovo.animus.agent.tool.tools.MineBlockTool;
 import com.dwinovo.animus.agent.tool.tools.LoadFurnaceTool;
@@ -64,7 +68,7 @@ public class CommonClass {
         ToolRegistry.register(new MoveToTool());
         ToolRegistry.register(new HuntTool());
         ToolRegistry.register(new ShootTool());
-        ToolRegistry.register(new LocateStrongholdTool());
+        ToolRegistry.register(new LocateStructureTool());
         ToolRegistry.register(new CollectItemsTool());
         ToolRegistry.register(new MineBlockTool());
         ToolRegistry.register(new CraftTool());
@@ -73,11 +77,15 @@ public class CommonClass {
         ToolRegistry.register(new CheckFurnaceTool());
         ToolRegistry.register(new CollectFurnaceTool());
         ToolRegistry.register(new PlaceBlockTool());
+        ToolRegistry.register(new BreakBlockTool());
         ToolRegistry.register(new UseItemTool());
         ToolRegistry.register(new EatItemTool());
+        ToolRegistry.register(new WaitTool());
+        ToolRegistry.register(new DropItemsTool());
+        ToolRegistry.register(new DepositItemsTool());
+        ToolRegistry.register(new TakeItemsTool());
         ToolRegistry.register(new GetSelfStatusTool());
         ToolRegistry.register(new GetOwnerStatusTool());
-        ToolRegistry.register(new GetStorageTool());
 
         // Shared perception / planning tools.
         ToolRegistry.register(new ScanNearbyEntitiesTool());
