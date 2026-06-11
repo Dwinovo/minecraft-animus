@@ -39,16 +39,20 @@ public final class LoadFurnaceTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Start smelting: the entity finds a nearby furnace (or places one "
-                + "it carries), walks to it, and loads `count` of `input_id` plus "
-                + "`fuel_id` into it — then returns immediately with the furnace "
-                + "coordinates. Smelting then runs on its own over real time (~10s "
-                + "per item); do other things and use check_furnace to poll progress "
-                + "and collect_furnace to take the output. You choose the fuel type "
-                + "(coal, charcoal, logs, planks, …); the entity computes how much "
-                + "is needed. Fails with guidance if the item isn't smeltable, the "
-                + "fuel is invalid, you lack input/fuel, or there's no furnace "
-                + "nearby and none to place. count is capped at 64 (one input slot).";
+        return "Start smelting: the entity picks the nearest COMPATIBLE furnace "
+                + "(busy ones — different item inside, slots full — are skipped "
+                + "automatically; or it places a furnace it carries), walks to it, "
+                + "and loads `count` of `input_id` plus `fuel_id` into it — then "
+                + "returns immediately with the furnace coordinates. Pass optional "
+                + "x/y/z to use ONE SPECIFIC furnace (e.g. to run several furnaces "
+                + "in parallel on different items). Smelting then runs on its own "
+                + "over real time (~10s per item); do other things and use "
+                + "check_furnace to poll progress and collect_furnace to take the "
+                + "output. You choose the fuel type (coal, charcoal, logs, planks, "
+                + "…); the entity computes how much is needed. Fails with guidance "
+                + "if the item isn't smeltable, the fuel is invalid, you lack "
+                + "input/fuel, or every furnace is busy and none can be placed. "
+                + "count is capped at 64 (one input slot).";
     }
 
     @Override
@@ -61,6 +65,12 @@ public final class LoadFurnaceTool implements AnimusTool {
                 "minimum", 1, "maximum", MAX_COUNT));
         properties.put("fuel_id", Map.of("type", "string",
                 "description", "Namespaced id of the fuel to use, e.g. minecraft:coal."));
+        properties.put("x", Map.of("type", "integer",
+                "description", "Optional: X of a specific furnace to use. Omit to auto-pick."));
+        properties.put("y", Map.of("type", "integer",
+                "description", "Optional: Y of a specific furnace to use."));
+        properties.put("z", Map.of("type", "integer",
+                "description", "Optional: Z of a specific furnace to use."));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
@@ -86,7 +96,20 @@ public final class LoadFurnaceTool implements AnimusTool {
         String label = BuiltInRegistries.ITEM.getKey(input).getPath();
         long deadline = currentGameTime + MIN_TIMEOUT_TICKS;
         return new LoadFurnaceTaskRecord(toolCallId, deadline, input, count, fuel,
-                FURNACE_SEARCH_RADIUS, label);
+                FURNACE_SEARCH_RADIUS, label, readOptionalPos(args));
+    }
+
+    /** All three of x/y/z present → a specific furnace; none → auto-pick; mixed → error. */
+    private static net.minecraft.core.BlockPos readOptionalPos(JsonObject args) {
+        boolean hasX = args.has("x") && !args.get("x").isJsonNull();
+        boolean hasY = args.has("y") && !args.get("y").isJsonNull();
+        boolean hasZ = args.has("z") && !args.get("z").isJsonNull();
+        if (!hasX && !hasY && !hasZ) return null;
+        if (!(hasX && hasY && hasZ)) {
+            throw new IllegalArgumentException("give all three of x/y/z to target a furnace, or none");
+        }
+        return new net.minecraft.core.BlockPos(
+                requireInt(args, "x"), requireInt(args, "y"), requireInt(args, "z"));
     }
 
     private static Item readItem(JsonObject args, String key) {

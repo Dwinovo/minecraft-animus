@@ -124,27 +124,82 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
 
     private void tickFindFurnace(LoadFurnaceTaskRecord r) {
         Level level = entity.level();
+
+        // Explicit target: the model addressed one specific furnace (parallel
+        // smelting). Don't second-guess it — verify and go.
+        if (r.target != null) {
+            if (level.getBlockState(r.target).getBlock() != Blocks.FURNACE) {
+                fail("no furnace at " + r.target.getX() + "," + r.target.getY() + ","
+                        + r.target.getZ() + " — omit x/y/z to auto-pick one nearby");
+                return;
+            }
+            startToward(r.target);
+            return;
+        }
+
+        // Auto-pick: nearest COMPATIBLE furnace. A furnace mid-way through
+        // someone else's batch (different item in a slot, or input full) is
+        // skipped instead of failing the whole call — that dead-end forced the
+        // model to hand-build a second furnace it then couldn't address.
         List<BlockScanner.Hit> furnaces = BlockScanner.findWithin(
                 level, entity.blockPosition(), r.searchRadius, Set.of(Blocks.FURNACE));
-
-        if (!furnaces.isEmpty()) {
-            furnacePos = furnaces.get(0).pos();
-            if (withinReach(furnacePos)) {
-                phase = Phase.LOAD;
-            } else {
-                nav = new Navigator(entity, furnacePos, WALK_SPEED, () -> withinReach(furnacePos));
-                phase = Phase.GOTO_FURNACE;
+        StringBuilder busy = new StringBuilder();
+        for (BlockScanner.Hit hit : furnaces) {
+            String why = incompatibility(level, hit.pos(), r);
+            if (why == null) {
+                startToward(hit.pos());
+                return;
             }
-            return;
+            if (busy.length() > 0) busy.append("; ");
+            busy.append("(").append(hit.pos().getX()).append(",").append(hit.pos().getY())
+                    .append(",").append(hit.pos().getZ()).append(") ").append(why);
         }
 
         BlockPos spot = placeFurnaceBeside();
         if (spot != null) {
             furnacePos = spot;
             phase = Phase.LOAD;            // placed adjacent → already in reach
-        } else {
-            fail("no furnace nearby and none in inventory to place — craft/obtain a furnace first");
+            return;
         }
+        if (furnaces.isEmpty()) {
+            fail("no furnace nearby and none in inventory to place — craft/obtain a furnace first");
+        } else {
+            fail("every furnace nearby is busy and I carry none to place: " + busy
+                    + " — collect_furnace one of them, wait, or craft another furnace");
+        }
+    }
+
+    private void startToward(BlockPos pos) {
+        furnacePos = pos;
+        if (withinReach(furnacePos)) {
+            phase = Phase.LOAD;
+        } else {
+            nav = new Navigator(entity, furnacePos, WALK_SPEED, () -> withinReach(furnacePos));
+            phase = Phase.GOTO_FURNACE;
+        }
+    }
+
+    /**
+     * Why this furnace can't take our load right now, or {@code null} if it can.
+     * Mirrors the hard checks in {@link #tickLoad} so auto-pick never selects a
+     * furnace the load step would immediately reject. (State can still change
+     * during the walk — tickLoad keeps its own checks as the source of truth.)
+     */
+    private String incompatibility(Level level, BlockPos pos, LoadFurnaceTaskRecord r) {
+        AbstractFurnaceBlockEntity furnace = FurnaceEngine.furnaceAt(level, pos);
+        if (furnace == null) return "has no block entity";
+        ItemStack curInput = furnace.getItem(FurnaceEngine.SLOT_INPUT);
+        if (!curInput.isEmpty() && curInput.getItem() != r.input) {
+            return "input busy with " + BuiltInRegistries.ITEM.getKey(curInput.getItem()).getPath();
+        }
+        if (!curInput.isEmpty() && curInput.getCount() >= SLOT_MAX) {
+            return "input slot full";
+        }
+        ItemStack curFuel = furnace.getItem(FurnaceEngine.SLOT_FUEL);
+        if (!curFuel.isEmpty() && curFuel.getItem() != r.fuel) {
+            return "fuel slot busy with " + BuiltInRegistries.ITEM.getKey(curFuel.getItem()).getPath();
+        }
+        return null;
     }
 
     // ---- GOTO_FURNACE: drive the pathfinder to the furnace ----

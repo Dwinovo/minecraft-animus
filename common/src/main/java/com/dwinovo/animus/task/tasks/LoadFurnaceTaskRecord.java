@@ -1,6 +1,7 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.task.TaskRecord;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.Item;
 
 /**
@@ -24,15 +25,23 @@ public final class LoadFurnaceTaskRecord extends TaskRecord {
     public final int searchRadius;
     /** Human-readable input label for messages / debug overlay (e.g. "raw_iron"). */
     public final String label;
+    /**
+     * Explicit furnace to use, or {@code null} for auto-pick. Lets the model
+     * run several furnaces in parallel — auto-pick alone can't address "the
+     * other one" when two stand side by side.
+     */
+    public final BlockPos target;
 
     public LoadFurnaceTaskRecord(String toolCallId, long deadlineGameTime,
-                                 Item input, int count, Item fuel, int searchRadius, String label) {
+                                 Item input, int count, Item fuel, int searchRadius, String label,
+                                 BlockPos target) {
         super(TOOL_NAME, toolCallId, deadlineGameTime);
         this.input = input;
         this.count = count;
         this.fuel = fuel;
         this.searchRadius = searchRadius;
         this.label = label;
+        this.target = target;
     }
 
     @Override
