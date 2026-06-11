@@ -7,7 +7,6 @@ import com.dwinovo.animus.network.payload.AnimusInventoryPayload;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
 import com.dwinovo.animus.pathing.exec.PathTally;
 import com.dwinovo.animus.platform.Services;
-import net.minecraft.world.food.FoodData;
 import com.dwinovo.animus.task.TaskQueue;
 import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.TaskResult;
@@ -88,13 +87,6 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
 
     public static final int INVENTORY_SIZE = 27;
 
-    /** Food level (0-20) at/above which the Animus naturally regenerates health. */
-    private static final int REGEN_FOOD_THRESHOLD = 18;
-    /** Ticks between natural-regen heals while well-fed (~4s, vanilla slow regen). */
-    private static final int REGEN_INTERVAL_TICKS = 80;
-    /** Ticks between passive hunger drains (~30s) so the bar isn't static. */
-    private static final int HUNGER_DRAIN_INTERVAL = 600;
-
     private static final EntityDataAccessor<String> DATA_MODEL_KEY =
             SynchedEntityData.defineId(AnimusEntity.class, EntityDataSerializers.STRING);
 
@@ -106,14 +98,6 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
      */
     private static final EntityDataAccessor<String> DATA_DEBUG_TASK =
             SynchedEntityData.defineId(AnimusEntity.class, EntityDataSerializers.STRING);
-
-    /**
-     * Synced mirror of {@link #foodData}'s level (0-20) so the client-side
-     * {@code get_self_status} tool can report it — the model needs to see how
-     * fed it is to decide when to {@code eat_item}. Server writes it each tick.
-     */
-    private static final EntityDataAccessor<Integer> DATA_FOOD_LEVEL =
-            SynchedEntityData.defineId(AnimusEntity.class, EntityDataSerializers.INT);
 
     /** Default debug-task string: nothing running. */
     private static final String DEBUG_TASK_IDLE = "idle";
@@ -154,17 +138,6 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
      * model sees what navigation cost. See {@link PathTally}.
      */
     private final PathTally pathTally = new PathTally();
-
-    /**
-     * Player-style hunger for the Animus. Food fills this (via {@code eat_item});
-     * health regenerates only while well-fed, so eating heals over time rather
-     * than instantly. Server-side + persisted; ticked in {@link #tickHunger}.
-     * Vanilla {@code FoodData.tick(ServerPlayer)} is player-coupled, so we reuse
-     * its state + {@code eat()} but run our own regen/drain.
-     */
-    private final FoodData foodData = new FoodData();
-    private int regenTimer = 0;
-    private int hungerTimer = 0;
 
     public AnimusEntity(EntityType<? extends AnimusEntity> type, Level level) {
         super(type, level);
@@ -253,64 +226,14 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         return pathTally;
     }
 
-    /** Player-style hunger state. {@code eat_item} fills it; regen reads it. */
-    public FoodData foodData() {
-        return foodData;
-    }
-
     @Override
     protected void customServerAiStep(ServerLevel level) {
         super.customServerAiStep(level);
-        tickHunger();
         drainTaskResultsToOwner();
         if (inventoryDirty) {
             inventoryDirty = false;
             syncInventoryToOwner();
         }
-    }
-
-    /**
-     * Player-style hunger tick (we run our own — {@code FoodData.tick} is
-     * player-coupled). Well-fed → slow natural health regen (which costs food);
-     * idle/active → slow drain so the Animus needs occasional feeding. There is
-     * deliberately NO starvation damage: at empty food it simply stops
-     * regenerating (a companion shouldn't die because the owner forgot to feed).
-     */
-    private void tickHunger() {
-        // Slow drain over time so the bar isn't static (saturation first, then food).
-        if (++hungerTimer >= HUNGER_DRAIN_INTERVAL) {
-            hungerTimer = 0;
-            if (foodData.getSaturationLevel() > 0.0f) {
-                foodData.setSaturation(Math.max(0.0f, foodData.getSaturationLevel() - 1.0f));
-            } else if (foodData.getFoodLevel() > 0) {
-                foodData.setFoodLevel(foodData.getFoodLevel() - 1);
-            }
-        }
-        // Natural regen while well-fed and hurt.
-        if (foodData.getFoodLevel() >= REGEN_FOOD_THRESHOLD
-                && getHealth() < getMaxHealth() && isAlive()) {
-            if (++regenTimer >= REGEN_INTERVAL_TICKS) {
-                regenTimer = 0;
-                heal(1.0f);
-                // Regen costs food (saturation first, then a food point).
-                if (foodData.getSaturationLevel() > 0.0f) {
-                    foodData.setSaturation(Math.max(0.0f, foodData.getSaturationLevel() - 1.0f));
-                } else {
-                    foodData.setFoodLevel(Math.max(0, foodData.getFoodLevel() - 1));
-                }
-            }
-        } else {
-            regenTimer = 0;
-        }
-        // Mirror to the synced accessor (no-op when unchanged) for get_self_status.
-        if (this.entityData.get(DATA_FOOD_LEVEL) != foodData.getFoodLevel()) {
-            this.entityData.set(DATA_FOOD_LEVEL, foodData.getFoodLevel());
-        }
-    }
-
-    /** Synced food level (0-20). Readable client-side (for {@code get_self_status}). */
-    public int getFoodLevel() {
-        return this.entityData.get(DATA_FOOD_LEVEL);
     }
 
     private void drainTaskResultsToOwner() {
@@ -415,7 +338,6 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         super.defineSynchedData(builder);
         builder.define(DATA_MODEL_KEY, AnimusAnimated.DEFAULT_MODEL_KEY.toString());
         builder.define(DATA_DEBUG_TASK, DEBUG_TASK_IDLE);
-        builder.define(DATA_FOOD_LEVEL, 20);
     }
 
     @Override
@@ -514,7 +436,6 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
             items.add(inventory.getItem(i));
         }
         output.store(NBT_KEY_INVENTORY, ItemStack.OPTIONAL_CODEC.listOf(), items);
-        foodData.addAdditionalSaveData(output);
     }
 
     @Override
@@ -527,6 +448,5 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
                 inventory.setItem(i, list.get(i));
             }
         });
-        foodData.readAdditionalSaveData(input);
     }
 }

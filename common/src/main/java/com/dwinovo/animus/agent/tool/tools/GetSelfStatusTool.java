@@ -70,8 +70,6 @@ public final class GetSelfStatusTool implements AnimusTool {
         root.addProperty("entity_id", entity.getId());
         root.addProperty("hp", entity.getHealth());
         root.addProperty("max_hp", entity.getMaxHealth());
-        root.addProperty("food_level", entity.getFoodLevel());
-        root.addProperty("max_food_level", 20);
 
         JsonObject pos = new JsonObject();
         pos.addProperty("x", entity.getX());

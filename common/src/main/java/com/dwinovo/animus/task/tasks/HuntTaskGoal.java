@@ -50,6 +50,8 @@ public final class HuntTaskGoal extends LlmTaskGoal<HuntTaskRecord> {
     private static final double CHASE_SPEED = 1.2;
 
     private final MeleeEngine melee;
+    /** Mid-fight low-HP reflex: chews food without waiting for the LLM. */
+    private final AutoEater autoEater;
 
     private Phase phase = Phase.SCAN;
     private int currentRadius = INITIAL_RADIUS;
@@ -64,12 +66,14 @@ public final class HuntTaskGoal extends LlmTaskGoal<HuntTaskRecord> {
     public HuntTaskGoal(AnimusEntity entity) {
         super(entity, HuntTaskRecord.TOOL_NAME, HuntTaskRecord.class);
         this.melee = new MeleeEngine(entity);
+        this.autoEater = new AutoEater(entity);
     }
 
     @Override
     protected void onStart(HuntTaskRecord r) {
         this.currentRadius = Math.min(INITIAL_RADIUS, r.maxRadius);
         this.phase = Phase.SCAN;
+        this.autoEater.reset();
     }
 
     @Override
@@ -77,6 +81,9 @@ public final class HuntTaskGoal extends LlmTaskGoal<HuntTaskRecord> {
         if (entity.isDeadOrDying()) {
             r.setState(TaskState.CANCELLED);
             return;
+        }
+        if (autoEater.tick()) {
+            return;   // chewing — hold the chase/swing for this tick
         }
         switch (phase) {
             case SCAN -> tickScan(r);
@@ -186,7 +193,8 @@ public final class HuntTaskGoal extends LlmTaskGoal<HuntTaskRecord> {
         data.put("killed", r.getKilled());
         data.put("radius_searched", currentRadius);
 
-        return switch (finalState) {
+        // Post-fight vitals (HP + anything auto-eaten) ride along on every outcome.
+        return autoEater.enrich(switch (finalState) {
             case SUCCESS -> TaskResult.ok(
                     "killed " + r.getKilled() + "/" + r.count + " " + r.label + " (" + doneReason + ")",
                     data);
@@ -198,6 +206,6 @@ public final class HuntTaskGoal extends LlmTaskGoal<HuntTaskRecord> {
                             + " (self died or evicted)", false, true, data);
             case FAILED -> TaskResult.fail(doneReason, data);
             default -> TaskResult.fail("unexpected state: " + finalState, data);
-        };
+        });
     }
 }

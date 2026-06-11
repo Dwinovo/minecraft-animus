@@ -61,7 +61,9 @@ public final class ShootTool implements AnimusTool {
                 + "end_crystal (which MUST be destroyed at range) and for blazes. "
                 + "REQUIRES a bow held in your main hand (equip_item) and arrows in "
                 + "your inventory — fails up front if either is missing. Optional "
-                + "radius (default auto-expands). Returns the actual number destroyed.";
+                + "radius (default auto-expands). Returns the actual number destroyed. "
+                + "If HP runs low mid-fight you auto-eat from your inventory; the "
+                + "result reports your post-fight HP and anything eaten.";
     }
 
     @Override

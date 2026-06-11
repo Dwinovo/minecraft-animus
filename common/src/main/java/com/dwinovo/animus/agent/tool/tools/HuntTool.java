@@ -63,7 +63,9 @@ public final class HuntTool implements AnimusTool {
                 + "auto-expands). Returns the actual number killed, which may be "
                 + "less if the area runs dry. Equip a weapon first (equip_item) for "
                 + "faster kills; check get_self_status for your main hand. For "
-                + "scattered drops afterward, use collect_items.";
+                + "scattered drops afterward, use collect_items. If HP runs low "
+                + "mid-fight you auto-eat from your inventory; the result reports "
+                + "your post-fight HP and anything eaten.";
     }
 
     @Override

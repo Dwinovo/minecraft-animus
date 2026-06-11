@@ -40,9 +40,11 @@ public final class EatItemTool implements AnimusTool {
                 + "timed action — chewing particles and sound play over the food's "
                 + "eat duration, and you only heal + gain the food's effects (e.g. a "
                 + "golden apple's regeneration/absorption) once eating finishes. "
-                + "Healing scales with the food's nutrition. Use it to recover in "
-                + "combat or on long trips. Fails if you don't carry the item or it "
-                + "isn't edible.";
+                + "Healing scales with the food's nutrition (cooked_beef = 8 HP). "
+                + "Fails if you don't carry the item, it isn't edible, or you're "
+                + "already at full HP (the food is kept). NOTE: during hunt/shoot "
+                + "you auto-eat on your own when HP runs low and the result reports "
+                + "it — use this tool to top up before or after fights, not during.";
     }
 
     @Override
