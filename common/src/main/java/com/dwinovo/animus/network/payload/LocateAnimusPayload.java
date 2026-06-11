@@ -50,7 +50,7 @@ public record LocateAnimusPayload(List<UUID> entityUuids) implements CustomPacke
         List<AnimusLocationsPayload.Snapshot> out = new ArrayList<>(p.entityUuids().size());
         for (UUID uuid : p.entityUuids()) {
             AnimusEntity animus = AnimusEntity.findByUuid(player.level().getServer(), uuid);
-            if (animus == null || !animus.isOwnedBy(player)) {
+            if (animus == null || !animus.isOwnedByPlayer(player.getUUID())) {
                 out.add(AnimusLocationsPayload.Snapshot.notFound(uuid));
                 continue;
             }

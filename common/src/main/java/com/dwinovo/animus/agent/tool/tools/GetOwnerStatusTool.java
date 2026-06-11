@@ -68,8 +68,10 @@ public final class GetOwnerStatusTool implements AnimusTool {
         }
         root.addProperty("owner_uuid", ownerRef.getUUID().toString());
 
-        LivingEntity owner = entity.getOwner();
-        if (!(owner instanceof Player player)) {
+        // Server-wide resolution: vanilla getOwner() is scoped to the PET's
+        // level and would report a cross-dimension owner as "offline".
+        Player player = entity.resolveOwnerPlayer();
+        if (player == null) {
             root.addProperty("online", false);
             root.addProperty("message", "owner offline");
             return root.toString();
@@ -88,8 +90,15 @@ public final class GetOwnerStatusTool implements AnimusTool {
         pos.addProperty("z", player.getZ());
         root.add("position", pos);
 
-        root.addProperty("distance_to_me", entity.distanceTo(player));
-        root.addProperty("same_dimension", entity.level().dimension().equals(player.level().dimension()));
+        boolean sameDimension = entity.level().dimension().equals(player.level().dimension());
+        root.addProperty("same_dimension", sameDimension);
+        root.addProperty("owner_dimension", player.level().dimension().identifier().toString());
+        if (sameDimension) {
+            root.addProperty("distance_to_me", entity.distanceTo(player));
+        } else {
+            root.addProperty("note", "owner is in a different dimension — their "
+                    + "position is in THAT dimension's coordinates, not yours");
+        }
         root.addProperty("main_hand", itemKey(player.getMainHandItem()));
         root.addProperty("off_hand", itemKey(player.getOffhandItem()));
 

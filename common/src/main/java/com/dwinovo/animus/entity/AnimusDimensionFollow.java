@@ -23,30 +23,43 @@ import java.util.Set;
  * follower-mod approach. Vanilla {@code TamableAnimal} has no cross-dimension
  * follow of its own (its teleport-to-owner is same-dimension only).
  *
- * <h2>Why the companion must travel with the owner</h2>
- * The agent brain runs on the <em>owner's client</em> (so each player spends
- * their own API key). An entity only exists on a client while it shares that
- * client's dimension, so a companion left behind in another dimension would
- * have no brain driving it. Co-locating it with the owner keeps the brain
- * alive. The conversation survives the trip because the loop is keyed by UUID
+ * <h2>Why idle companions travel with the owner</h2>
+ * An idle pet's job is companionship — vanilla-pet expectations say it comes
+ * along. The conversation survives the trip because the loop is keyed by UUID
  * (see {@link com.dwinovo.animus.client.agent.AgentLoopRegistry}); the
  * recreated body in the new dimension resolves back to the same loop.
+ *
+ * <h2>Why ENGAGED companions stay behind</h2>
+ * The agent loop drives the body over UUID-addressed payloads that the server
+ * resolves across all dimensions ({@code AnimusEntity.findByUuid}), so a
+ * working pet does not need to share the owner's dimension — its chunk
+ * tickets keep it simulating and the roster reaches it from anywhere. (TLM
+ * forbids maid dimension travel outright; we need both directions, so the
+ * split is by engagement.)
  */
 public final class AnimusDimensionFollow {
 
     private AnimusDimensionFollow() {}
 
     /**
-     * Teleport every owned, living, non-sitting Animus in {@code from} to the
-     * owner's new position in {@code to}. Sitting companions are left behind on
-     * purpose (the player parked them), matching vanilla pet semantics.
+     * Teleport every owned, living, non-sitting, IDLE Animus in {@code from}
+     * to the owner's new position in {@code to}. Sitting companions are left
+     * behind on purpose (the player parked them), matching vanilla pet
+     * semantics. Engaged companions (task running/queued or mid-conversation)
+     * also stay: yanking a worker off its mining run because the owner took a
+     * portal home would break the task — chunk tickets keep it working and
+     * the revival path keeps it reachable from any dimension.
      */
     public static void onOwnerChangedDimension(ServerPlayer owner, ServerLevel from, ServerLevel to) {
         if (from == to) return;
 
         List<? extends AnimusEntity> companions = from.getEntities(
                 EntityTypeTest.forClass(AnimusEntity.class),
-                a -> a.isAlive() && a.isOwnedBy(owner) && !a.isOrderedToSit());
+                // UUID comparison: this event fires AFTER the owner left `from`,
+                // so vanilla isOwnedBy (which resolves the owner inside the
+                // pet's level) would return false for every companion here.
+                a -> a.isAlive() && a.isOwnedByPlayer(owner.getUUID())
+                        && !a.isOrderedToSit() && !a.isEngaged());
         if (companions.isEmpty()) return;
 
         for (AnimusEntity companion : companions) {

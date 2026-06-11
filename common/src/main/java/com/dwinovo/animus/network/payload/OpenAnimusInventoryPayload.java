@@ -41,7 +41,7 @@ public record OpenAnimusInventoryPayload(int entityId) implements CustomPacketPa
         if (!(player.level() instanceof ServerLevel level)) return;
         Entity raw = level.getEntity(p.entityId());
         if (!(raw instanceof AnimusEntity animus)) return;
-        if (!animus.isOwnedBy(player)) return;
+        if (!animus.isOwnedByPlayer(player.getUUID())) return;
         if (animus.distanceToSqr(player) > MAX_INTERACT_DISTANCE_SQR) return;
 
         player.openMenu(new SimpleMenuProvider(

@@ -51,7 +51,7 @@ public record CancelTasksPayload(UUID entityUuid) implements CustomPacketPayload
             Constants.LOG.debug("[animus-net] cancel_tasks for unknown entity {}", p.entityUuid());
             return;
         }
-        if (!animus.isOwnedBy(player)) {
+        if (!animus.isOwnedByPlayer(player.getUUID())) {
             Constants.LOG.warn("[animus-net] ✗ cancel_tasks rejected from {}: not the owner",
                     player.getName().getString());
             return;
