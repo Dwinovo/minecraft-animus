@@ -27,7 +27,7 @@ import java.util.UUID;
  *   <li>Target entity must be an {@link AnimusEntity} (searched across ALL
  *       dimensions — a working companion may be in the Nether while the owner
  *       waits in the overworld).</li>
- *   <li>Sender must be the entity's owner (TamableAnimal.isOwnedBy).</li>
+ *   <li>Sender must be the entity's owner (UUID comparison, cross-dimension safe).</li>
  *   <li>Tool name must resolve to a registered {@link AnimusTool}.</li>
  *   <li>Arguments JSON must parse and pass the tool's
  *       {@code toTaskRecord} validation.</li>

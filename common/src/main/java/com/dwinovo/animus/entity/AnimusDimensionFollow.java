@@ -42,13 +42,12 @@ public final class AnimusDimensionFollow {
     private AnimusDimensionFollow() {}
 
     /**
-     * Teleport every owned, living, non-sitting, IDLE Animus in {@code from}
-     * to the owner's new position in {@code to}. Sitting companions are left
-     * behind on purpose (the player parked them), matching vanilla pet
-     * semantics. Engaged companions (task running/queued or mid-conversation)
-     * also stay: yanking a worker off its mining run because the owner took a
-     * portal home would break the task — chunk tickets keep it working and
-     * the revival path keeps it reachable from any dimension.
+     * Teleport every owned, living, IDLE Animus in {@code from} to the
+     * owner's new position in {@code to}. Engaged companions (task
+     * running/queued or mid-conversation) stay behind: yanking a worker off
+     * its mining run because the owner took a portal home would break the
+     * task — chunk tickets keep it working and the revival path keeps it
+     * reachable from any dimension.
      */
     public static void onOwnerChangedDimension(ServerPlayer owner, ServerLevel from, ServerLevel to) {
         if (from == to) return;
@@ -56,10 +55,8 @@ public final class AnimusDimensionFollow {
         List<? extends AnimusEntity> companions = from.getEntities(
                 EntityTypeTest.forClass(AnimusEntity.class),
                 // UUID comparison: this event fires AFTER the owner left `from`,
-                // so vanilla isOwnedBy (which resolves the owner inside the
-                // pet's level) would return false for every companion here.
-                a -> a.isAlive() && a.isOwnedByPlayer(owner.getUUID())
-                        && !a.isOrderedToSit() && !a.isEngaged());
+                // so a level-scoped owner lookup would match no companion here.
+                a -> a.isAlive() && a.isOwnedByPlayer(owner.getUUID()) && !a.isEngaged());
         if (companions.isEmpty()) return;
 
         for (AnimusEntity companion : companions) {

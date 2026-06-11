@@ -38,15 +38,17 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleContainer;
-import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityReference;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.TamableAnimal;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.OwnableEntity;
+import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
-import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -69,10 +71,15 @@ import java.util.List;
  * drives a client-side LLM loop ({@code EntityAgentLoop}) whose tool calls
  * are executed on this body server-side.
  *
- * <h2>Why TamableAnimal</h2>
- * Vanilla gives us owner-UUID persistence, {@link #isTame()} /
- * {@link #tame(Player)} / {@link #isOwnedBy}, and the heart / smoke particle
- * events for the taming feedback — all for free.
+ * <h2>Why PathfinderMob + self-managed ownership (not TamableAnimal)</h2>
+ * The TamableAnimal chain (← Animal ← AgeableMob) buys two small methods and
+ * charges for them with breeding/love/age baggage we had to actively suppress
+ * and — worse — level-scoped owner resolution ({@code getOwner()} only finds
+ * an owner in the PET's dimension), a trap for a mod whose pets work across
+ * dimensions. Ownership here is one synched {@link EntityReference} field;
+ * all owner queries are UUID-based ({@link #isOwnedByPlayer}) or server-wide
+ * ({@link #resolveOwnerPlayer}). {@link net.minecraft.world.entity.OwnableEntity}
+ * is still implemented so third-party pet-protection mods recognise us.
  *
  * <h2>Inventory</h2>
  * Each Animus owns a {@value #INVENTORY_SIZE}-slot {@link SimpleContainer}.
@@ -85,7 +92,7 @@ import java.util.List;
  * via the GUI's model picker → {@code SetModelPayload}, broadcast by vanilla
  * {@link SynchedEntityData}.
  */
-public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
+public class AnimusEntity extends PathfinderMob implements OwnableEntity, AnimusAnimated {
 
     public static final int INVENTORY_SIZE = 27;
 
@@ -121,6 +128,16 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     /** Ticket radius in chunks: 5x5 covers pathfinder snapshots and dig radii. */
     private static final int CHUNK_TICKET_RADIUS = 2;
 
+    /**
+     * Owner reference — THE tame state (null = wild). Synched so the client
+     * can gate the GUI and show ownership without a server round-trip;
+     * persisted in {@link #addAdditionalSaveData}. Self-managed instead of
+     * inheriting TamableAnimal: every read goes through UUID-based helpers
+     * that work across dimensions.
+     */
+    private static final EntityDataAccessor<java.util.Optional<EntityReference<LivingEntity>>> DATA_OWNER =
+            SynchedEntityData.defineId(AnimusEntity.class, EntityDataSerializers.OPTIONAL_LIVING_ENTITY_REFERENCE);
+
     private static final EntityDataAccessor<String> DATA_MODEL_KEY =
             SynchedEntityData.defineId(AnimusEntity.class, EntityDataSerializers.STRING);
 
@@ -138,6 +155,7 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
 
     private static final String NBT_KEY_MODEL = "ModelKey";
     private static final String NBT_KEY_INVENTORY = "Inventory";
+    private static final String NBT_KEY_OWNER = "Owner";
 
     private Animator animator;
 
@@ -198,10 +216,61 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     }
 
     public static AttributeSupplier.Builder createAttributes() {
-        return TamableAnimal.createMobAttributes()
+        return Mob.createMobAttributes()
                 .add(Attributes.MAX_HEALTH, 20.0)
                 .add(Attributes.MOVEMENT_SPEED, 0.25)
                 .add(Attributes.ATTACK_DAMAGE, 4.0);
+    }
+
+    // ---- ownership & taming (self-managed, cross-dimension safe) ----
+
+    @Override
+    public EntityReference<LivingEntity> getOwnerReference() {
+        return this.entityData.get(DATA_OWNER).orElse(null);
+    }
+
+    /** Tamed = has an owner. There is no separate tame flag. */
+    public boolean isTame() {
+        return getOwnerReference() != null;
+    }
+
+    /** Bind this Animus to {@code player}. Particles are the caller's job. */
+    public void tame(Player player) {
+        this.entityData.set(DATA_OWNER, java.util.Optional.of(EntityReference.of(player)));
+    }
+
+    /** Heart (7) / smoke (6) taming feedback, broadcast by the interact handler. */
+    @Override
+    public void handleEntityEvent(byte id) {
+        if (id == 7) {
+            spawnTamingParticles(true);
+        } else if (id == 6) {
+            spawnTamingParticles(false);
+        } else {
+            super.handleEntityEvent(id);
+        }
+    }
+
+    private void spawnTamingParticles(boolean success) {
+        var particle = success
+                ? net.minecraft.core.particles.ParticleTypes.HEART
+                : net.minecraft.core.particles.ParticleTypes.SMOKE;
+        for (int i = 0; i < 7; i++) {
+            this.level().addParticle(particle,
+                    this.getRandomX(1.0), this.getRandomY() + 0.5, this.getRandomZ(1.0),
+                    this.random.nextGaussian() * 0.02,
+                    this.random.nextGaussian() * 0.02,
+                    this.random.nextGaussian() * 0.02);
+        }
+    }
+
+    /**
+     * Never despawn. Animal gave this for free; PathfinderMob does not — a
+     * wild (or worse, tamed-but-far) Animus must not be culled by distance.
+     */
+    @Override
+    public boolean removeWhenFarAway(double distSqr) {
+        return false;
     }
 
     @Override
@@ -514,6 +583,7 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     @Override
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         super.defineSynchedData(builder);
+        builder.define(DATA_OWNER, java.util.Optional.empty());
         builder.define(DATA_MODEL_KEY, AnimusAnimated.DEFAULT_MODEL_KEY.toString());
         builder.define(DATA_DEBUG_TASK, DEBUG_TASK_IDLE);
     }
@@ -587,27 +657,12 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
         return super.mobInteract(player, hand);
     }
 
-    /** Food affinity / breeding stay disabled — taming is handled explicitly. */
-    @Override
-    public boolean isFood(ItemStack stack) {
-        return false;
-    }
-
-    @Override
-    public boolean canMate(Animal partner) {
-        return false;
-    }
-
-    @Override
-    public AgeableMob getBreedOffspring(ServerLevel level, AgeableMob partner) {
-        return null;
-    }
-
     // ---- persistence ----
 
     @Override
     public void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output);
+        EntityReference.store(getOwnerReference(), output, NBT_KEY_OWNER);
         output.putString(NBT_KEY_MODEL, this.entityData.get(DATA_MODEL_KEY));
         List<ItemStack> items = new ArrayList<>(inventory.getContainerSize());
         for (int i = 0; i < inventory.getContainerSize(); i++) {
@@ -619,6 +674,8 @@ public class AnimusEntity extends TamableAnimal implements AnimusAnimated {
     @Override
     public void readAdditionalSaveData(ValueInput input) {
         super.readAdditionalSaveData(input);
+        this.entityData.set(DATA_OWNER, java.util.Optional.ofNullable(
+                EntityReference.<LivingEntity>read(input, NBT_KEY_OWNER)));
         this.entityData.set(DATA_MODEL_KEY,
                 input.getStringOr(NBT_KEY_MODEL, AnimusAnimated.DEFAULT_MODEL_KEY.toString()));
         input.read(NBT_KEY_INVENTORY, ItemStack.OPTIONAL_CODEC.listOf()).ifPresent(list -> {

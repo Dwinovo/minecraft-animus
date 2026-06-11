@@ -13,8 +13,8 @@ import net.minecraft.world.item.ItemStack;
  * <h2>Untamed</h2>
  * Feeding an item tagged {@code animus:tame_foods} has a 1-in-3 chance to
  * tame (wolf-style). Consumes one food (unless creative). Hearts on success,
- * smoke on failure — vanilla {@code TamableAnimal} renders both from the
- * broadcast entity events.
+ * smoke on failure — {@code AnimusEntity.handleEntityEvent} renders both from
+ * the broadcast entity events.
  *
  * <h2>Tamed</h2>
  * An owner main-hand right-click opens the per-entity GUI (chat / inventory /
@@ -48,7 +48,7 @@ public final class AnimusInteractHandler {
         }
 
         // Tamed: owner main-hand click opens the GUI.
-        if (hand == InteractionHand.MAIN_HAND && entity.isOwnedBy(player)) {
+        if (hand == InteractionHand.MAIN_HAND && entity.isOwnedByPlayer(player.getUUID())) {
             if (entity.level().isClientSide()) {
                 openGui(entity);
             }
