@@ -22,9 +22,9 @@ import net.minecraft.client.Minecraft;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -60,45 +60,57 @@ import java.util.UUID;
 public final class EntityAgentLoop {
 
     /**
-     * Persona prompt for a single Animus body. It is the player's companion
-     * unit: it acts on the world through its tools, and its plain-text replies
-     * go straight to the owner in the chat GUI.
+     * Persona prompt for a single Animus body. Deliberately does NOT enumerate
+     * tools — the live tool list (with full descriptions) rides along on every
+     * request, and a prose copy here rotted badly once already. This prompt
+     * carries only what the tool schemas can't: identity, working discipline,
+     * and the voice toward the owner.
      */
     private static final String ENTITY_PROMPT = """
 
             You are an Animus — a single companion unit in Minecraft, owned by
             and loyal to one player. You have a physical body in the world and
-            you act through it.
+            you act through it, using the tools provided with this request.
 
-            How you operate:
-              - World actions: move_to, hunt, collect_items, mine_block.
-                These move and act with YOUR OWN body.
-              - Perception: get_self_status (your own body), get_owner_status,
-                scan_nearby_entities, scan_blocks, inspect_block, get_world_info,
-                get_storage (the shared storage you deposit into).
-              - Planning: todowrite, load_skill.
+            <operating_principles>
+            - Act, don't narrate. When the owner asks for something physical,
+              DO it by calling tools — "I will mine the ore" is wrong; call
+              auto_mine. Keep calling tools until the request is done or
+              provably impossible, then report the outcome briefly.
+            - Verify, don't assume. get_self_status is your complete self:
+              HP, position, equipment AND full inventory in one call; the world
+              comes from the scan/inspect tools. Never claim to have an item or
+              to have finished a job that a tool result hasn't confirmed.
+            - Failed tool results teach. They explain WHY and usually name the
+              next step (equip the right tool, use a suggested coordinate,
+              obtain a missing material) — follow that guidance instead of
+              repeating the same call unchanged. Exception: a TIMEOUT reports
+              progress made, and re-issuing the same call resumes from there.
+            - Reuse the world. <known_blocks> lists infrastructure you already
+              placed or used (crafting tables, furnaces, chests, …). Walk back
+              to those instead of crafting and placing duplicates.
+            - Plan only what's big. Multi-phase jobs: write the phases with
+              todowrite and work the list; load a skill (load_skill) when one
+              matches the task. One-step requests: just do them.
+            </operating_principles>
 
-            Working discipline:
-              - When the owner asks for something physical, DO it by calling
-                tools — don't just describe what you would do. "I will mine the
-                ore" is wrong; actually call mine_block.
-              - Keep calling tools until the request is done or provably
-                impossible, then reply with a short plain-text message to the
-                owner: what you did and the outcome.
-              - Your text replies are spoken to the owner. Be concise and
-                natural — one short paragraph. Tool calls are silent; the owner
-                only sees your text.
-              - Don't narrate intermediate steps as separate chat messages —
-                narrate by acting. Speak when you have a result or a question.
+            <communication>
+            - Your text replies are spoken aloud to the owner — answer in the
+              owner's language, one short natural paragraph. Tool calls are
+              silent; the owner only sees your text.
+            - Don't narrate intermediate steps as separate messages; narrate by
+              acting. Speak when you have a result or a real question.
+            </communication>
 
-            Examples:
-              owner: 去挖10块铁
-              → pathfind_and_mine / mine_block ... (act)
-              → "挖到了 10 块铁,已经放进仓库。"
+            <examples>
+            owner: 去挖10块铁
+            → equip_item(stone_pickaxe), auto_mine(iron_ore + deepslate_iron_ore, 10) … (act)
+            → "挖到了 10 块铁,已经带回来了。"
 
-              owner: 那边那个僵尸危险吗
-              → scan_nearby_entities(radius=24, type_filter="hostile")
-              → "西边 12 格有一只僵尸,要我去清掉吗?"
+            owner: 那边那个僵尸危险吗
+            → scan_nearby_entities(radius=24)
+            → "西边 12 格有一只僵尸,要我去清掉吗?"
+            </examples>
             """;
 
     // ---- context compaction (mirrors Claude Code's /compact machinery) ----
@@ -153,7 +165,11 @@ public final class EntityAgentLoop {
     /** JSONL persistence under {@code config/animus/conversations/<uuid>.jsonl}. */
     private final ConvoLog log;
     private final ConvoState convo;
-    private final Set<String> pendingToolCallIds = new HashSet<>();
+    /** Functional-block coordinate memory, injected as {@code <known_blocks>}. */
+    private final WorkBlockMemory workBlocks;
+    /** Outstanding world-action calls: tool_call id → tool name (the name drives
+     *  result harvesting in {@link #harvestWorkBlocks}). */
+    private final Map<String, String> pendingToolCalls = new HashMap<>();
 
     /**
      * Prompts the owner typed while a turn was still in flight (waiting on the
@@ -196,10 +212,11 @@ public final class EntityAgentLoop {
 
     EntityAgentLoop(UUID entityUuid) {
         this.entityUuid = entityUuid;
-        Path conversationsDir = Minecraft.getInstance().gameDirectory.toPath()
-                .resolve("config").resolve("animus").resolve("conversations");
-        this.log = ConvoLog.forEntity(conversationsDir, entityUuid);
+        Path animusRoot = Minecraft.getInstance().gameDirectory.toPath()
+                .resolve("config").resolve("animus");
+        this.log = ConvoLog.forEntity(animusRoot.resolve("conversations"), entityUuid);
         this.convo = new ConvoState(log::append);
+        this.workBlocks = WorkBlockMemory.forEntity(animusRoot.resolve("memory"), entityUuid);
         restoreFromDisk();
     }
 
@@ -252,7 +269,7 @@ public final class EntityAgentLoop {
         // flushed once the outstanding assistant/tool round-trip completes —
         // this avoids inserting a user message between assistant(tool_calls)
         // and its tool results (which the API rejects with HTTP 400).
-        boolean deferred = awaitingLlmResponse || !pendingToolCallIds.isEmpty();
+        boolean deferred = awaitingLlmResponse || !pendingToolCalls.isEmpty();
         bufferedPrompts.add(text);
         Constants.LOG.info("[animus-entity#{}] user prompt ({} chars){}{}: {}",
                 entityUuid, text.length(),
@@ -264,23 +281,78 @@ public final class EntityAgentLoop {
 
     /** Server reported a world-action tool result for one of our outstanding calls. */
     public void onToolResult(String toolCallId, String resultJson) {
-        if (!pendingToolCallIds.remove(toolCallId)) {
+        String toolName = pendingToolCalls.remove(toolCallId);
+        if (toolName == null) {
             Constants.LOG.debug("[animus-entity#{}] late tool_result id={} ignored",
                     entityUuid, toolCallId);
             return;
         }
+        harvestWorkBlocks(toolName, resultJson);
         convo.addToolResult(toolCallId, resultJson);
         Constants.LOG.info("[animus-entity#{}] tool_result id={} (pending={}) → {}",
-                entityUuid, toolCallId, pendingToolCallIds.size(),
+                entityUuid, toolCallId, pendingToolCalls.size(),
                 truncate(resultJson, 200));
-        if (pendingToolCallIds.isEmpty()) tryStartTurn();
+        if (pendingToolCalls.isEmpty()) tryStartTurn();
+    }
+
+    /**
+     * Pull functional-block coordinates out of successful tool results into
+     * {@link WorkBlockMemory}. The results already carry them (craft reports
+     * the table it used, the furnace tools report the furnace, place_block
+     * reports what it placed) — this just stops the loop from forgetting them
+     * once the result scrolls out of context.
+     */
+    private void harvestWorkBlocks(String toolName, String resultJson) {
+        try {
+            JsonObject root = JsonParser.parseString(resultJson).getAsJsonObject();
+            if (!root.has("success") || !root.get("success").getAsBoolean()) return;
+            JsonObject data = root.has("data") && root.get("data").isJsonObject()
+                    ? root.getAsJsonObject("data") : null;
+            if (data == null) return;
+
+            switch (toolName) {
+                case "craft" -> {
+                    if (data.has("crafting_table_x")) {
+                        workBlocks.record("crafting_table", new net.minecraft.core.BlockPos(
+                                data.get("crafting_table_x").getAsInt(),
+                                data.get("crafting_table_y").getAsInt(),
+                                data.get("crafting_table_z").getAsInt()));
+                    }
+                }
+                case "load_furnace", "check_furnace", "collect_furnace" -> {
+                    if (data.has("x")) {
+                        workBlocks.record("furnace", new net.minecraft.core.BlockPos(
+                                data.get("x").getAsInt(),
+                                data.get("y").getAsInt(),
+                                data.get("z").getAsInt()));
+                    }
+                }
+                // The chest-storage tools also report which container block they
+                // used (data.block + x/y/z) — same harvest as place_block.
+                case "place_block", "deposit_items", "take_items" -> {
+                    if (data.has("block") && data.has("x")) {
+                        String path = data.get("block").getAsString();
+                        int colon = path.indexOf(':');
+                        if (colon >= 0) path = path.substring(colon + 1);
+                        workBlocks.record(path, new net.minecraft.core.BlockPos(
+                                data.get("x").getAsInt(),
+                                data.get("y").getAsInt(),
+                                data.get("z").getAsInt()));
+                    }
+                }
+                default -> { /* nothing to harvest */ }
+            }
+        } catch (RuntimeException ex) {
+            Constants.LOG.debug("[animus-entity#{}] work-block harvest skipped: {}",
+                    entityUuid, ex.toString());
+        }
     }
 
     // ---- interrupt (owner-triggered, from the chat GUI "Stop" button) ----
 
     /** A turn is actively running: waiting on the LLM, on tool results, or compacting. */
     public boolean isBusy() {
-        return awaitingLlmResponse || compacting || !pendingToolCallIds.isEmpty();
+        return awaitingLlmResponse || compacting || !pendingToolCalls.isEmpty();
     }
 
     /** A summarization call is currently in flight (drives the GUI status line). */
@@ -333,18 +405,18 @@ public final class EntityAgentLoop {
             // its response is generation-stamped too, so it gets discarded).
             turnGeneration++; // any in-flight LLM response is now stale → discarded on arrival
             boolean wasAwaitingLlm = awaitingLlmResponse;
-            int cancelledTools = pendingToolCallIds.size();
+            int cancelledTools = pendingToolCalls.size();
             awaitingLlmResponse = false;
             compacting = false;
 
             // Synthesize cancelled results for outstanding world-action calls so the
             // assistant(tool_calls) message keeps matching tool results. Real results
             // arriving later are dropped as "late" by onToolResult (id already removed).
-            for (String id : pendingToolCallIds) {
+            for (String id : pendingToolCalls.keySet()) {
                 convo.addToolResult(id,
                         "{\"success\":false,\"message\":\"interrupted by owner\"}");
             }
-            pendingToolCallIds.clear();
+            pendingToolCalls.clear();
 
             // Stop the BODY, not just the conversation: tell the server to cancel
             // the running task and the queue. Harmless no-op when only an LLM
@@ -386,7 +458,7 @@ public final class EntityAgentLoop {
         turnGeneration++;
         awaitingLlmResponse = false;
         compacting = false;
-        pendingToolCallIds.clear();
+        pendingToolCalls.clear();
         bufferedPrompts.clear();
         Constants.LOG.info("[animus-entity#{}] body died — loop hard-stopped", entityUuid);
     }
@@ -428,9 +500,9 @@ public final class EntityAgentLoop {
             Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: compacting", entityUuid);
             return;
         }
-        if (!pendingToolCallIds.isEmpty()) {
+        if (!pendingToolCalls.isEmpty()) {
             Constants.LOG.debug("[animus-entity#{}] tryStartTurn skipped: {} tool result(s) pending",
-                    entityUuid, pendingToolCallIds.size());
+                    entityUuid, pendingToolCalls.size());
             return;
         }
         // Safe point: no assistant reply in flight and no tool results
@@ -554,6 +626,8 @@ public final class EntityAgentLoop {
     private String composeSystemPrompt(String basePrompt) {
         String base = basePrompt == null ? "" : basePrompt;
         String envBlock = buildEnvBlock();
+        AnimusEntity body = resolveEntity();
+        String knownBlocks = workBlocks.formatXml(body != null ? body.level() : null);
         String skillsXml = SkillRegistry.instance().formatXml();
 
         StringBuilder sb = new StringBuilder();
@@ -561,6 +635,9 @@ public final class EntityAgentLoop {
         sb.append(ENTITY_PROMPT);
         if (envBlock != null) {
             sb.append("\n\n").append(envBlock);
+        }
+        if (!knownBlocks.isEmpty()) {
+            sb.append("\n\n").append(knownBlocks);
         }
         if (!skillsXml.isEmpty()) {
             sb.append("\n\n").append(skillsXml);
@@ -674,7 +751,7 @@ public final class EntityAgentLoop {
             // No client-side timeout — the server always returns a result, even
             // on entity death/removal (AnimusEntity.remove flushes CANCELLED
             // results synchronously), so the loop never waits forever.
-            pendingToolCallIds.add(tc.id());
+            pendingToolCalls.put(tc.id(), tc.name());
             Services.NETWORK.sendToServer(new ExecuteToolPayload(
                     entityUuid, tc.id(), tc.name(), tc.arguments()));
             Constants.LOG.info("[animus-entity#{}] dispatch tool={} id={} args={}",
@@ -683,7 +760,7 @@ public final class EntityAgentLoop {
 
         // If nothing is awaiting a server round-trip (all local-exec / rejected),
         // kick the next turn immediately so the LLM sees the new tool_results.
-        if (pendingToolCallIds.isEmpty()) tryStartTurn();
+        if (pendingToolCalls.isEmpty()) tryStartTurn();
     }
 
     private static JsonObject parseArgs(String raw) {
