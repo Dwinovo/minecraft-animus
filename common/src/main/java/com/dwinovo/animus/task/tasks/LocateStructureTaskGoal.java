@@ -58,8 +58,14 @@ import java.util.Optional;
  */
 public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTaskRecord> {
 
-    /** Search radius in CHUNKS — vanilla /locate and eye-of-ender both use 100. */
-    private static final int SEARCH_RADIUS_CHUNKS = 100;
+    /**
+     * Search radius in placement-region RINGS, exactly vanilla /locate's
+     * radius unit (one ring = one region = {@code spacing} chunks, so the
+     * covered distance scales with the structure's rarity: fortress ≈ 43k
+     * blocks, village ≈ 54k). The global budget + the task deadline bound the
+     * actual work; a search that exhausts its deadline reports how far it got.
+     */
+    private static final int SEARCH_RADIUS_RINGS = 100;
 
     /** One placement's candidate stream + the structures that use it. */
     private static final class Job {
@@ -102,7 +108,11 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
                         default -> { dx = -ring;    dz = ring - t; }
                     }
                 }
-                return spread.getPotentialStructureChunk(seed, centerRegX + dx, centerRegZ + dz);
+                // getPotentialStructureChunk takes CHUNK coords and floorDivs by
+                // spacing itself — scale the region index back to chunk scale.
+                return spread.getPotentialStructureChunk(seed,
+                        (centerRegX + dx) * spread.spacing(),
+                        (centerRegZ + dz) * spread.spacing());
             }
             return null;
         }
@@ -155,10 +165,10 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
         for (Job job : byPlacement.values()) {
             if (job.placement instanceof RandomSpreadStructurePlacement spread) {
                 job.spread = spread;
-                job.seed = sl.getSeed();
+                job.seed = state.getLevelSeed();
                 job.centerRegX = Math.floorDiv(here.x(), spread.spacing());
                 job.centerRegZ = Math.floorDiv(here.z(), spread.spacing());
-                job.maxRing = Math.max(1, SEARCH_RADIUS_CHUNKS / spread.spacing() + 1);
+                job.maxRing = SEARCH_RADIUS_RINGS;
                 jobs.add(job);
             } else if (job.placement instanceof ConcentricRingsStructurePlacement rings) {
                 // Ring positions ARE where these structures generate (vanilla
@@ -189,20 +199,41 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
                 failReason = "invalid structure tag: " + arg;
                 return null;
             }
-            registry.get(TagKey.create(Registries.STRUCTURE, tagId))
-                    .ifPresent(set -> set.forEach(out::add));
+            var set = registry.get(TagKey.create(Registries.STRUCTURE, tagId));
+            if (set.isEmpty()) {
+                failReason = isBiomeTag(sl, tagId)
+                        ? arg + " is a BIOME tag, not a structure tag — call "
+                                + "locate_biome(biome=\"" + arg + "\") instead"
+                        : "unknown structure tag: " + arg + " — try #minecraft:village "
+                                + "or an id like minecraft:fortress";
+                return null;
+            }
+            set.get().forEach(out::add);
             return out;
         }
         Identifier id = Identifier.tryParse(arg);
         Optional<? extends Holder<Structure>> holder = id == null ? Optional.empty()
                 : registry.get(ResourceKey.create(Registries.STRUCTURE, id));
         if (holder.isEmpty()) {
-            failReason = "unknown structure: " + arg + " — use a structure id like "
-                    + "minecraft:fortress / minecraft:stronghold, or a tag like #minecraft:village";
+            failReason = id != null && isBiomeId(sl, id)
+                    ? arg + " is a BIOME, not a structure — call "
+                            + "locate_biome(biome=\"" + arg + "\") instead"
+                    : "unknown structure: " + arg + " — use a structure id like "
+                            + "minecraft:fortress / minecraft:stronghold, or a tag like #minecraft:village";
             return null;
         }
         out.add(holder.get());
         return out;
+    }
+
+    private static boolean isBiomeId(ServerLevel sl, Identifier id) {
+        return sl.registryAccess().lookupOrThrow(Registries.BIOME)
+                .get(ResourceKey.create(Registries.BIOME, id)).isPresent();
+    }
+
+    private static boolean isBiomeTag(ServerLevel sl, Identifier tagId) {
+        return sl.registryAccess().lookupOrThrow(Registries.BIOME)
+                .get(TagKey.create(Registries.BIOME, tagId)).isPresent();
     }
 
     @Override
@@ -249,16 +280,19 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
      * chunk-load budget for this tick is spent — call again next tick.
      */
     private Boolean checkCandidate(ServerLevel sl, Job job, ChunkPos candidate) {
+        ChunkAccess loaded = null;   // one load permit per candidate, shared by all its structures
         for (Structure structure : job.structures) {
             StructureCheckResult res = sl.structureManager()
                     .checkStructurePresence(candidate, structure, job.placement, false);
             if (res == StructureCheckResult.START_NOT_PRESENT) continue;
             if (res == StructureCheckResult.START_PRESENT) return true;
             // CHUNK_LOAD_NEEDED — the expensive fallback, globally budgeted.
-            if (!StructureSearchBudget.tryChunkLoad()) return null;
-            ChunkAccess chunk = sl.getChunk(candidate.x(), candidate.z(), ChunkStatus.STRUCTURE_STARTS);
+            if (loaded == null) {
+                if (!StructureSearchBudget.tryChunkLoad()) return null;
+                loaded = sl.getChunk(candidate.x(), candidate.z(), ChunkStatus.STRUCTURE_STARTS);
+            }
             StructureStart start = sl.structureManager()
-                    .getStartForStructure(SectionPos.bottomOf(chunk), structure, chunk);
+                    .getStartForStructure(SectionPos.bottomOf(loaded), structure, loaded);
             if (start != null && start.isValid()) return true;
         }
         return false;
@@ -294,17 +328,38 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
                     + "then scan_blocks to find its actual blocks.", data);
         }
         data.put("found", false);
+        String dim = entity.level().dimension().identifier().getPath();
         return switch (finalState) {
-            case SUCCESS -> TaskResult.ok("no " + r.structure + " within ~"
-                    + (SEARCH_RADIUS_CHUNKS * 16) + " blocks IN THIS DIMENSION ("
-                    + entity.level().dimension().identifier().getPath()
-                    + ") — check the structure's home dimension (fortress/bastion: nether; "
-                    + "end_city: the end) or travel further and retry", data);
-            case TIMEOUT -> TaskResult.timeout("structure search timed out");
+            case SUCCESS -> {
+                int searched = searchedRadiusBlocks();
+                yield searched == 0
+                        ? TaskResult.ok(r.structure + " does not generate IN THIS DIMENSION ("
+                                + dim + ") — fortress/bastion: nether; end_city: the end; "
+                                + "stronghold/village/mansion/monument: overworld", data)
+                        : TaskResult.ok("no " + r.structure + " within ~" + searched
+                                + " blocks of here (" + dim + ") — extremely unlucky seed; "
+                                + "travel a few thousand blocks and retry", data);
+            }
+            case TIMEOUT -> TaskResult.timeout("search deadline hit after covering ~"
+                    + searchedRadiusBlocks() + " blocks outward with no " + r.structure
+                    + " — it is at least that far. Retrying immediately is fine (results "
+                    + "are cached, the search resumes fast), or travel toward unexplored "
+                    + "land first");
             case CANCELLED -> TaskResult.cancelled("locate_structure interrupted");
             case FAILED -> TaskResult.fail(failReason, data);
             default -> TaskResult.fail("unexpected state: " + finalState, data);
         };
+    }
+
+    /** How far outward (blocks) the random-spread spirals have covered so far. */
+    private int searchedRadiusBlocks() {
+        int max = 0;
+        for (Job job : jobs) {
+            if (job.spread == null) continue;
+            int rings = Math.min(job.ring, job.maxRing);
+            max = Math.max(max, rings * job.spread.spacing() * 16);
+        }
+        return max;
     }
 
     /** 8-point compass label from a block delta (+X east, +Z south). */
