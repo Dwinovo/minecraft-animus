@@ -117,12 +117,19 @@ public final class LocateBiomeTaskGoal extends LlmTaskGoal<LocateBiomeTaskRecord
         }
         Identifier id = Identifier.tryParse(arg);
         if (id == null || registry.get(ResourceKey.create(Registries.BIOME, id)).isEmpty()) {
-            failReason = id != null && isStructureId(sl, id)
-                    ? arg + " is a STRUCTURE, not a biome — call "
-                            + "locate_structure(structure=\"" + arg + "\") instead"
-                    : "unknown biome: " + arg + " — use a biome id like "
-                            + "minecraft:warped_forest / minecraft:desert, or a tag like "
-                            + "#minecraft:is_forest";
+            if (id != null && isStructureId(sl, id)) {
+                failReason = arg + " is a STRUCTURE, not a biome — call "
+                        + "locate_structure(structure=\"" + arg + "\") instead";
+                return null;
+            }
+            String suggestion = IdSuggest.closest(
+                    registry.listElements().map(ref -> ref.key().identifier()), arg);
+            failReason = "unknown biome: " + arg
+                    + (suggestion != null
+                            ? " — did you mean " + suggestion + "?"
+                            : " — use a biome id like minecraft:warped_forest / "
+                                    + "minecraft:desert, or a tag like #minecraft:is_forest; "
+                                    + "load_skill(world_atlas) lists every id");
             return null;
         }
         ResourceKey<Biome> key = ResourceKey.create(Registries.BIOME, id);

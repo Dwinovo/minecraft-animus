@@ -199,11 +199,19 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
         Optional<? extends Holder<Structure>> holder = id == null ? Optional.empty()
                 : registry.get(ResourceKey.create(Registries.STRUCTURE, id));
         if (holder.isEmpty()) {
-            failReason = id != null && isBiomeId(sl, id)
-                    ? arg + " is a BIOME, not a structure — call "
-                            + "locate_biome(biome=\"" + arg + "\") instead"
-                    : "unknown structure: " + arg + " — use a structure id like "
-                            + "minecraft:fortress / minecraft:stronghold, or a tag like #minecraft:village";
+            if (id != null && isBiomeId(sl, id)) {
+                failReason = arg + " is a BIOME, not a structure — call "
+                        + "locate_biome(biome=\"" + arg + "\") instead";
+                return null;
+            }
+            String suggestion = IdSuggest.closest(
+                    registry.listElements().map(ref -> ref.key().identifier()), arg);
+            failReason = "unknown structure: " + arg
+                    + (suggestion != null
+                            ? " — did you mean " + suggestion + "?"
+                            : " — use a structure id like minecraft:fortress / "
+                                    + "minecraft:stronghold, or a tag like #minecraft:village; "
+                                    + "load_skill(world_atlas) lists every id");
             return null;
         }
         out.add(holder.get());

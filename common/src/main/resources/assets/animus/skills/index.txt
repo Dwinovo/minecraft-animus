@@ -8,6 +8,7 @@
 
 end_game_overview
 combat_basics
+world_atlas
 
 tier_progression
 nether_entry
