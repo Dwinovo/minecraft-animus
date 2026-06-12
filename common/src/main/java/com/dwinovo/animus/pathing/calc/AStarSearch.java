@@ -43,19 +43,8 @@ public final class AStarSearch {
 
     private final NavContext ctx;
     private final BlockPos start;
-    private final BlockPos goal;
+    private final NavGoal goal;
     private final int maxNodes;
-
-    /**
-     * Near-goal acceptance radius (block²), nonzero only when the goal cell
-     * itself can never be entered as a feet position — solid and break-vetoed
-     * (a furnace/chest the bot won't grief, bedrock) or a fluid cell. The LLM
-     * routinely targets a remembered block's own coordinates; demanding exact
-     * node equality there made the search structurally unsatisfiable. 2 blocks
-     * matches move_to's arrival semantics ({@code REACHED_DISTANCE_SQR}).
-     * Zero for ordinary goals — exact semantics preserved.
-     */
-    private final double goalToleranceSqr;
 
     private final Long2ObjectOpenHashMap<PathNode> nodes = new Long2ObjectOpenHashMap<>();
     private final BinaryHeapOpenSet open = new BinaryHeapOpenSet();
@@ -67,15 +56,11 @@ public final class AStarSearch {
     private State state = State.COMPUTING;
     private Path result;
 
-    AStarSearch(NavContext ctx, BlockPos start, BlockPos goal, int maxNodes) {
+    AStarSearch(NavContext ctx, BlockPos start, NavGoal goal, int maxNodes) {
         this.ctx = ctx;
         this.start = start.immutable();
-        this.goal = goal.immutable();
+        this.goal = goal;
         this.maxNodes = maxNodes;
-
-        boolean goalEnterable = BlockHelper.canWalkThrough(ctx.view, this.goal)
-                || ctx.costOfBreaking(this.goal) < ActionCosts.COST_INF;
-        this.goalToleranceSqr = goalEnterable ? 0.0 : 4.0;
 
         PathNode startNode = new PathNode(this.start, heuristic(this.start));
         startNode.cost = 0;
@@ -163,8 +148,7 @@ public final class AStarSearch {
     }
 
     private boolean isAtGoal(BlockPos pos) {
-        if (pos.equals(goal)) return true;
-        return goalToleranceSqr > 0 && pos.distSqr(goal) <= goalToleranceSqr;
+        return goal.isAt(pos);
     }
 
     private Path reconstruct(PathNode end, boolean partial) {
@@ -179,24 +163,11 @@ public final class AStarSearch {
     }
 
     /**
-     * Octile horizontal distance (× walk cost) plus an upward term — an
-     * admissible lower bound on remaining cost. The search inflates this by
-     * {@link ActionCosts#COST_HEURISTIC} at the heap-key level; this raw value is
-     * kept per-node for "closest-to-goal" partial-path tracking.
+     * The goal's admissible lower bound on remaining cost. The search inflates
+     * this by {@link ActionCosts#COST_HEURISTIC} at the heap-key level; the raw
+     * value is kept per-node for "closest-to-goal" partial-path tracking.
      */
     private double heuristic(BlockPos from) {
-        double dx = Math.abs(goal.getX() - from.getX());
-        double dz = Math.abs(goal.getZ() - from.getZ());
-        double octile = (Math.min(dx, dz) * ActionCosts.SQRT_2 + Math.abs(dx - dz))
-                * ActionCosts.WALK_ONE_BLOCK;
-        // Downward must cost > 0 (DESCEND_ONE_BLOCK is a lower bound on any
-        // legal descent): with a free down-direction, every node straight above
-        // a deep target scored h == 0, so the best-node tracker never saw
-        // progress and partial paths collapsed to the start node.
-        int dy = goal.getY() - from.getY();
-        double vertical = dy > 0
-                ? dy * ActionCosts.JUMP_ONE_BLOCK
-                : -dy * ActionCosts.DESCEND_ONE_BLOCK;
-        return octile + vertical;
+        return goal.heuristic(from);
     }
 }

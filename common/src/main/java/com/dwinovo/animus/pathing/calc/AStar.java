@@ -35,8 +35,22 @@ public final class AStar {
         this(DEFAULT_MAX_NODES);
     }
 
-    /** Begin a resumable, time-sliced search. Step it once per tick. */
-    public AStarSearch newSearch(NavContext ctx, BlockPos start, BlockPos goal) {
+    /** Begin a resumable, time-sliced search toward an explicit {@link NavGoal}. */
+    public AStarSearch newSearch(NavContext ctx, BlockPos start, NavGoal goal) {
         return new AStarSearch(ctx, start, goal, maxNodes);
+    }
+
+    /**
+     * Convenience for "get to this cell": exact when the cell is enterable;
+     * when it can never be a feet position — solid and break-vetoed (a
+     * furnace/chest the bot won't grief, bedrock) or a fluid cell — relaxes to
+     * {@code near(goal, 2)}, matching move_to's arrival semantics. The LLM
+     * routinely targets a remembered block's own coordinates; demanding exact
+     * node equality there made the search structurally unsatisfiable.
+     */
+    public AStarSearch newSearch(NavContext ctx, BlockPos start, BlockPos goal) {
+        boolean enterable = com.dwinovo.animus.pathing.util.BlockHelper.canWalkThrough(ctx.view, goal)
+                || ctx.costOfBreaking(goal) < com.dwinovo.animus.pathing.util.ActionCosts.COST_INF;
+        return newSearch(ctx, start, enterable ? NavGoal.exact(goal) : NavGoal.near(goal, 2.0));
     }
 }
