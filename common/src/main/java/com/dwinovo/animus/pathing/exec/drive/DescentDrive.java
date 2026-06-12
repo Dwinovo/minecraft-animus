@@ -22,14 +22,20 @@ public final class DescentDrive extends SteerDrive {
         super(entity, mv, host);
     }
 
-    static boolean descendFamily(Movement.Kind k) {
-        return k == Movement.Kind.DESCEND || k == Movement.Kind.FALL
-                || k == Movement.Kind.DIG_DOWN;
+    /**
+     * Only FALL (a drop of 2+) needs momentum protection. A one-block DESCEND
+     * is benign terrain vanilla mobs walk at full speed — capping/braking it
+     * turned every downhill slope (a chain of DESCENDs) into a stuttering
+     * crawl, the reported "suddenly slow going downhill". DIG_DOWN has no
+     * edge to overshoot at all.
+     */
+    static boolean fallProtected(Movement.Kind k) {
+        return k == Movement.Kind.FALL;
     }
 
     @Override
     protected Result drive() {
-        if (!entity.onGround()) {
+        if (mv.kind == Movement.Kind.FALL && !entity.onGround()) {
             // Airborne mid-descent: kill horizontal thrust and damp drift.
             // The motor keeps the facing (speed-0 aim) but adds no push.
             // Arrival is judged by the grounded path (super.drive()) on landing.
@@ -42,9 +48,11 @@ public final class DescentDrive extends SteerDrive {
         return super.drive();
     }
 
-    /** Approaching our own edge: capped regardless of what comes next. */
+    /** Approaching a real fall edge: capped regardless of what comes next. */
     @Override
     protected double driveSpeed() {
-        return Math.min(host.userSpeed(), EDGE_SPEED_CAP);
+        return mv.kind == Movement.Kind.FALL
+                ? Math.min(host.userSpeed(), EDGE_SPEED_CAP)
+                : super.driveSpeed();
     }
 }

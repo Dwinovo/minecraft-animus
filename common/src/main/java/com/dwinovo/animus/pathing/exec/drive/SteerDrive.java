@@ -50,10 +50,10 @@ public class SteerDrive extends MovementDrive {
         return Result.RUNNING;
     }
 
-    /** The user speed, capped when the next node steps off an edge. */
+    /** The user speed, capped when the next node steps off a real fall edge. */
     protected double driveSpeed() {
         Movement next = host.nextMovement();
-        boolean edgy = next != null && DescentDrive.descendFamily(next.kind);
+        boolean edgy = next != null && DescentDrive.fallProtected(next.kind);
         return edgy ? Math.min(host.userSpeed(), EDGE_SPEED_CAP) : host.userSpeed();
     }
 

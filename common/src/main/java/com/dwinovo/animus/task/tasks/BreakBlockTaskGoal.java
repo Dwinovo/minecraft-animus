@@ -53,6 +53,12 @@ public final class BreakBlockTaskGoal extends LlmTaskGoal<BreakBlockTaskRecord> 
             fail("can't break " + brokenBlock + " at " + posLabel(r) + ": " + unmineable);
             return;
         }
+        if (BlockMiningProgress.submergedBeyondReach(entity.level(), r.target)) {
+            fail(brokenBlock + " at " + posLabel(r) + " is fully UNDERWATER — I don't "
+                    + "dive. Drain it first: place_block sand/gravel beside it, or scoop "
+                    + "the water above it with use_item(bucket), then break it");
+            return;
+        }
         // Same harvest gate as auto_mine: breaking with the wrong tool yields
         // no drops and teaches the model the wrong tier lesson.
         String requirement = BlockMiningProgress.harvestRequirement(entity, state);

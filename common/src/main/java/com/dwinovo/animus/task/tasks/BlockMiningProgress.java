@@ -100,6 +100,30 @@ public final class BlockMiningProgress {
     }
 
     /**
+     * Is this block diggable only from inside water? We deliberately don't
+     * dive (surface swimming is for escape/crossing; underwater work means
+     * 25× vanilla mining penalties and buoyancy management nobody — not even
+     * Baritone — models properly): a target whose top AND all four sides sit
+     * in water has no dry approach and is declared unreachable with guidance.
+     * A shoreline block with one dry face stays perfectly mineable.
+     */
+    public static boolean submergedBeyondReach(Level level, BlockPos pos) {
+        if (!level.getBlockState(pos.above()).getFluidState()
+                .is(net.minecraft.tags.FluidTags.WATER)) {
+            return false;
+        }
+        for (net.minecraft.core.Direction d : net.minecraft.core.Direction.Plane.HORIZONTAL) {
+            // Any non-water side — open (dry approach) or solid (can be dug
+            // open from dry land) — keeps the block approachable.
+            if (!level.getBlockState(pos.relative(d)).getFluidState()
+                    .is(net.minecraft.tags.FluidTags.WATER)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Decide whether the entity's current main-hand item can <em>harvest</em>
      * {@code state} — i.e. actually yield its drops. Returns {@code null} when
      * the dig is valid (the block needs no special tool, or the held item is the

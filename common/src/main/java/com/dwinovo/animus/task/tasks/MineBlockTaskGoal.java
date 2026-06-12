@@ -141,9 +141,15 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
                 return;
             }
             // Cap reached, deposit dry. Partial success if we got anything.
-            doneReason = r.getMined() > 0
+            String underwaterNote = skippedUnderwater > 0
+                    ? " (" + skippedUnderwater + " more sit UNDERWATER — I don't dive; "
+                            + "drain them first: place sand/gravel or scoop the water "
+                            + "with a bucket, then mine)"
+                    : "";
+            doneReason = (r.getMined() > 0
                     ? "only " + r.getMined() + "/" + r.count + " found within " + r.maxRadius + " blocks"
-                    : "no " + r.label + " found within " + r.maxRadius + " blocks";
+                    : "no reachable " + r.label + " found within " + r.maxRadius + " blocks")
+                    + underwaterNote;
             r.setState(r.getMined() > 0 ? TaskState.SUCCESS : TaskState.FAILED);
             return;
         }
@@ -315,9 +321,13 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
      * walkway-looking blocks floating over liquid at its own floor level
      * (cold-start guard for bridges the ledger no longer remembers).
      */
+    /** Underwater candidates skipped in the last scan — for the teaching message. */
+    private int skippedUnderwater;
+
     private BlockScanner.Hit nearestUnskipped(Level level, BlockPos center, MineBlockTaskRecord r) {
         BlockScanner.Hit best = null;
         double bestScore = Double.MAX_VALUE;
+        skippedUnderwater = 0;
         for (BlockScanner.Hit hit : BlockScanner.findWithin(level, center, currentRadius, r.targets)) {
             // findWithin is distance-ascending and the penalty is non-negative,
             // so once raw distance exceeds the best score nothing can win.
@@ -325,6 +335,10 @@ public final class MineBlockTaskGoal extends LlmTaskGoal<MineBlockTaskRecord> {
             if (skipped.contains(hit.pos())) continue;
             if (entity.scaffoldLedger().isOwnScaffold(hit.pos(), hit.state().getBlock())) continue;
             if (looksLikeOwnWalkway(level, center, hit.pos())) continue;
+            if (BlockMiningProgress.submergedBeyondReach(level, hit.pos())) {
+                skippedUnderwater++;   // we don't dive — counted for the teach
+                continue;
+            }
             double score = MiningEconomics.score(hit.distance(), center.getY(), hit.pos().getY());
             if (score < bestScore) {
                 bestScore = score;
