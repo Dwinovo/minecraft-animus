@@ -336,6 +336,8 @@ public final class PathExecutor {
         stack.shrink(1);
         entity.getInventory().setChanged();
         entity.pathTally().addPlaced(state.getBlock());
+        // Ledger the placement: auto_mine must never loot our own bridge.
+        entity.scaffoldLedger().record(at, state.getBlock());
         plog("placed scaffold " + state.getBlock() + " @ " + at);
         phase = Phase.MOVE;
         return Status.RUNNING;

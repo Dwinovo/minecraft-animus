@@ -354,6 +354,18 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
         return pathTally;
     }
 
+    /**
+     * Lifetime ledger of blocks the pathfinder placed (bridges, pillars) —
+     * auto-targeting tools consult it so the pet never mines its own
+     * infrastructure. Recorded by {@code PathExecutor}, read by auto_mine.
+     */
+    private final com.dwinovo.animus.pathing.exec.ScaffoldLedger<net.minecraft.world.level.block.Block> scaffoldLedger =
+            new com.dwinovo.animus.pathing.exec.ScaffoldLedger<>();
+
+    public com.dwinovo.animus.pathing.exec.ScaffoldLedger<net.minecraft.world.level.block.Block> scaffoldLedger() {
+        return scaffoldLedger;
+    }
+
     @Override
     protected void customServerAiStep(ServerLevel level) {
         super.customServerAiStep(level);
