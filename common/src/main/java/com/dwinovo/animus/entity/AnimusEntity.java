@@ -418,14 +418,24 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
     }
 
     /**
+     * Is a world task currently executing or queued? Reflex goals that would
+     * fight a task's own body control (water escape vs a SWIM path) gate on
+     * this; tighter than {@link #isEngaged} (no linger — an idle pet knocked
+     * into a pond two minutes after its last job must still self-rescue).
+     */
+    public boolean hasTaskWork() {
+        return (activeTask != null && activeTask.getState() == TaskState.RUNNING)
+                || (taskQueue != null && taskQueue.pendingCount() > 0);
+    }
+
+    /**
      * Is the owner's agent loop actively driving this pet — a task running or
      * queued, or a tool call within the linger window? Gates both the chunk
      * ticket and dimension-follow (an engaged pet stays on its job when the
      * owner takes a portal; tickets + revival keep it reachable).
      */
     public boolean isEngaged() {
-        if ((activeTask != null && activeTask.getState() == TaskState.RUNNING)
-                || (taskQueue != null && taskQueue.pendingCount() > 0)) {
+        if (hasTaskWork()) {
             return true;
         }
         return this.level() instanceof ServerLevel sl
@@ -441,8 +451,7 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
      */
     private void refreshChunkTicket(ServerLevel level) {
         long now = level.getGameTime();
-        if (activeTask != null && activeTask.getState() == TaskState.RUNNING
-                || taskQueue != null && taskQueue.pendingCount() > 0) {
+        if (hasTaskWork()) {
             lastEngagementTime = now;
         }
         if (!isEngaged()) return;

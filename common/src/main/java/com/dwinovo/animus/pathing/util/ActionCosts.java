@@ -31,6 +31,15 @@ public final class ActionCosts {
     public static final double SPRINT_ONE_BLOCK = 20.0 / 5.612;
 
     /**
+     * Swimming one block: 20 / 2.2 b/s (Baritone's WALK_ONE_IN_WATER_COST).
+     * Roughly twice walking, so land routes always win when both exist — but
+     * a body in the water can now PLAN its way out instead of needing an
+     * emergency reflex. Also ≥ JUMP_ONE_BLOCK, keeping the upward heuristic
+     * admissible for vertical swims.
+     */
+    public static final double SWIM_ONE_BLOCK = 20.0 / 2.2;
+
+    /**
      * Heuristic inflation factor (weighted A*). The octile distance heuristic is
      * an admissible lower bound, but with terrain modification real per-block
      * costs run well above {@link #WALK_ONE_BLOCK}, so the bound is weak and a

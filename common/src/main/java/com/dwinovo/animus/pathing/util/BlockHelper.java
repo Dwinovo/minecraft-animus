@@ -42,6 +42,20 @@ public final class BlockHelper {
         return shape.isEmpty();
     }
 
+    /** Is this cell water (source or flowing)? The one fluid we swim. */
+    public static boolean isWater(BlockGetter level, BlockPos pos) {
+        return level.getBlockState(pos).getFluidState()
+                .is(net.minecraft.tags.FluidTags.WATER);
+    }
+
+    /**
+     * Can the entity's body occupy this cell while swimming — passable air
+     * or water (never lava)? The swim-move generator's clearance check.
+     */
+    public static boolean canOccupyInWater(BlockGetter level, BlockPos pos) {
+        return canWalkThrough(level, pos) || isWater(level, pos);
+    }
+
     /**
      * Can the entity stand on TOP of this block (i.e. is it a solid floor)?
      * Requires a full-ish top face and no fluid.

@@ -80,16 +80,6 @@ public final class Navigator {
     private int replans = 0;
     private String failReason = "target unreachable";
 
-    /** Consecutive deep-water ticks (the swim-yield state). */
-    private int submergedTicks = 0;
-    /**
-     * Deep-water ticks before the task fails instead of waiting forever for
-     * the escape reflex (10s — the reflex beaches a body in 2-4s when a shore
-     * exists; far past that means there is no shore to find and the task
-     * would otherwise just burn its whole deadline "RUNNING").
-     */
-    private static final int SUBMERGED_FAIL_TICKS = 200;
-
     /** Stationary goal (move_to / auto_mine) — a fixed cell, no follow. */
     public Navigator(AnimusEntity entity, BlockPos goal, double speed, BooleanSupplier reached) {
         this(entity, () -> goal, speed, reached);
@@ -109,49 +99,11 @@ public final class Navigator {
         if (reached.getAsBoolean()) {
             return Status.ARRIVED;
         }
-        if (entity.isDeepInWater()) {
-            // Swimming: don't plan (a water start has no edges — the search
-            // would fail the whole task mid-lake) and don't execute. The
-            // WaterEscapeGoal beaches the body; we resume from dry land.
-            if (submergedTicks++ == 0) {
-                // Release the path's motor claim — the BodyMotor parks it, so
-                // no stale MOVE_TO keeps thrusting toward a submerged node
-                // against the escape reflex (the old "circles underwater until
-                // it drowns" mechanism). Drop the in-flight path AND any
-                // in-flight search (its root is the pre-water position): once
-                // beached we plan fresh from the shore, not from the lake.
-                if (current != null) {
-                    current.stop();   // releases the PATH motor claim
-                    current = null;
-                } else {
-                    entity.motor().release(BodyMotor.Owner.PATH);
-                }
-                search = null;
-                searchCtx = null;
-                discardPrecompute();
-            }
-            // The escape reflex publishing a live swim path means we are NOT
-            // stranded — hold the clock while it works (a 32-block shore takes
-            // ~25s of swimming; failing at 10s would lie to the model).
-            if (entity.getNavigation().isInProgress()) {
-                submergedTicks = 1;
-            }
-            if (submergedTicks > SUBMERGED_FAIL_TICKS) {
-                failReason = "stranded in deep water — the swim-ashore reflex found no "
-                        + "nearby shore. The route or target crosses open water; move_to "
-                        + "solid ground near the water's edge instead, or approach from "
-                        + "another direction";
-                return Status.FAILED;
-            }
-            return Status.RUNNING;
-        }
-        if (submergedTicks > 0) {
-            // Just beached. Plan fresh from dry land.
-            submergedTicks = 0;
-            if (current == null && search == null) {
-                startFreshSearch();
-            }
-        }
+        // No water special-case: SWIM is a first-class movement primitive, so
+        // a search rooted in water has edges (it swims out) and a path may
+        // legitimately execute while submerged. The old yield-and-wait
+        // apparatus (escape reflex hand-off, submerged timers, beach restart)
+        // retired with it.
 
         // PLANNING mode: no path yet, spend this tick's budget on the fresh search.
         if (current == null) {

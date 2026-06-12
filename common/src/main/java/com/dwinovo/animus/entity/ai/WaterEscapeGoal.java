@@ -49,12 +49,16 @@ public final class WaterEscapeGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        return entity.isDeepInWater();
+        // Only when NO task drives the body: a running task swims for itself
+        // now (SWIM is a path primitive), and two swimmers claiming the motor
+        // in alternating ticks would thrash. This reflex is for the IDLE pet
+        // knocked into a pond with nobody planning on its behalf.
+        return entity.isDeepInWater() && !entity.hasTaskWork();
     }
 
     @Override
     public boolean canContinueToUse() {
-        return entity.isDeepInWater();
+        return entity.isDeepInWater() && !entity.hasTaskWork();
     }
 
     @Override

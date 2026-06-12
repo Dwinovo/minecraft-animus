@@ -54,13 +54,6 @@ public final class PathExecutor implements DriveHost {
     private static final int AWAY_BUDGET = 60;
     /** >3 blocks off the current movement → definitively shoved off, replan now. */
     private static final double HARD_DIST_SQR = 9.0;
-    /**
-     * Consecutive deep-water ticks before the executor stops waiting for the
-     * escape reflex and asks for a replan from wherever the swim took us.
-     * (Navigator normally intercepts the swim before us; defence in depth.)
-     */
-    private static final int SUBMERGED_REPLAN_TICKS = 60;
-
     private final AnimusEntity entity;
     private final Path path;
     private final double speed;
@@ -72,8 +65,6 @@ public final class PathExecutor implements DriveHost {
     private int ticksOnCurrent = 0;
     /** Consecutive ticks the feet matched no nearby movement (off-path). */
     private int ticksAway = 0;
-    /** Consecutive deep-water ticks (swim-yield state). */
-    private int submergedTicks = 0;
 
     public PathExecutor(AnimusEntity entity, Path path, double speed) {
         this.entity = entity;
@@ -84,17 +75,10 @@ public final class PathExecutor implements DriveHost {
     }
 
     public Status tick() {
-        if (entity.isDeepInWater()) {
-            // Swimming: ground movement can't progress and the stall/off-path
-            // counters would misfire. Kill our stale steer first, then yield
-            // to the float/escape reflexes — but not forever.
-            if (submergedTicks++ == 0) {
-                entity.motor().release(BodyMotor.Owner.PATH);
-            }
-            return submergedTicks > SUBMERGED_REPLAN_TICKS
-                    ? Status.NEEDS_REPLAN : Status.RUNNING;
-        }
-        submergedTicks = 0;
+        // No water special-case: SWIM is a first-class movement, so a path
+        // can legitimately execute while deep in water. A LAND path knocked
+        // into water fails re-localization (water cells are in no land move's
+        // valid set) and replans — and the fresh search swims itself out.
         if (path.isEmpty() || index >= path.movements.size()) {
             // Nothing (left) to walk. Partial paths hand over to a fresh search.
             return path.partial ? Status.NEEDS_REPLAN : Status.ARRIVED;
@@ -152,6 +136,7 @@ public final class PathExecutor implements DriveHost {
             case DESCEND, FALL, DIG_DOWN -> new DescentDrive(entity, mv, this);
             case PILLAR -> new PillarDrive(entity, mv, this);
             case PARKOUR -> new ParkourDrive(entity, mv, this);
+            case SWIM -> new com.dwinovo.animus.pathing.exec.drive.SwimDrive(entity, mv, this);
             default -> new SteerDrive(entity, mv, this);
         };
     }

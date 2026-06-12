@@ -77,7 +77,43 @@ public final class Moves {
         if (up != null) out.add(up);
         Movement down = digDown(ctx, from);
         if (down != null) out.add(down);
+        swims(ctx, from, out);
         return out;
+    }
+
+    // ---- Swim: water as first-class (expensive) terrain ----
+
+    /**
+     * Emitted only while the FROM cell is water — a dry body never plans into
+     * water (entering deliberately stays unsupported; bridging wins on cost
+     * anyway). In water: lateral water→water strokes plus a vertical stroke
+     * toward the surface, all at {@link ActionCosts#SWIM_ONE_BLOCK} (~2× walk,
+     * so land routes dominate the moment the search reaches shore). The shore
+     * EXIT needs no special edge: TRAVERSE/ASCEND generate from a water cell
+     * like any other, so "swim to the bank, step/jump out, walk on" is one
+     * continuous plan — the entire reason a dunked task no longer needs an
+     * emergency reflex and a pile of yield timers.
+     */
+    private static void swims(NavContext ctx, BlockPos from, List<Movement> out) {
+        BlockGetter level = ctx.view;
+        if (!BlockHelper.isWater(level, from)) return;
+        for (Direction dir : HORIZONTAL) {
+            BlockPos dest = from.relative(dir);
+            if (!BlockHelper.isWater(level, dest)) continue;
+            if (!BlockHelper.canOccupyInWater(level, dest.above())) continue;
+            if (BlockHelper.isHazard(level, dest) || BlockHelper.isHazard(level, dest.above())) continue;
+            out.add(new Movement(Movement.Kind.SWIM, from, dest,
+                    ActionCosts.SWIM_ONE_BLOCK, List.of(), null));
+        }
+        // Up toward the surface (water→water only; surfacing into the air gap
+        // above the top water cell is the lateral/exit moves' business).
+        BlockPos up = from.above();
+        if (BlockHelper.isWater(level, up)
+                && BlockHelper.canOccupyInWater(level, up.above())
+                && !BlockHelper.isHazard(level, up)) {
+            out.add(new Movement(Movement.Kind.SWIM, from, up,
+                    ActionCosts.SWIM_ONE_BLOCK, List.of(), null));
+        }
     }
 
     // ---- Traverse: same-Y step, bridge gaps, dig obstructions ----

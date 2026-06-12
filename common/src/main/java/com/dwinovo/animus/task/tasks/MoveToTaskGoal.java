@@ -104,8 +104,9 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(targetIsLiquid(r)
                     ? "reached the target area — note the exact target cell is open "
-                            + "LIQUID (I don't swim/wade); I'm standing on the nearest "
-                            + "solid ground. Aim move_to at shores/banks, not at water"
+                            + "LIQUID, so I stopped at the nearest reachable spot (I can "
+                            + "swim, but precise positioning needs solid ground — aim "
+                            + "move_to at shores/banks)"
                     : "reached target", data);
             case TIMEOUT -> new TaskResult(false,
                     "timed out before reaching target", true, false, data);
