@@ -3,7 +3,6 @@ package com.dwinovo.animus.pathing.calc;
 import com.dwinovo.animus.pathing.movement.Movement;
 import com.dwinovo.animus.pathing.movement.Moves;
 import com.dwinovo.animus.pathing.util.ActionCosts;
-import com.dwinovo.animus.pathing.util.BlockHelper;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 

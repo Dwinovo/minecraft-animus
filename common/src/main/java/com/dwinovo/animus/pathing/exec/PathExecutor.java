@@ -9,6 +9,7 @@ import com.dwinovo.animus.pathing.exec.drive.MovementDrive;
 import com.dwinovo.animus.pathing.exec.drive.ParkourDrive;
 import com.dwinovo.animus.pathing.exec.drive.PillarDrive;
 import com.dwinovo.animus.pathing.exec.drive.SteerDrive;
+import com.dwinovo.animus.pathing.exec.drive.SwimDrive;
 import com.dwinovo.animus.pathing.movement.Movement;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
@@ -94,6 +95,16 @@ public final class PathExecutor implements DriveHost {
 
         Movement mv = path.movements.get(index);
 
+        // Deep water on a LAND movement = definitively off-plan (the planner
+        // never routes land moves through water cells), and re-localization
+        // just failed to resync us onto a SWIM segment. Don't burn the
+        // away-budget steering blind underwater — replan NOW; the fresh
+        // search starts in the water and swims itself out.
+        if (entity.isDeepInWater() && mv.kind != Movement.Kind.SWIM) {
+            plog("REPLAN: deep in water on a land movement (kind=" + mv.kind + ")");
+            return Status.NEEDS_REPLAN;
+        }
+
         // Per-second heartbeat: position / node / counters.
         if (VERBOSE && entity.level().getGameTime() % 20 == 0) {
             Vec3 p = entity.position();
@@ -136,7 +147,7 @@ public final class PathExecutor implements DriveHost {
             case DESCEND, FALL, DIG_DOWN -> new DescentDrive(entity, mv, this);
             case PILLAR -> new PillarDrive(entity, mv, this);
             case PARKOUR -> new ParkourDrive(entity, mv, this);
-            case SWIM -> new com.dwinovo.animus.pathing.exec.drive.SwimDrive(entity, mv, this);
+            case SWIM -> new SwimDrive(entity, mv, this);
             default -> new SteerDrive(entity, mv, this);
         };
     }

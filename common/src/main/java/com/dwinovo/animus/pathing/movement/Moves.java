@@ -262,6 +262,10 @@ public final class Moves {
 
     private static Movement pillar(NavContext ctx, BlockPos from) {
         BlockGetter level = ctx.view;
+        // Never pillar out of water: the jump cycle needs onGround, which a
+        // floating body never has — the move would just stall and churn
+        // replans. Height from water is "swim to shore first" by design.
+        if (BlockHelper.isWater(level, from)) return null;
         BlockPos dest = from.above();      // feet end one block up
         BlockPos newHead = from.above(2);  // head room while standing on the new block
 
