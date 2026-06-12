@@ -35,7 +35,7 @@ import java.util.Map;
  */
 public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
 
-    private enum Phase { RESOLVE, GOTO, USE }
+    private enum Phase { RESOLVE, GOTO, USE, HOLD }
 
     private static final int NODES_PER_TICK = AStar.DEFAULT_NODES_PER_TICK;
     private static final double WALK_SPEED = 1.0;
@@ -52,6 +52,12 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
     private String doneReason = "done";
     private final Map<String, Object> resultData = new HashMap<>();
 
+    // HOLD sub-state: the cross-tick fake-player lease. NON-NULL means we owe
+    // a finishHold/abortHold on every exit path (buildResult bottoms out).
+    private net.minecraft.server.level.ServerPlayer held;
+    private int heldSlot = -1;
+    private int heldTicksSoFar;
+
     public UseItemTaskGoal(AnimusEntity entity) {
         super(entity, UseItemTaskRecord.TOOL_NAME, UseItemTaskRecord.class);
     }
@@ -62,6 +68,9 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
         this.standSpot = null;
         this.replans = 0;
         this.resultData.clear();
+        this.held = null;
+        this.heldSlot = -1;
+        this.heldTicksSoFar = 0;
     }
 
     @Override
@@ -70,6 +79,7 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
             case RESOLVE -> tickResolve(r);
             case GOTO -> tickGoto(r);
             case USE -> tickUse(r);
+            case HOLD -> tickHold(r);
         }
     }
 
@@ -149,6 +159,20 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
             fail("no " + r.label + " left to use");
             return;
         }
+        // HOLD mode: press, keep pressed across ticks, release in tickHold.
+        if (r.holdTicks > 0) {
+            Vec3 aim = r.target == null ? null : Vec3.atCenterOf(r.target);
+            held = FakePlayerUse.beginHold(entity, slot, aim);
+            if (held == null) {
+                fail(r.label + " has no hold-to-charge behaviour — call use_item "
+                        + "without hold_ticks for a normal click");
+                return;
+            }
+            heldSlot = slot;
+            heldTicksSoFar = 0;
+            phase = Phase.HOLD;
+            return;
+        }
         InteractionResult result;
         String where;
         if (r.target == null) {
@@ -168,6 +192,17 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
         } else {
             fail("using " + r.label + " " + where + " had no effect (wrong target or item?)");
         }
+    }
+
+    /** Count out the charge, then release — the bow fires here. */
+    private void tickHold(UseItemTaskRecord r) {
+        if (++heldTicksSoFar < r.holdTicks) {
+            return;
+        }
+        FakePlayerUse.finishHold(entity, heldSlot, held, heldTicksSoFar);
+        held = null;
+        doneReason = "held " + r.label + " for " + heldTicksSoFar + " ticks and released";
+        currentRecord.setState(TaskState.SUCCESS);
     }
 
     // ---- helpers ----
@@ -264,6 +299,12 @@ public final class UseItemTaskGoal extends LlmTaskGoal<UseItemTaskRecord> {
     protected TaskResult buildResult(UseItemTaskRecord r, TaskState finalState) {
         stopExecutor();
         entity.getNavigation().stop();
+        // Bottom out the cross-tick lease: a hold interrupted by cancel/timeout
+        // must never leave the shared fake player mid-charge.
+        if (held != null) {
+            FakePlayerUse.abortHold(entity, heldSlot, held);
+            held = null;
+        }
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(doneReason, resultData);
             case TIMEOUT -> TaskResult.timeout("timed out before using " + r.label);

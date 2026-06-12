@@ -48,6 +48,26 @@ public interface IFakePlayerBridge {
         }
     }
 
+    /**
+     * Borrow the fake player ACROSS ticks — held uses (a bow charging) need
+     * the use-item state to survive between server ticks, which the
+     * scoped {@link #withFakePlayer} reset discipline forbids. The caller
+     * owns cleanup: {@link #releaseLease} MUST run on every exit path (the
+     * task goal's stop/buildResult bottoms it out). Serial task execution is
+     * what makes a single shared lease sound — there is never a second
+     * borrower.
+     */
+    default ServerPlayer acquireLease(ServerLevel level) {
+        ServerPlayer fp = getFakePlayer(level);
+        reset(fp);
+        return fp;
+    }
+
+    /** Return a leased fake player, wiping all state. Idempotent. */
+    default void releaseLease(ServerPlayer fp) {
+        reset(fp);
+    }
+
     /** Drop all held/used state so nothing leaks to the next task. */
     private static void reset(ServerPlayer fp) {
         fp.stopUsingItem();

@@ -106,6 +106,70 @@ public final class FakePlayerUse {
         });
     }
 
+    // ---- HOLD (press-and-keep-pressed) uses: bow-likes that charge ----
+
+    /**
+     * Begin a held use: lease the fake player across ticks, aim, lend the
+     * stack (plus matching projectiles for bow-likes — releaseUsing pulls
+     * ammo from the user's inventory) and press right-click. Returns the
+     * leased player while the item is genuinely "in use", else cleans up and
+     * returns null (the item has no hold behaviour — caller falls back to a
+     * click). EVERY exit path of the caller must end in {@link #finishHold}
+     * or {@link #abortHold}.
+     */
+    public static ServerPlayer beginHold(AnimusEntity entity, int invSlot, Vec3 aimOrNull) {
+        ServerLevel level = (ServerLevel) entity.level();
+        ServerPlayer fp = Services.FAKE_PLAYER.acquireLease(level);
+        position(fp, entity);
+        if (aimOrNull != null) {
+            aimAt(fp, aimOrNull);
+        }
+        ItemStack copy = entity.getInventory().getItem(invSlot).copy();
+        fp.setItemInHand(InteractionHand.MAIN_HAND, copy);
+        lendProjectiles(entity, fp, copy);
+        fp.gameMode.useItem(fp, level, fp.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND);
+        if (!fp.isUsingItem()) {
+            reconcile(entity, invSlot, fp);
+            Services.FAKE_PLAYER.releaseLease(fp);
+            return null;
+        }
+        return fp;
+    }
+
+    /** Release after {@code heldTicks} of charge (fires the bow), reconcile, return the lease. */
+    public static void finishHold(AnimusEntity entity, int invSlot, ServerPlayer fp, int heldTicks) {
+        ServerLevel level = (ServerLevel) entity.level();
+        ItemStack using = fp.getUseItem();
+        if (!using.isEmpty()) {
+            int remaining = Math.max(0, using.getUseDuration(fp) - heldTicks);
+            using.releaseUsing(level, fp, remaining);
+        }
+        fp.stopUsingItem();
+        reconcile(entity, invSlot, fp);
+        Services.FAKE_PLAYER.releaseLease(fp);
+    }
+
+    /** Cancel a hold without releasing the use (task interrupted/timed out). */
+    public static void abortHold(AnimusEntity entity, int invSlot, ServerPlayer fp) {
+        fp.stopUsingItem();
+        reconcile(entity, invSlot, fp);
+        Services.FAKE_PLAYER.releaseLease(fp);
+    }
+
+    /** Bow-likes consume ammo from the USER's inventory — lend it along. */
+    private static void lendProjectiles(AnimusEntity entity, ServerPlayer fp, ItemStack weapon) {
+        if (!(weapon.getItem() instanceof net.minecraft.world.item.ProjectileWeaponItem w)) return;
+        SimpleContainer inv = entity.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack s = inv.getItem(i);
+            if (!s.isEmpty() && w.getSupportedHeldProjectiles().test(s)) {
+                fp.getInventory().add(s.copy());
+                inv.setItem(i, ItemStack.EMPTY);
+            }
+        }
+        inv.setChanged();
+    }
+
     /** Outcome of a pathfinder scaffold placement. */
     public enum PlaceResult {
         /** Block is in the world; one item was consumed from the slot. */

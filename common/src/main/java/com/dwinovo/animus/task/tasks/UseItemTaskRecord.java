@@ -22,13 +22,16 @@ public final class UseItemTaskRecord extends TaskRecord {
     /** Block to use the item on, or {@code null} for an in-air use. */
     public final BlockPos target;
     public final String label;
+    /** 0 = single click; &gt;0 = hold right-click this many ticks, then release. */
+    public final int holdTicks;
 
     public UseItemTaskRecord(String toolCallId, long deadlineGameTime,
-                             Item item, BlockPos target, String label) {
+                             Item item, BlockPos target, String label, int holdTicks) {
         super(TOOL_NAME, toolCallId, deadlineGameTime);
         this.item = item;
         this.target = target;
         this.label = label;
+        this.holdTicks = holdTicks;
     }
 
     @Override

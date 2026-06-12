@@ -66,6 +66,11 @@ public final class UseItemTool implements AnimusTool {
                 "description", "Optional target block x (use ON a block). Omit for in-air use."));
         properties.put("y", Map.of("type", "integer", "description", "Optional target block y."));
         properties.put("z", Map.of("type", "integer", "description", "Optional target block z."));
+        properties.put("hold_ticks", Map.of("type", "integer",
+                "description", "Optional: HOLD right-click this many game ticks then release, "
+                        + "for charge-and-release items (a bow fully charges in 20). "
+                        + "Omit for a normal single click.",
+                "minimum", 1, "maximum", 100));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
@@ -92,8 +97,13 @@ public final class UseItemTool implements AnimusTool {
             }
             target = new BlockPos(args.get("x").getAsInt(), args.get("y").getAsInt(), args.get("z").getAsInt());
         }
+        int holdTicks = 0;
+        if (has(args, "hold_ticks")) {
+            holdTicks = Math.clamp(args.get("hold_ticks").getAsInt(), 1, 100);
+        }
         String label = BuiltInRegistries.ITEM.getKey(item).getPath();
-        return new UseItemTaskRecord(toolCallId, currentGameTime + MIN_TIMEOUT_TICKS, item, target, label);
+        return new UseItemTaskRecord(toolCallId, currentGameTime + MIN_TIMEOUT_TICKS,
+                item, target, label, holdTicks);
     }
 
     private static boolean has(JsonObject args, String key) {
