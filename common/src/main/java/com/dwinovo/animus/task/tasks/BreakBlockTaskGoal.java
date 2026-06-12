@@ -60,10 +60,30 @@ public final class BreakBlockTaskGoal extends LlmTaskGoal<BreakBlockTaskRecord> 
             return;
         }
         if (withinReach(r)) {
-            phase = Phase.MINE;
+            beginMine(r);
         } else {
             nav = new Navigator(entity, r.target, WALK_SPEED, () -> withinReach(r));
             phase = Phase.PATH;
+        }
+    }
+
+    /**
+     * Arm the mining engine for this target — {@code tryStart} snapshots the
+     * block state and computes the dig budget; ticking the engine unarmed
+     * compares against a null snapshot and instantly reports "block changed"
+     * (the bug that made every break_block fail on its first swing).
+     */
+    private void beginMine(BreakBlockTaskRecord r) {
+        if (mining.tryStart(r.target)) {
+            phase = Phase.MINE;
+            return;
+        }
+        // Raced away between our checks and now.
+        if (entity.level().getBlockState(r.target).isAir()) {
+            doneReason = "the block at " + posLabel(r) + " is already gone";
+            currentRecord.setState(TaskState.SUCCESS);
+        } else {
+            fail("can't dig " + posLabel(r) + " — the block became unbreakable");
         }
     }
 
@@ -77,16 +97,16 @@ public final class BreakBlockTaskGoal extends LlmTaskGoal<BreakBlockTaskRecord> 
 
     private void tickPath(BreakBlockTaskRecord r) {
         if (nav == null) {
-            phase = Phase.MINE;
+            beginMine(r);
             return;
         }
         switch (nav.tick()) {
             case RUNNING -> { /* keep walking */ }
-            case ARRIVED -> { stopNav(); phase = Phase.MINE; }
+            case ARRIVED -> { stopNav(); beginMine(r); }
             case FAILED -> {
                 if (withinReach(r)) {
                     stopNav();
-                    phase = Phase.MINE;
+                    beginMine(r);
                 } else {
                     fail("can't reach " + posLabel(r) + ": " + nav.failReason());
                 }
