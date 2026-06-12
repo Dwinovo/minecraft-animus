@@ -54,12 +54,17 @@ final class StructureSearchBudget {
     static void refresh(MinecraftServer server) {
         int now = server.getTickCount();
         if (now != stampTick) {
-            stampTick = now;
-            checksLeft = MAX_CHECKS_PER_TICK;
-            loadsLeft = MAX_CHUNK_LOADS_PER_TICK;
-            biomeSamplesLeft = MAX_BIOME_SAMPLES_PER_TICK;
-            deadlineNanos = System.nanoTime() + MAX_NANOS_PER_TICK;
+            resetForTick(now);
         }
+    }
+
+    /** The actual pool reset; also the test seam (no MinecraftServer needed). */
+    static void resetForTick(int tick) {
+        stampTick = tick;
+        checksLeft = MAX_CHECKS_PER_TICK;
+        loadsLeft = MAX_CHUNK_LOADS_PER_TICK;
+        biomeSamplesLeft = MAX_BIOME_SAMPLES_PER_TICK;
+        deadlineNanos = System.nanoTime() + MAX_NANOS_PER_TICK;
     }
 
     /** Take one biome-sample permit; false = pool drained, resume next tick. */

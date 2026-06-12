@@ -86,33 +86,17 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
         ChunkPos next() {
             if (spread == null) return null;     // ring jobs are consumed in onStart
             while (ring <= maxRing) {
-                int perim = ring == 0 ? 1 : 8 * ring;
-                if (perimIdx >= perim) {
+                if (perimIdx >= RingSpiral.perimeter(ring)) {
                     ring++;
                     perimIdx = 0;
                     continue;
                 }
-                int idx = perimIdx++;
-                int dx;
-                int dz;
-                if (ring == 0) {
-                    dx = 0;
-                    dz = 0;
-                } else {
-                    int side = idx / (2 * ring);
-                    int t = idx % (2 * ring);
-                    switch (side) {
-                        case 0 -> { dx = -ring + t; dz = -ring; }
-                        case 1 -> { dx = ring;      dz = -ring + t; }
-                        case 2 -> { dx = ring - t;  dz = ring; }
-                        default -> { dx = -ring;    dz = ring - t; }
-                    }
-                }
+                int[] d = RingSpiral.offset(ring, perimIdx++);
                 // getPotentialStructureChunk takes CHUNK coords and floorDivs by
                 // spacing itself — scale the region index back to chunk scale.
                 return spread.getPotentialStructureChunk(seed,
-                        (centerRegX + dx) * spread.spacing(),
-                        (centerRegZ + dz) * spread.spacing());
+                        (centerRegX + d[0]) * spread.spacing(),
+                        (centerRegZ + d[1]) * spread.spacing());
             }
             return null;
         }
@@ -315,7 +299,7 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
             int dx = best.getX() - me.getX();
             int dz = best.getZ() - me.getZ();
             int dist = (int) Math.sqrt((double) dx * dx + (double) dz * dz);
-            String dir = compass(dx, dz);
+            String dir = CompassUtil.compass(dx, dz);
             data.put("found", true);
             data.put("x", best.getX());
             data.put("y", best.getY());
@@ -362,15 +346,4 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
         return max;
     }
 
-    /** 8-point compass label from a block delta (+X east, +Z south). */
-    private static String compass(int dx, int dz) {
-        if (dx == 0 && dz == 0) return "here";
-        String ns = dz < 0 ? "north" : (dz > 0 ? "south" : "");
-        String ew = dx < 0 ? "west" : (dx > 0 ? "east" : "");
-        if (ns.isEmpty()) return ew;
-        if (ew.isEmpty()) return ns;
-        if (Math.abs(dz) >= 2 * Math.abs(dx)) return ns;
-        if (Math.abs(dx) >= 2 * Math.abs(dz)) return ew;
-        return ns + "-" + ew;
-    }
 }
