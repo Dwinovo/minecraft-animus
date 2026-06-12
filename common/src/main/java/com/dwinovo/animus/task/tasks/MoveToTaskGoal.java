@@ -37,6 +37,8 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
     private static final long MAX_EXTRA_TICKS = 5 * 60 * 20;
 
     private Navigator nav;
+    /** Pre-navigation failure reason (e.g. diving rejection); null = ask nav. */
+    private String failReasonOverride;
 
     public MoveToTaskGoal(AnimusEntity entity) {
         super(entity, MoveToTaskRecord.TOOL_NAME, MoveToTaskRecord.class);
@@ -44,8 +46,21 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
 
     @Override
     protected void onStart(MoveToTaskRecord r) {
+        failReasonOverride = null;
         if (closeEnough(r)) {
             r.setState(TaskState.SUCCESS);
+            return;
+        }
+        // We swim on the SURFACE but never dive (scope decision — underwater
+        // work means 25× mining penalties and buoyancy management; draining
+        // is the correct play). A target below the waterline would otherwise
+        // burn the whole replan budget before failing with a generic message.
+        if (requiresDiving(r)) {
+            failReasonOverride = "the target is DEEP underwater — I swim on the surface "
+                    + "but don't dive. Aim move_to at the shore or the water surface; if "
+                    + "you need the bottom, drain it first (place_block sand/gravel or "
+                    + "scoop water with use_item bucket)";
+            r.setState(TaskState.FAILED);
             return;
         }
         // Scale the deadline with the actual journey. The tool layer stamped a
@@ -83,10 +98,27 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
                 .getFluidState().isEmpty();
     }
 
+    /**
+     * Would standing at the target put the body BELOW the water surface? The
+     * effective feet cell (the target itself, or the cell above it when the
+     * target is solid lake-floor) and the cell above it both being water
+     * means a submerged body — diving, which we don't do. A surface cell
+     * (water feet, air head) stays reachable by surface swimming.
+     */
+    private boolean requiresDiving(MoveToTaskRecord r) {
+        var level = entity.level();
+        BlockPos g = BlockPos.containing(r.x, r.y, r.z);
+        BlockPos feet = level.getBlockState(g).getFluidState()
+                .is(net.minecraft.tags.FluidTags.WATER) ? g : g.above();
+        return level.getBlockState(feet).getFluidState().is(net.minecraft.tags.FluidTags.WATER)
+                && level.getBlockState(feet.above()).getFluidState().is(net.minecraft.tags.FluidTags.WATER);
+    }
+
     @Override
     protected TaskResult buildResult(MoveToTaskRecord r, TaskState finalState) {
         int replans = nav != null ? nav.replans() : 0;
-        String failReason = nav != null ? nav.failReason() : "target unreachable";
+        String failReason = failReasonOverride != null ? failReasonOverride
+                : (nav != null ? nav.failReason() : "target unreachable");
         if (nav != null) nav.stop();
         entity.getNavigation().stop();
 
