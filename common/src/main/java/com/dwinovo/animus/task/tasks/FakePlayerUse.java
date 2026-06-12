@@ -36,32 +36,59 @@ public final class FakePlayerUse {
     private FakePlayerUse() {}
 
     /**
-     * Use the stack in {@code invSlot} against a block face. Returns the vanilla result.
+     * Use the stack in {@code invSlot} against a block face — gaze first, like
+     * a player. Returns the vanilla result, or {@code FAIL} when the target
+     * face isn't visible from here (no clicking through walls).
      *
-     * <p>Two-stage: first the normal {@code useItemOn} (block-interaction path —
-     * flint&steel, ender eyes, bonemeal, placements). If that PASSes without
-     * effect, fall back to aiming the fake player's eyes at the target and
-     * right-clicking "in air": items like {@code BucketItem} implement
-     * {@code use()} with their OWN eye-ray fluid pick instead of {@code useOn},
-     * so the block path is a structural no-op for them — the cause of the
-     * classic "using bucket on source water had no effect".
+     * <p>Order matters: the fake player is positioned, AIMED at the hit point,
+     * then a real {@code level.clip} verifies the eye actually sees the
+     * clicked face. Only then does {@code useItemOn} run; if it PASSes without
+     * effect, the air-use fallback fires with the gaze already on target —
+     * items like {@code BucketItem} implement {@code use()} with their OWN
+     * eye-ray pick instead of {@code useOn}, so the aim is what makes them
+     * work (the old "bucket on source water had no effect" bug was exactly an
+     * unaimed fallback).
      */
     public static InteractionResult useOnBlock(AnimusEntity entity, int invSlot, BlockHitResult hit) {
         ServerLevel level = (ServerLevel) entity.level();
         return Services.FAKE_PLAYER.withFakePlayer(level, fp -> {
             position(fp, entity);
+            aimAt(fp, hit.getLocation());
+            if (!canSee(fp, level, hit)) {
+                return InteractionResult.FAIL;   // occluded — a player couldn't click this
+            }
             ItemStack copy = entity.getInventory().getItem(invSlot).copy();
             fp.setItemInHand(InteractionHand.MAIN_HAND, copy);
             InteractionResult res = fp.gameMode.useItemOn(
                     fp, level, fp.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, hit);
             if (!res.consumesAction()) {
-                aimAt(fp, hit.getLocation());
                 res = fp.gameMode.useItem(
                         fp, level, fp.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND);
             }
             reconcile(entity, invSlot, fp);
             return res;
         });
+    }
+
+    /**
+     * Does the aimed fake player's eye actually see the intended hit point?
+     * Real raycast (OUTLINE, ignoring fluids) pulled back an epsilon so the
+     * clicked face's own plane doesn't self-occlude. MISS = reached the
+     * point; a BLOCK hit must be the intended block to count.
+     */
+    private static boolean canSee(ServerPlayer fp, ServerLevel level, BlockHitResult intended) {
+        Vec3 eye = fp.getEyePosition();
+        Vec3 to = intended.getLocation();
+        Vec3 dir = to.subtract(eye);
+        double len = dir.length();
+        if (len < 1.0e-4) return true;
+        Vec3 end = eye.add(dir.scale((len - 0.05) / len));
+        BlockHitResult clip = level.clip(new net.minecraft.world.level.ClipContext(
+                eye, end,
+                net.minecraft.world.level.ClipContext.Block.OUTLINE,
+                net.minecraft.world.level.ClipContext.Fluid.NONE, fp));
+        return clip.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK
+                || clip.getBlockPos().equals(intended.getBlockPos());
     }
 
     /** Use the stack in {@code invSlot} in the air (throwables, etc.). Returns the vanilla result. */

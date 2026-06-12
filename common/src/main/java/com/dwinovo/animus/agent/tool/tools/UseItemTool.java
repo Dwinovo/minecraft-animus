@@ -83,6 +83,7 @@ public final class UseItemTool implements AnimusTool {
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
         Item item = readItem(args);
+        rejectBodyBoundItems(item);
         BlockPos target = null;
         boolean hasX = has(args, "x"), hasY = has(args, "y"), hasZ = has(args, "z");
         if (hasX || hasY || hasZ) {
@@ -97,6 +98,28 @@ public final class UseItemTool implements AnimusTool {
 
     private static boolean has(JsonObject args, String key) {
         return args.has(key) && !args.get(key).isJsonNull();
+    }
+
+    /**
+     * The fake player is a WORLD actuator — anything whose effect lands on
+     * the user's own body must not go through it. Consumables would feed the
+     * fake player (no healing, item wasted); an ender pearl's landing
+     * teleports its OWNER, and a borrowed connectionless fake player has no
+     * defined answer to that. Was a javadoc convention; now it's code.
+     */
+    private static void rejectBodyBoundItems(Item item) {
+        if (item.components().has(net.minecraft.core.component.DataComponents.CONSUMABLE)) {
+            throw new IllegalArgumentException(
+                    BuiltInRegistries.ITEM.getKey(item).getPath()
+                            + " is a consumable — use eat_item instead; use_item acts on "
+                            + "the WORLD, eating through it would not heal you");
+        }
+        if (item == Items.ENDER_PEARL) {
+            throw new IllegalArgumentException(
+                    "ender_pearl teleportation is body-bound and not supported — to "
+                            + "travel, use move_to; to locate the stronghold, use "
+                            + "locate_structure(\"minecraft:stronghold\")");
+        }
     }
 
     private static Item readItem(JsonObject args) {
