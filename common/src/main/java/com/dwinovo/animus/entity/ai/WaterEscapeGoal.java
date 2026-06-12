@@ -61,6 +61,9 @@ public final class WaterEscapeGoal extends Goal {
     public void start() {
         retargetCooldown = 0;
         failedSearches = 0;
+        // Claim the body: parks any stale path steering so the swim isn't
+        // fighting a leftover MOVE_TO from an interrupted executor tick.
+        entity.motor().hold(com.dwinovo.animus.pathing.exec.BodyMotor.Owner.REFLEX);
     }
 
     @Override
@@ -70,7 +73,8 @@ public final class WaterEscapeGoal extends Goal {
         // is this goal's job (a knockback can dunk the body metres deep).
         if (entity.isUnderWater()) {
             var d = entity.getDeltaMovement();
-            entity.setDeltaMovement(d.x, Math.min(d.y + SURFACE_THRUST, 0.25), d.z);
+            entity.motor().impulse(com.dwinovo.animus.pathing.exec.BodyMotor.Owner.REFLEX,
+                    d.x, Math.min(d.y + SURFACE_THRUST, 0.25), d.z);
         }
         if (--retargetCooldown > 0 && entity.getNavigation().isInProgress()) {
             return;
@@ -98,6 +102,7 @@ public final class WaterEscapeGoal extends Goal {
     @Override
     public void stop() {
         entity.getNavigation().stop();
+        entity.motor().release(com.dwinovo.animus.pathing.exec.BodyMotor.Owner.REFLEX);
     }
 
     @Override

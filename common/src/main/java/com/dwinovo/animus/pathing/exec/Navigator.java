@@ -114,19 +114,17 @@ public final class Navigator {
             // would fail the whole task mid-lake) and don't execute. The
             // WaterEscapeGoal beaches the body; we resume from dry land.
             if (submergedTicks++ == 0) {
-                // Kill the stale MoveControl MOVE_TO from the last executor
-                // tick — left alive it keeps thrusting toward a (possibly
-                // submerged) node and fights the escape reflex's navigation;
-                // this was the actual "circles underwater until it drowns"
-                // mechanism. Drop the in-flight path AND any in-flight search
-                // (its root is the pre-water position — finishing it would
-                // yield a path the executor immediately re-plans away): once
+                // Release the path's motor claim — the BodyMotor parks it, so
+                // no stale MOVE_TO keeps thrusting toward a submerged node
+                // against the escape reflex (the old "circles underwater until
+                // it drowns" mechanism). Drop the in-flight path AND any
+                // in-flight search (its root is the pre-water position): once
                 // beached we plan fresh from the shore, not from the lake.
-                entity.getMoveControl().setWantedPosition(
-                        entity.getX(), entity.getY(), entity.getZ(), 0.0);
                 if (current != null) {
-                    current.stop();
+                    current.stop();   // releases the PATH motor claim
                     current = null;
+                } else {
+                    entity.motor().release(BodyMotor.Owner.PATH);
                 }
                 search = null;
                 searchCtx = null;
