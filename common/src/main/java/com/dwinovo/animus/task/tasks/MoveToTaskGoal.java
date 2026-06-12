@@ -77,6 +77,12 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
         return entity.distanceToSqr(r.x, r.y, r.z) <= REACHED_DISTANCE_SQR;
     }
 
+    /** Did the model aim at a fluid cell? Teach instead of silently "reaching". */
+    private boolean targetIsLiquid(MoveToTaskRecord r) {
+        return !entity.level().getBlockState(BlockPos.containing(r.x, r.y, r.z))
+                .getFluidState().isEmpty();
+    }
+
     @Override
     protected TaskResult buildResult(MoveToTaskRecord r, TaskState finalState) {
         int replans = nav != null ? nav.replans() : 0;
@@ -96,7 +102,11 @@ public final class MoveToTaskGoal extends LlmTaskGoal<MoveToTaskRecord> {
         data.put("replans", replans);
 
         return switch (finalState) {
-            case SUCCESS -> TaskResult.ok("reached target", data);
+            case SUCCESS -> TaskResult.ok(targetIsLiquid(r)
+                    ? "reached the target area — note the exact target cell is open "
+                            + "LIQUID (I don't swim/wade); I'm standing on the nearest "
+                            + "solid ground. Aim move_to at shores/banks, not at water"
+                    : "reached target", data);
             case TIMEOUT -> new TaskResult(false,
                     "timed out before reaching target", true, false, data);
             case CANCELLED -> new TaskResult(false,

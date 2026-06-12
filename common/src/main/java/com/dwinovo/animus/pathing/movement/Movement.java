@@ -85,6 +85,16 @@ public final class Movement {
                 for (int y = src.getY() - 1; y > dest.getY(); y--) {
                     set.add(new BlockPos(dest.getX(), y, dest.getZ()));
                 }
+                // Landing tolerance ±1 XZ around dest: knockback / residual
+                // momentum routinely lands a multi-block drop one cell off the
+                // planned column, and without these cells the relocalizer sees
+                // "off path" and burns the whole AWAY_BUDGET before replanning
+                // (Baritone judges fall landings by flat distance, same idea).
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        set.add(new BlockPos(dest.getX() + dx, dest.getY(), dest.getZ() + dz));
+                    }
+                }
             }
             default -> { /* TRAVERSE, PILLAR, DIG_DOWN: just src + dest */ }
         }
