@@ -84,29 +84,39 @@ public final class Moves {
     // ---- Swim: water as first-class (expensive) terrain ----
 
     /**
-     * Emitted only while the FROM cell is water — a dry body never plans into
-     * water (entering deliberately stays unsupported; bridging wins on cost
-     * anyway). In water: lateral water→water strokes plus a vertical stroke
-     * toward the surface, all at {@link ActionCosts#SWIM_ONE_BLOCK} (~2× walk,
-     * so land routes dominate the moment the search reaches shore). The shore
-     * EXIT needs no special edge: TRAVERSE/ASCEND generate from a water cell
-     * like any other, so "swim to the bank, step/jump out, walk on" is one
-     * continuous plan — the entire reason a dunked task no longer needs an
-     * emergency reflex and a pile of yield timers.
+     * THE SURFACE IS THE ONLY SWIM PLANE — encoded here, in the one place
+     * movement edges are born, not policed per-tool. Emitted only while the
+     * FROM cell is water:
+     * <ul>
+     *   <li>lateral strokes exist ONLY between SURFACE cells (feet in the top
+     *       water layer, head in air) — the graph contains no underwater
+     *       corridors, so nothing can ever route below the surface;</li>
+     *   <li>vertical strokes go UP only — the escape ladder for a body
+     *       knocked into depth. There is deliberately no downward stroke:
+     *       diving is out of scope (25× mining penalties, buoyancy
+     *       management; draining is the correct play and the tools teach
+     *       it at the intent layer).</li>
+     * </ul>
+     * All strokes cost {@link ActionCosts#SWIM_ONE_BLOCK} (~2× walk), so land
+     * routes dominate the moment the search reaches shore. The shore EXIT
+     * needs no special edge: TRAVERSE/ASCEND generate from a water cell like
+     * any other, so "swim to the bank, step out, walk on" is one plan.
      */
     private static void swims(NavContext ctx, BlockPos from, List<Movement> out) {
         BlockGetter level = ctx.view;
         if (!BlockHelper.isWater(level, from)) return;
-        for (Direction dir : HORIZONTAL) {
-            BlockPos dest = from.relative(dir);
-            if (!BlockHelper.isWater(level, dest)) continue;
-            if (!BlockHelper.canOccupyInWater(level, dest.above())) continue;
-            if (BlockHelper.isHazard(level, dest) || BlockHelper.isHazard(level, dest.above())) continue;
-            out.add(new Movement(Movement.Kind.SWIM, from, dest,
-                    ActionCosts.SWIM_ONE_BLOCK, List.of(), null));
+        // Lateral: surface cells only (head out of the water on both ends).
+        if (isSurfaceCell(level, from)) {
+            for (Direction dir : HORIZONTAL) {
+                BlockPos dest = from.relative(dir);
+                if (!isSurfaceCell(level, dest)) continue;
+                if (BlockHelper.isHazard(level, dest) || BlockHelper.isHazard(level, dest.above())) continue;
+                out.add(new Movement(Movement.Kind.SWIM, from, dest,
+                        ActionCosts.SWIM_ONE_BLOCK, List.of(), null));
+            }
         }
-        // Up toward the surface (water→water only; surfacing into the air gap
-        // above the top water cell is the lateral/exit moves' business).
+        // Up toward the surface (water→water only; the final pop into the
+        // air-headed surface cell is just the lateral/exit moves' domain).
         BlockPos up = from.above();
         if (BlockHelper.isWater(level, up)
                 && BlockHelper.canOccupyInWater(level, up.above())
@@ -114,6 +124,12 @@ public final class Moves {
             out.add(new Movement(Movement.Kind.SWIM, from, up,
                     ActionCosts.SWIM_ONE_BLOCK, List.of(), null));
         }
+    }
+
+    /** A swimmable SURFACE cell: water feet, breathable (non-water) head. */
+    private static boolean isSurfaceCell(BlockGetter level, BlockPos feet) {
+        return BlockHelper.isWater(level, feet)
+                && BlockHelper.canWalkThrough(level, feet.above());
     }
 
     // ---- Traverse: same-Y step, bridge gaps, dig obstructions ----
