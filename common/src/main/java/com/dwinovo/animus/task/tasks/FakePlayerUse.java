@@ -2,6 +2,7 @@ package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusEntity;
 import com.dwinovo.animus.platform.Services;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -103,6 +104,91 @@ public final class FakePlayerUse {
             reconcile(entity, invSlot, fp);
             return res;
         });
+    }
+
+    /** Outcome of a pathfinder scaffold placement. */
+    public enum PlaceResult {
+        /** Block is in the world; one item was consumed from the slot. */
+        PLACED,
+        /** No clickable neighbour face exists — the plan's support vanished. */
+        NO_SUPPORT,
+        /** Vanilla refused (entity overlap, protection, …) — retry next tick. */
+        REFUSED
+    }
+
+    /**
+     * Place one scaffold block into {@code cell} the way a bridging player
+     * does: pick a solid neighbour, sneak (so clicking a chest/furnace
+     * support places instead of opening its GUI), aim at the shared face and
+     * {@code useItemOn}. Vanilla's own placement rules apply — most
+     * importantly its entity-collision rejection, which retires the
+     * hand-rolled inflated-AABB obstruction glue: a placement that would
+     * wedge a body simply REFUSES, and the drive retries next tick.
+     *
+     * <p>No line-of-sight gate, deliberately: scaffolding is point-blank work
+     * against the block at the feet, mirroring the mining engine's stance on
+     * clearance digging.
+     *
+     * <p>Consumption is accounted manually (exactly one item on success) —
+     * dupe-proof regardless of the fake player's game mode.
+     */
+    public static PlaceResult placeScaffold(AnimusEntity entity, int invSlot, BlockPos cell) {
+        ServerLevel level = (ServerLevel) entity.level();
+        BlockHitResult support = findSupportClick(level, cell, entity);
+        if (support == null) {
+            return PlaceResult.NO_SUPPORT;
+        }
+        return Services.FAKE_PLAYER.withFakePlayer(level, fp -> {
+            position(fp, entity);
+            aimAt(fp, support.getLocation());
+            fp.setShiftKeyDown(true);
+            try {
+                ItemStack original = entity.getInventory().getItem(invSlot);
+                fp.setItemInHand(InteractionHand.MAIN_HAND, original.copy());
+                fp.gameMode.useItemOn(fp, level,
+                        fp.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, support);
+                // Judge by the WORLD, not the result code: did the cell fill?
+                boolean placed = !level.getBlockState(cell).getCollisionShape(level, cell).isEmpty();
+                if (placed) {
+                    original.shrink(1);
+                    entity.getInventory().setChanged();
+                    return PlaceResult.PLACED;
+                }
+                return PlaceResult.REFUSED;
+            } finally {
+                fp.setShiftKeyDown(false);
+            }
+        });
+    }
+
+    /**
+     * A clickable neighbour face that places into {@code cell}: below first
+     * (pillar tops), then horizontals nearest the entity (bridging clicks the
+     * block behind), then above.
+     */
+    private static BlockHitResult findSupportClick(ServerLevel level, BlockPos cell, AnimusEntity entity) {
+        java.util.List<net.minecraft.core.Direction> order = new java.util.ArrayList<>(6);
+        order.add(net.minecraft.core.Direction.DOWN);
+        java.util.List<net.minecraft.core.Direction> horizontals = new java.util.ArrayList<>(4);
+        for (net.minecraft.core.Direction d : net.minecraft.core.Direction.Plane.HORIZONTAL) {
+            horizontals.add(d);
+        }
+        horizontals.sort(java.util.Comparator.comparingDouble(d ->
+                entity.distanceToSqr(Vec3.atCenterOf(cell.relative(d)))));
+        order.addAll(horizontals);
+        order.add(net.minecraft.core.Direction.UP);
+
+        for (net.minecraft.core.Direction d : order) {
+            BlockPos neighbour = cell.relative(d);
+            if (level.getBlockState(neighbour).getCollisionShape(level, neighbour).isEmpty()) {
+                continue;
+            }
+            net.minecraft.core.Direction face = d.getOpposite();   // neighbour.relative(face) == cell
+            Vec3 hit = Vec3.atCenterOf(neighbour)
+                    .add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
+            return new BlockHitResult(hit, face, neighbour, false);
+        }
+        return null;
     }
 
     /** Stand the fake player where the Animus is, facing the same way (placement orientation). */

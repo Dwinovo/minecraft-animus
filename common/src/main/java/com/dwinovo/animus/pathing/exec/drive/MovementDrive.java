@@ -6,12 +6,10 @@ import com.dwinovo.animus.pathing.exec.BodyMotor;
 import com.dwinovo.animus.pathing.movement.Movement;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.task.tasks.BlockMiningProgress;
+import com.dwinovo.animus.task.tasks.FakePlayerUse;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -173,54 +171,61 @@ public abstract class MovementDrive {
             host.log("REPLAN: scaffold spot " + at + " not placeable and not walkable");
             return Result.NEEDS_REPLAN;
         }
-
-        ItemStack stack = takeScaffold();
-        if (stack == null) {
-            // Ran out of scaffolding mid-path — replan; the fresh NavContext
-            // will have hasScaffold == false and route around (or fail clean).
-            host.log("REPLAN: out of scaffolding for " + at);
-            return Result.NEEDS_REPLAN;
+        switch (placeScaffold(at)) {
+            case PLACED -> floorPlaced = true;
+            case NO_SUPPORT -> {
+                host.log("REPLAN: no support face left to place scaffold against @ " + at);
+                return Result.NEEDS_REPLAN;
+            }
+            case REFUSED -> {
+                // Vanilla turned the click down (a body overlaps the cell, a
+                // protection rule, …) — re-centre on the source and retry.
+                Vec3 src = Vec3.atBottomCenterOf(mv.src);
+                motor.steer(BodyMotor.Owner.PATH, src.x, src.y, src.z, host.userSpeed());
+            }
+            case OUT_OF_BLOCKS -> {
+                // Ran out of scaffolding mid-path — replan; the fresh
+                // NavContext will have hasScaffold == false and route around.
+                host.log("REPLAN: out of scaffolding for " + at);
+                return Result.NEEDS_REPLAN;
+            }
         }
-        // Vanilla placement refuses any spot intersecting an entity's box — so
-        // must we, or the block materializes inside a body (wedged in a solid
-        // block → suffocation). Re-centre on the source cell until it's clear.
-        if (placementObstructed(at)) {
-            Vec3 src = Vec3.atBottomCenterOf(mv.src);
-            motor.steer(BodyMotor.Owner.PATH, src.x, src.y, src.z, host.userSpeed());
-            return Result.RUNNING;
-        }
-        BlockState state = ((BlockItem) stack.getItem()).getBlock().defaultBlockState();
-        if (!level.setBlock(at, state, 3)) {
-            host.log("REPLAN: setBlock failed for scaffold @ " + at);
-            return Result.NEEDS_REPLAN;
-        }
-        stack.shrink(1);
-        entity.getInventory().setChanged();
-        entity.pathTally().addPlaced(state.getBlock());
-        // Ledger the placement: auto_mine must never loot our own bridge.
-        entity.scaffoldLedger().record(at, state.getBlock());
-        host.log("placed scaffold " + state.getBlock() + " @ " + at);
-        floorPlaced = true;
         return Result.RUNNING;
     }
 
     // ---- shared helpers ----
 
-    /** Find and return a scaffolding stack from inventory (not yet shrunk), or null. */
-    protected final ItemStack takeScaffold() {
-        return NavContext.firstScaffoldItem(entity.getInventory());
-    }
+    /** Outcome of {@link #placeScaffold}: the fake-player result + an empty-handed case. */
+    protected enum ScaffoldOutcome { PLACED, NO_SUPPORT, REFUSED, OUT_OF_BLOCKS }
 
     /**
-     * Would a full block at {@code pos} intersect the navigating entity (or
-     * any other building-blocking entity)? Inflated slightly beyond the cell:
-     * an exact-cell test passes when the body is a rounding error away, and a
-     * block materializing flush against it wedges it solid on landing.
+     * Place one scaffold block into {@code cell} through the fake player —
+     * vanilla placement rules (entity-collision rejection included), tally
+     * and ledger bookkeeping on success.
      */
-    protected final boolean placementObstructed(BlockPos pos) {
-        AABB cell = new AABB(pos.getX() - 0.1, pos.getY() - 0.1, pos.getZ() - 0.1,
-                pos.getX() + 1.1, pos.getY() + 1.1, pos.getZ() + 1.1);
-        if (entity.getBoundingBox().intersects(cell)) return true;
-        return !entity.level().getEntities(entity, cell, e -> e.blocksBuilding).isEmpty();
+    protected final ScaffoldOutcome placeScaffold(BlockPos cell) {
+        int slot = scaffoldSlot();
+        if (slot < 0) return ScaffoldOutcome.OUT_OF_BLOCKS;
+        var block = ((BlockItem) entity.getInventory().getItem(slot).getItem()).getBlock();
+        return switch (FakePlayerUse.placeScaffold(entity, slot, cell)) {
+            case PLACED -> {
+                entity.pathTally().addPlaced(block);
+                // Ledger the placement: auto_mine must never loot our own bridge.
+                entity.scaffoldLedger().record(cell, block);
+                host.log("placed scaffold " + block + " @ " + cell);
+                yield ScaffoldOutcome.PLACED;
+            }
+            case NO_SUPPORT -> ScaffoldOutcome.NO_SUPPORT;
+            case REFUSED -> ScaffoldOutcome.REFUSED;
+        };
+    }
+
+    /** Inventory slot of the first scaffolding stack, or -1. */
+    private int scaffoldSlot() {
+        var inv = entity.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (NavContext.isScaffold(inv.getItem(i))) return i;
+        }
+        return -1;
     }
 }

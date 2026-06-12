@@ -68,30 +68,26 @@ public final class PillarDrive extends MovementDrive {
                 && entity.getY() >= pillarBaseY + 1.0) {
             // Airborne with the box fully ABOVE the base cell (apex is +1.25,
             // so +1.0..+1.25 is the placement window) → drop a scaffold in to
-            // land on. Below +1.0 the block would materialize inside our legs.
+            // land on. Vanilla placement (via the fake player) is the judge of
+            // whether the cell is actually clear of our body — a REFUSED click
+            // just retries within the window, exactly like a real player
+            // spam-clicking a pillar jump.
             BlockPos base = new BlockPos(mv.dest.getX(), pillarBaseY, mv.dest.getZ());
             if (BlockHelper.canWalkOn(level, base)) {
                 placedThisCycle = true;   // already solid somehow
-            } else if (placementObstructed(base)) {
-                // Someone's box still clips the cell — retry within the window.
-                return Result.RUNNING;
-            } else if (BlockHelper.isReplaceableForPlacement(level, base)) {
-                ItemStack stack = takeScaffold();
-                if (stack == null) {
-                    host.log("REPLAN: out of scaffolding mid-pillar @ " + base);
-                    return Result.NEEDS_REPLAN;
+            } else {
+                switch (placeScaffold(base)) {
+                    case PLACED -> placedThisCycle = true;
+                    case REFUSED -> { /* body still clips the cell — retry in-window */ }
+                    case NO_SUPPORT -> {
+                        host.log("REPLAN: pillar base lost its support @ " + base);
+                        return Result.NEEDS_REPLAN;
+                    }
+                    case OUT_OF_BLOCKS -> {
+                        host.log("REPLAN: out of scaffolding mid-pillar @ " + base);
+                        return Result.NEEDS_REPLAN;
+                    }
                 }
-                BlockState state = ((BlockItem) stack.getItem()).getBlock().defaultBlockState();
-                if (!level.setBlock(base, state, 3)) {
-                    host.log("REPLAN: pillar setBlock failed @ " + base);
-                    return Result.NEEDS_REPLAN;
-                }
-                stack.shrink(1);
-                entity.getInventory().setChanged();
-                entity.pathTally().addPlaced(state.getBlock());
-                entity.scaffoldLedger().record(base, state.getBlock());
-                host.log("placed pillar block " + state.getBlock() + " @ " + base);
-                placedThisCycle = true;
             }
         }
         return Result.RUNNING;
