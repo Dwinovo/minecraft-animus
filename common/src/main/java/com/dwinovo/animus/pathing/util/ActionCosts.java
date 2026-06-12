@@ -42,12 +42,16 @@ public final class ActionCosts {
     public static final double COST_HEURISTIC = 1.5;
 
     /**
-     * Cost added for placing a scaffolding block (bridging / step-up). Placing
-     * is genuinely cheap in real ticks, so this is kept low — the bot bridges
-     * gaps readily rather than taking long detours. Raise it if you want it to
-     * conserve cobblestone/dirt and prefer walking around.
+     * Cost added for placing a scaffolding block (bridging / step-up).
+     * Calibrated so digging beats placing by 0.5 ticks in the canonical case:
+     * stone with the correct pickaxe mines in ~6 ticks, +{@link #BREAK_ADDITIONAL}
+     * = 8 — so placing costs 8.5 and the planner digs THROUGH terrain instead
+     * of bridging OVER it when both routes are otherwise equal. Scaffold
+     * blocks are a consumable the pet mined for a reason; spending them must
+     * never be the lazy default. Where digging is impossible (water, gaps)
+     * placement still wins because the dig alternative is COST_INF.
      */
-    public static final double PLACE_BLOCK = 3.0;
+    public static final double PLACE_BLOCK = 8.5;
 
     /**
      * Flat tiebreaker added on top of the tool-aware mining duration so that,
