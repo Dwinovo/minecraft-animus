@@ -124,7 +124,7 @@ public final class PlayerNav {
             failReason = "no path to target (obstructed or out of bridging blocks)";
             return reached.getAsBoolean() ? Status.ARRIVED : Status.FAILED;
         }
-        current = new PlayerPathExecutor(player, path.staticCutoff(), speed);
+        current = new PlayerPathExecutor(player, path.staticCutoff(), speed, this::freshContext);
         return Status.RUNNING;
     }
 
@@ -159,7 +159,7 @@ public final class PlayerNav {
         Path np = nextSearch.result();
         nextSearch = null;
         if (np != null && !np.isEmpty()) {
-            pendingNext = new PlayerPathExecutor(player, np.staticCutoff(), speed);
+            pendingNext = new PlayerPathExecutor(player, np.staticCutoff(), speed, this::freshContext);
         }
     }
 

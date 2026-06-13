@@ -5,6 +5,8 @@ import com.dwinovo.animus.entity.AnimusPlayer;
 import com.dwinovo.animus.pathing.calc.NavContext;
 import com.dwinovo.animus.pathing.calc.Path;
 import com.dwinovo.animus.pathing.movement.Movement;
+import com.dwinovo.animus.pathing.movement.Moves;
+import com.dwinovo.animus.pathing.util.ActionCosts;
 import com.dwinovo.animus.pathing.util.PathSettings;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -44,17 +46,23 @@ public final class PlayerPathExecutor {
     private final AnimusPlayer player;
     private final Path path;
     private final double speed;
+    /** Builds a fresh world snapshot for per-tick cost re-verification. */
+    private final java.util.function.Supplier<NavContext> ctxSupplier;
 
     private int index = 0;
     private int ticksOnCurrent = 0;
     private int ticksAway = 0;
     private int breakCooldown = 0;
     private boolean placedThisMove = false;
+    /** The index whose original cost estimate we cached (Baritone costEstimateIndex). */
+    private int costCheckIndex = -1;
 
-    public PlayerPathExecutor(AnimusPlayer player, Path path, double speed) {
+    public PlayerPathExecutor(AnimusPlayer player, Path path, double speed,
+                              java.util.function.Supplier<NavContext> ctxSupplier) {
         this.player = player;
         this.path = path;
         this.speed = speed;
+        this.ctxSupplier = ctxSupplier;
     }
 
     public Status tick() {
@@ -74,6 +82,13 @@ public final class PlayerPathExecutor {
         if (player.isUnderWater() && mv.kind != Movement.Kind.SWIM) {
             return Status.NEEDS_REPLAN;
         }
+
+        // Baritone cost re-verification: the world may have changed under a planned
+        // path (someone broke/placed a block). Re-cost the current + the next few
+        // movements against a fresh snapshot; bail if any became impossible, or if
+        // the current one got materially more expensive than planned.
+        Status reverify = verifyCosts();
+        if (reverify != null) return reverify;
 
         ticksOnCurrent++;
         // Baritone: cancel a movement that overshoots its estimate by movementTimeoutTicks.
@@ -191,6 +206,52 @@ public final class PlayerPathExecutor {
             // Near the top of the jump — place the scaffold block underfoot.
             tryPlaceScaffold(mv.src);
         }
+    }
+
+    /**
+     * Baritone PathExecutor cost re-verification. The current movement is re-costed
+     * every tick (catches a block change directly in front of us); the lookahead
+     * window is re-verified only when we just advanced to a new movement (Baritone's
+     * {@code costEstimateIndex} guard). Cancels — triggering a replan — if any
+     * movement became impossible ({@code COST_INF}) or the current one's live cost
+     * rose by more than {@code maxCostIncrease} over its planned estimate.
+     */
+    private Status verifyCosts() {
+        NavContext fresh = ctxSupplier.get();
+        Movement cur = path.movements.get(index);
+        double liveCur = recost(fresh, cur);
+        if (liveCur >= ActionCosts.COST_INF) {
+            return Status.NEEDS_REPLAN;
+        }
+        if (liveCur - cur.cost > PathSettings.MAX_COST_INCREASE) {
+            return Status.NEEDS_REPLAN;
+        }
+        if (costCheckIndex != index) {
+            costCheckIndex = index;
+            int last = path.movements.size() - 1;
+            int end = Math.min(last, index + PathSettings.COST_VERIFICATION_LOOKAHEAD);
+            for (int i = index + 1; i <= end; i++) {
+                if (recost(fresh, path.movements.get(i)) >= ActionCosts.COST_INF) {
+                    return Status.NEEDS_REPLAN;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Recompute a movement's live cost from a fresh world snapshot: regenerate the
+     * moves out of its source cell and match the same kind + destination.
+     * {@code COST_INF} if it's no longer producible (the world changed so the move
+     * is gone).
+     */
+    private double recost(NavContext fresh, Movement mv) {
+        for (Movement gen : Moves.generate(fresh, mv.src)) {
+            if (gen.kind == mv.kind && gen.dest.equals(mv.dest)) {
+                return gen.cost;
+            }
+        }
+        return ActionCosts.COST_INF;
     }
 
     /** The next still-solid block this move must break, or null when its path is clear. */
