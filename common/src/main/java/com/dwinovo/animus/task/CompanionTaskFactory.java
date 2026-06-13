@@ -10,6 +10,8 @@ import com.dwinovo.animus.task.tasks.EatItemTaskRecord;
 import com.dwinovo.animus.task.tasks.EquipCompanionTask;
 import com.dwinovo.animus.task.tasks.HuntCompanionTask;
 import com.dwinovo.animus.task.tasks.HuntTaskRecord;
+import com.dwinovo.animus.task.tasks.ShootCompanionTask;
+import com.dwinovo.animus.task.tasks.ShootTaskRecord;
 import com.dwinovo.animus.task.tasks.EquipTaskRecord;
 import com.dwinovo.animus.task.tasks.MineBlockTaskRecord;
 import com.dwinovo.animus.task.tasks.MineCompanionTask;
@@ -41,6 +43,7 @@ public final class CompanionTaskFactory {
         if (record instanceof BreakBlockTaskRecord r) return new BreakBlockCompanionTask(player, r);
         if (record instanceof EatItemTaskRecord r) return new EatCompanionTask(player, r);
         if (record instanceof HuntTaskRecord r) return new HuntCompanionTask(player, r);
+        if (record instanceof ShootTaskRecord r) return new ShootCompanionTask(player, r);
         if (record instanceof com.dwinovo.animus.task.tasks.CollectItemsTaskRecord r)
             return new com.dwinovo.animus.task.tasks.CollectItemsTaskGoal(player, r);
         if (record instanceof PlaceBlockTaskRecord r) return new PlaceBlockCompanionTask(player, r);
