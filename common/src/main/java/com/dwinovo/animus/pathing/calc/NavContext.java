@@ -3,6 +3,7 @@ package com.dwinovo.animus.pathing.calc;
 import com.dwinovo.animus.init.InitTag;
 import com.dwinovo.animus.pathing.util.ActionCosts;
 import com.dwinovo.animus.pathing.util.BlockHelper;
+import com.dwinovo.animus.pathing.util.PathSettings;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -63,9 +64,9 @@ public final class NavContext {
         this.tool = mainHandTool.copy();
         this.hasScaffold = hasAnyScaffold(inventory);
 
-        // Survivable fall: vanilla fall damage starts at 3.5 blocks (1 block
-        // damage at 4). Cap conservatively at 3 so the bot never hurts itself.
-        this.maxFallHeight = 3;
+        // Survivable fall: Baritone's maxFallHeightNoWater (3) — vanilla fall
+        // damage starts at 3.5 blocks; cap conservatively so the bot never hurts itself.
+        this.maxFallHeight = PathSettings.MAX_FALL_HEIGHT_NO_WATER;
     }
 
     private static boolean hasAnyScaffold(Container inv) {
@@ -86,12 +87,12 @@ public final class NavContext {
         if (!hasScaffold) return ActionCosts.COST_INF;
         if (!BlockHelper.isReplaceableForPlacement(view, pos)) return ActionCosts.COST_INF;
         if (BlockHelper.isHazard(view, pos)) return ActionCosts.COST_INF;
-        return ActionCosts.PLACE_BLOCK;
+        return PathSettings.BLOCK_PLACEMENT_PENALTY;
     }
 
     /**
      * Cost of breaking the block at {@code pos}: tool-aware mining duration in
-     * ticks plus {@link ActionCosts#BREAK_ADDITIONAL}. {@code COST_INF} (→ A*
+     * ticks plus {@link PathSettings#BLOCK_BREAK_ADDITIONAL_PENALTY}. {@code COST_INF} (→ A*
      * routes around, or the search fails clean) when the break is impossible,
      * unsafe, or ineffective:
      * <ul>
@@ -120,7 +121,7 @@ public final class NavContext {
         if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) {
             return ActionCosts.COST_INF;   // ineffective with the held tool — route around
         }
-        return miningTicks(pos) + ActionCosts.BREAK_ADDITIONAL;
+        return miningTicks(pos) + PathSettings.BLOCK_BREAK_ADDITIONAL_PENALTY;
     }
 
     /**

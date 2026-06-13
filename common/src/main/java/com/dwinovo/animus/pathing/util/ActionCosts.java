@@ -1,127 +1,125 @@
 package com.dwinovo.animus.pathing.util;
 
 /**
- * Movement cost constants, measured in game ticks. Mirrors Baritone's
- * {@code ActionCosts} (cabaletta/baritone) — costs are real Minecraft physics
- * derived, not magic numbers, so the A* search optimises for genuinely-fast
- * routes rather than fewest-blocks.
+ * Physics-derived movement cost constants, in game ticks — a 1:1 port of
+ * Baritone's {@code ActionCosts} (cabaletta/baritone). See
+ * {@code docs/BARITONE_PATHFINDING.md} for the full alignment reference.
  *
- * <h2>Why ticks</h2>
- * One block of walking takes {@code 20 / blocksPerSecond} ticks. Using ticks
- * as the unit lets us add walk-time + mine-time + a placement penalty on the
- * same scale and have the A* heuristic (Euclidean × WALK) stay admissible.
+ * <p>Every base cost is {@code 20 / speedInBlocksPerSecond}. Fall and jump costs
+ * are NOT magic numbers: they come from Minecraft's gravity/drag model
+ * {@code velocity(t) = (0.98^t - 1) * -3.92} integrated by {@link #distanceToTicks}.
+ * Keeping ticks as the unit lets walk-time + mine-time + placement penalties sum
+ * on one scale.
  *
- * <h2>COST_INF</h2>
- * A deliberately-finite sentinel (1e6, not {@link Double#MAX_VALUE}) so that
- * summing several "impossible" sub-actions never overflows to a negative
- * number that would fool the search. Any movement whose total cost reaches
- * this is discarded by {@link com.dwinovo.animus.pathing.calc.AStar}.
+ * <p><b>Tunable settings live in {@link PathSettings}.</b> This class holds only
+ * the immutable physics constants.
  */
 public final class ActionCosts {
 
     private ActionCosts() {}
 
-    /** Impossible-move sentinel. Movements at or above this are pruned. */
+    /** Impossible-move sentinel (finite, so summing several never overflows). */
     public static final double COST_INF = 1_000_000.0;
 
-    /** Walking one block on flat ground: 20 / 4.317 b/s. */
+    // ---- base movement: 20 / (blocks per second) ----
+
+    /** Walk one block: 20 / 4.317. ≈ 4.633 */
     public static final double WALK_ONE_BLOCK = 20.0 / 4.317;
-
-    /** Sprinting one block: 20 / 5.612 b/s (used for parkour jump costing). */
+    /** Walk one block in water: 20 / 2.2. ≈ 9.091 (Baritone WALK_ONE_IN_WATER_COST). */
+    public static final double WALK_ONE_IN_WATER = 20.0 / 2.2;
+    /** Alias kept for the SWIM movement edges. */
+    public static final double SWIM_ONE_BLOCK = WALK_ONE_IN_WATER;
+    /** Walk one block over soul sand: 2× walk. ≈ 9.266 */
+    public static final double WALK_ONE_OVER_SOUL_SAND = WALK_ONE_BLOCK * 2;
+    /** Sprint one block: 20 / 5.612. ≈ 3.564 */
     public static final double SPRINT_ONE_BLOCK = 20.0 / 5.612;
+    /** Sprint:walk cost ratio. ≈ 0.769 — multiply a clear walk cost by this when sprinting. */
+    public static final double SPRINT_MULTIPLIER = SPRINT_ONE_BLOCK / WALK_ONE_BLOCK;
+    /** Walking off a block edge: 0.8× walk. ≈ 3.706 */
+    public static final double WALK_OFF_BLOCK = WALK_ONE_BLOCK * 0.8;
+    /** Re-centering after a fall: walk − walk_off. ≈ 0.927 */
+    public static final double CENTER_AFTER_FALL = WALK_ONE_BLOCK - WALK_OFF_BLOCK;
+    /** Sneak one block: 20 / 1.3. ≈ 15.385 */
+    public static final double SNEAK_ONE_BLOCK = 20.0 / 1.3;
+    /** Climb a ladder/vine up one: 20 / 2.35. ≈ 8.511 */
+    public static final double LADDER_UP_ONE = 20.0 / 2.35;
+    /** Descend a ladder/vine one: 20 / 3.0. ≈ 6.667 */
+    public static final double LADDER_DOWN_ONE = 20.0 / 3.0;
+
+    /** Center-to-center distance multiplier for a diagonal step. */
+    public static final double SQRT_2 = Math.sqrt(2.0);
+
+    // ---- fall / jump (derived from the gravity model) ----
 
     /**
-     * Swimming one block: 20 / 2.2 b/s (Baritone's WALK_ONE_IN_WATER_COST).
-     * Roughly twice walking, so land routes always win when both exist — but
-     * a body in the water can now PLAN its way out instead of needing an
-     * emergency reflex. Also ≥ JUMP_ONE_BLOCK, keeping the upward heuristic
-     * admissible for vertical swims.
+     * Per-block fall-time table, {@code FALL_N_BLOCKS_COST[i] = distanceToTicks(i)}
+     * for i in 0..256 — the exact Baritone table (it sizes its own at 4097; the
+     * heights we ever allow are tiny, so 257 entries is ample).
      */
-    public static final double SWIM_ONE_BLOCK = 20.0 / 2.2;
+    public static final double[] FALL_N_BLOCKS_COST = generateFallNBlocksCost();
+
+    /** Ticks to fall 1.25 blocks (a jump's apex height). */
+    public static final double FALL_1_25_BLOCKS = distanceToTicks(1.25);
+    /** Ticks to fall 0.25 blocks. */
+    public static final double FALL_0_25_BLOCKS = distanceToTicks(0.25);
+    /** Net cost of jumping one block up. ≈ 3.16 (fall 1.25 − fall 0.25). */
+    public static final double JUMP_ONE_BLOCK = FALL_1_25_BLOCKS - FALL_0_25_BLOCKS;
 
     /**
-     * Heuristic inflation factor (weighted A*). The octile distance heuristic is
-     * an admissible lower bound, but with terrain modification real per-block
-     * costs run well above {@link #WALK_ONE_BLOCK}, so the bound is weak and a
-     * pure-admissible search over-explores (the multi-second planning hitches in
-     * dug-out terrain). Multiplying h by this (>1) makes the search greedier —
-     * far fewer node expansions for near-optimal paths. Tunable: higher = faster
-     * but more willing to take a slightly longer route.
+     * Per-block descent cost used by the A* y-heuristic — Baritone's
+     * {@code GoalYLevel} descends at {@code FALL_N_BLOCKS_COST[2] / 2} per block.
+     * ≈ 3.89
      */
-    public static final double COST_HEURISTIC = 1.5;
+    public static final double DESCEND_ONE_BLOCK = FALL_N_BLOCKS_COST[2] / 2.0;
+
+    /** Ticks to fall {@code blocks} blocks (table lookup, clamped). */
+    public static double fallCost(int blocks) {
+        if (blocks <= 0) return 0.0;
+        if (blocks < FALL_N_BLOCKS_COST.length) return FALL_N_BLOCKS_COST[blocks];
+        return FALL_N_BLOCKS_COST[FALL_N_BLOCKS_COST.length - 1];
+    }
 
     /**
-     * Cost added for placing a scaffolding block (bridging / step-up).
-     * Calibrated so digging beats placing by 0.5 ticks in the canonical case:
-     * stone with the correct pickaxe mines in ~6 ticks, +{@link #BREAK_ADDITIONAL}
-     * = 8 — so placing costs 8.5 and the planner digs THROUGH terrain instead
-     * of bridging OVER it when both routes are otherwise equal. Scaffold
-     * blocks are a consumable the pet mined for a reason; spending them must
-     * never be the lazy default. Where digging is impossible (water, gaps)
-     * placement still wins because the dig alternative is COST_INF.
-     */
-    public static final double PLACE_BLOCK = 8.5;
-
-    /**
-     * Flat tiebreaker added on top of the tool-aware mining duration so that,
-     * all else equal, the bot avoids breaking blocks (and zero-hardness
-     * blocks still cost something).
-     */
-    public static final double BREAK_ADDITIONAL = 2.0;
-
-    /** Upward jump (one block) cost, approximated from fall-time symmetry. */
-    public static final double JUMP_ONE_BLOCK = 5.0;
-
-    /**
-     * Lower-bound cost of descending one block. The cheapest legal descent is
-     * a 3-block fall ({@code fallCost(3)/3} ≈ 1.89 ticks/block; falls are
-     * capped at {@code maxFallHeight = 3}), and DIG_DOWN / DESCEND edges cost
-     * more — so 1.5 stays admissible. It must be {@code > 0}: a zero down-cost
-     * made the heuristic blind to vertical progress, so every node straight
-     * above a deep target looked "already there" and the partial-path fallback
-     * collapsed to the start node (empty path, spurious "no path" failures on
-     * dig-down journeys).
-     *
-     * <p><b>COUPLED TO THE FALL CAP.</b> Admissibility holds only while
-     * {@code NavContext.maxFallHeight <= 3}: per-block fall cost shrinks with
-     * height ({@code fallCost(10)/10} ≈ 1.17 &lt; 1.5). If a water-bucket /
-     * extended-fall feature ever raises the cap to {@code n}, lower this to
-     * {@code fallCost(n)/n} in the same change or the heuristic silently
-     * over-estimates and partial paths degrade.
-     */
-    public static final double DESCEND_ONE_BLOCK = 1.5;
-
-    /**
-     * Cost of a parkour jump across {@code blocks} of gap (2..4), in ticks. A
-     * 2–3 block gap is a walk-jump; a 4 block gap needs sprint physics, so it's
-     * costed against the (faster, thus cheaper-per-block) sprint speed. The flat
-     * {@link #JUMP_ONE_BLOCK} is added on top so the planner mildly prefers a
-     * solid bridge/step when one is equally short.
+     * Cost of a parkour jump across {@code blocks} of gap (Baritone
+     * {@code MovementParkour.costFromJumpDistance}): 2→walk×2, 3→walk×3,
+     * 4→sprint×4, plus the flat jump penalty.
      */
     public static double costFromJumpDistance(int blocks) {
         double base = switch (blocks) {
             case 2 -> WALK_ONE_BLOCK * 2;
             case 3 -> WALK_ONE_BLOCK * 3;
-            default -> SPRINT_ONE_BLOCK * blocks;   // 4+ requires sprint
+            default -> SPRINT_ONE_BLOCK * blocks;   // 4 (requires sprint)
         };
-        return base + JUMP_ONE_BLOCK;
+        return base + PathSettings.JUMP_PENALTY;
     }
 
-    /** Center-to-center distance multiplier for a diagonal step. */
-    public static final double SQRT_2 = 1.41421356;
+    // ---- gravity model (Baritone-exact) ----
 
-    /**
-     * Per-block fall cost lookup. {@code fallCost(n)} ≈ ticks to fall {@code n}
-     * blocks under vanilla gravity (0.08 accel, 0.98 drag). We use a compact
-     * closed-form approximation rather than Baritone's 4097-entry simulated
-     * table — accurate enough for path ranking at the heights we allow.
-     *
-     * @param blocks number of blocks fallen (>= 0)
-     * @return cost in ticks
-     */
-    public static double fallCost(int blocks) {
-        if (blocks <= 0) return 0.0;
-        // t ≈ sqrt(2h/g) with g≈0.08/tick²; tuned to match vanilla feel.
-        return Math.sqrt(2.0 * blocks / 0.08) * 0.55 + blocks * 0.3;
+    /** Downward fall velocity after {@code ticks} ticks: (0.98^t − 1) × −3.92. */
+    private static double velocity(int ticks) {
+        return (Math.pow(0.98, ticks) - 1) * -3.92;
+    }
+
+    /** Ticks to fall {@code distance} blocks, integrating per-tick velocity. */
+    private static double distanceToTicks(double distance) {
+        if (distance == 0) return 0.0;   // avoid 0/0 NaN
+        double remaining = distance;
+        int tick = 0;
+        while (true) {
+            double fall = velocity(tick);
+            if (remaining <= fall) {
+                return tick + remaining / fall;
+            }
+            remaining -= fall;
+            tick++;
+        }
+    }
+
+    private static double[] generateFallNBlocksCost() {
+        double[] costs = new double[257];
+        for (int i = 0; i < 257; i++) {
+            costs[i] = distanceToTicks(i);
+        }
+        return costs;
     }
 }

@@ -3,6 +3,7 @@ package com.dwinovo.animus.pathing.calc;
 import com.dwinovo.animus.pathing.movement.Movement;
 import com.dwinovo.animus.pathing.movement.Moves;
 import com.dwinovo.animus.pathing.util.ActionCosts;
+import com.dwinovo.animus.pathing.util.PathSettings;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
 
@@ -63,7 +64,7 @@ public final class AStarSearch {
 
         PathNode startNode = new PathNode(this.start, heuristic(this.start));
         startNode.cost = 0;
-        startNode.combinedCost = startNode.estimatedCostToGoal * ActionCosts.COST_HEURISTIC;
+        startNode.combinedCost = startNode.estimatedCostToGoal * PathSettings.COST_HEURISTIC;
         nodes.put(this.start.asLong(), startNode);
         open.insert(startNode);
         best = startNode;
@@ -124,7 +125,7 @@ public final class AStarSearch {
 
                 neighbor.cost = tentativeG;
                 neighbor.combinedCost =
-                        tentativeG + neighbor.estimatedCostToGoal * ActionCosts.COST_HEURISTIC;
+                        tentativeG + neighbor.estimatedCostToGoal * PathSettings.COST_HEURISTIC;
                 neighbor.previous = current;
                 neighbor.via = mv;
                 if (neighbor.isOpen()) {
