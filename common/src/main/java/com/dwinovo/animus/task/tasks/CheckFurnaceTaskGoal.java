@@ -1,7 +1,7 @@
 package com.dwinovo.animus.task.tasks;
 
-import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.task.LlmTaskGoal;
+import com.dwinovo.animus.entity.AnimusPlayer;
+import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
@@ -18,26 +18,29 @@ import java.util.Map;
  * <p>Designed to generalise: any future "working block" (brewing stand, etc.)
  * can get its own check goal returning the same {@code data} shape.
  */
-public final class CheckFurnaceTaskGoal extends LlmTaskGoal<CheckFurnaceTaskRecord> {
+public final class CheckFurnaceTaskGoal implements CompanionTask {
 
+    private final AnimusPlayer player;
+    private final CheckFurnaceTaskRecord r;
     private String message = "";
     private Map<String, Object> data = Map.of();
     private boolean ok = false;
 
-    public CheckFurnaceTaskGoal(AnimusEntity entity) {
-        super(entity, CheckFurnaceTaskRecord.TOOL_NAME, CheckFurnaceTaskRecord.class);
+    public CheckFurnaceTaskGoal(AnimusPlayer player, CheckFurnaceTaskRecord record) {
+        this.player = player;
+        this.r = record;
     }
 
     @Override
-    protected void onStart(CheckFurnaceTaskRecord r) {
-        AbstractFurnaceBlockEntity furnace = FurnaceEngine.furnaceAt(entity.level(), r.pos);
+    public void start() {
+        AbstractFurnaceBlockEntity furnace = FurnaceEngine.furnaceAt(player.level(), r.pos);
         if (furnace == null) {
             message = "no furnace at " + r.pos.getX() + "," + r.pos.getY() + "," + r.pos.getZ()
                     + " (wrong coords, or the chunk isn't loaded)";
             r.setState(TaskState.FAILED);
             return;
         }
-        data = FurnaceEngine.describe(entity.level(), r.pos, furnace);
+        data = FurnaceEngine.describe(player.level(), r.pos, furnace);
         boolean lit = Boolean.TRUE.equals(data.get("lit"));
         int outputCount = data.get("output_count") instanceof Number n ? n.intValue() : 0;
         int leftToSmelt = data.get("items_left_to_smelt") instanceof Number n ? n.intValue() : 0;
@@ -61,12 +64,12 @@ public final class CheckFurnaceTaskGoal extends LlmTaskGoal<CheckFurnaceTaskReco
     }
 
     @Override
-    protected void onTick(CheckFurnaceTaskRecord r) {
-        // Never reached — onStart sets a terminal state.
+    public TaskState tick() {
+        return r.getState();   // terminal already; start() did the work
     }
 
     @Override
-    protected TaskResult buildResult(CheckFurnaceTaskRecord r, TaskState finalState) {
+    public TaskResult buildResult(TaskState finalState) {
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(message, data);
             case CANCELLED -> TaskResult.cancelled("check interrupted");

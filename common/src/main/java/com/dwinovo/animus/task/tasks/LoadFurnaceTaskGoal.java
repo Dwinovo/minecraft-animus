@@ -1,10 +1,10 @@
 package com.dwinovo.animus.task.tasks;
 
-import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.pathing.exec.Navigator;
+import com.dwinovo.animus.entity.AnimusPlayer;
+import com.dwinovo.animus.task.CompanionTask;
+import com.dwinovo.animus.pathing.exec.PlayerNav;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.pathing.util.BlockScanner;
-import com.dwinovo.animus.task.LlmTaskGoal;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
@@ -46,12 +46,15 @@ import java.util.Set;
  * <p>Unlike {@link CraftTaskGoal} we do NOT recover a furnace we placed — it must
  * stay to smelt; the model collects from it later.
  */
-public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord> {
+public final class LoadFurnaceTaskGoal implements CompanionTask {
 
     private enum Phase { RESOLVE, FIND_FURNACE, GOTO_FURNACE, LOAD }
 
     private static final double WALK_SPEED = 1.0;
     private static final int SLOT_MAX = 64;
+
+    private final AnimusPlayer player;
+    private final LoadFurnaceTaskRecord r;
 
     private Phase phase = Phase.RESOLVE;
     private SmeltingRecipe recipe;
@@ -59,17 +62,18 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
     private String outputLabel = "?";
 
     private BlockPos furnacePos;
-    private Navigator nav;
+    private PlayerNav nav;
 
     private String doneReason = "done";
     private final Map<String, Object> resultData = new HashMap<>();
 
-    public LoadFurnaceTaskGoal(AnimusEntity entity) {
-        super(entity, LoadFurnaceTaskRecord.TOOL_NAME, LoadFurnaceTaskRecord.class);
+    public LoadFurnaceTaskGoal(AnimusPlayer player, LoadFurnaceTaskRecord record) {
+        this.player = player;
+        this.r = record;
     }
 
     @Override
-    protected void onStart(LoadFurnaceTaskRecord r) {
+    public void start() {
         this.phase = Phase.RESOLVE;
         this.recipe = null;
         this.furnacePos = null;
@@ -78,24 +82,25 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
     }
 
     @Override
-    protected void onTick(LoadFurnaceTaskRecord r) {
+    public TaskState tick() {
         switch (phase) {
             case RESOLVE -> tickResolve(r);
             case FIND_FURNACE -> tickFindFurnace(r);
             case GOTO_FURNACE -> tickGotoFurnace(r);
             case LOAD -> tickLoad(r);
         }
+        return r.getState();
     }
 
     // ---- RESOLVE: validate the smelt is possible with what we hold ----
 
     private void tickResolve(LoadFurnaceTaskRecord r) {
-        if (!(entity.level() instanceof ServerLevel sl)) {
+        if (!(player.level() instanceof ServerLevel sl)) {
             fail("not on a server level");
             return;
         }
-        SimpleContainer inv = entity.getInventory();
-        if (inv.countItem(r.input) <= 0) {
+        var inv = player.getInventory();
+        if (com.dwinovo.animus.task.tasks.ContainerOps.countIn(inv, r.input) <= 0) {
             fail("no " + r.label + " in inventory to smelt");
             return;
         }
@@ -113,7 +118,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
                     + "use coal/charcoal, a log/plank, etc.");
             return;
         }
-        if (inv.countItem(r.fuel) <= 0) {
+        if (com.dwinovo.animus.task.tasks.ContainerOps.countIn(inv, r.fuel) <= 0) {
             fail("no " + BuiltInRegistries.ITEM.getKey(r.fuel).getPath() + " in inventory to use as fuel");
             return;
         }
@@ -123,7 +128,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
     // ---- FIND_FURNACE: locate, walk to, or place a furnace ----
 
     private void tickFindFurnace(LoadFurnaceTaskRecord r) {
-        Level level = entity.level();
+        Level level = player.level();
 
         // Explicit target: the model addressed one specific furnace (parallel
         // smelting). Don't second-guess it — verify and go.
@@ -142,7 +147,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
         // skipped instead of failing the whole call — that dead-end forced the
         // model to hand-build a second furnace it then couldn't address.
         List<BlockScanner.Hit> furnaces = BlockScanner.findWithin(
-                level, entity.blockPosition(), r.searchRadius, Set.of(Blocks.FURNACE));
+                level, player.blockPosition(), r.searchRadius, Set.of(Blocks.FURNACE));
         StringBuilder busy = new StringBuilder();
         for (BlockScanner.Hit hit : furnaces) {
             String why = incompatibility(level, hit.pos(), r);
@@ -174,7 +179,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
         if (withinReach(furnacePos)) {
             phase = Phase.LOAD;
         } else {
-            nav = new Navigator(entity, furnacePos, WALK_SPEED, () -> withinReach(furnacePos));
+            nav = new PlayerNav(player, furnacePos, WALK_SPEED, () -> withinReach(furnacePos));
             phase = Phase.GOTO_FURNACE;
         }
     }
@@ -222,7 +227,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
     // ---- LOAD: put input + fuel into the real furnace slots ----
 
     private void tickLoad(LoadFurnaceTaskRecord r) {
-        Level level = entity.level();
+        Level level = player.level();
         if (level.getBlockState(furnacePos).getBlock() != Blocks.FURNACE) {
             // Walked-to furnace vanished; re-find.
             phase = Phase.FIND_FURNACE;
@@ -233,7 +238,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
             fail("furnace at target has no block entity");
             return;
         }
-        SimpleContainer inv = entity.getInventory();
+        var inv = player.getInventory();
 
         // Input slot.
         ItemStack curInput = furnace.getItem(FurnaceEngine.SLOT_INPUT);
@@ -243,7 +248,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
             return;
         }
         int inputRoom = SLOT_MAX - (curInput.isEmpty() ? 0 : curInput.getCount());
-        int loadInput = Math.min(Math.min(r.count, inputRoom), inv.countItem(r.input));
+        int loadInput = Math.min(Math.min(r.count, inputRoom), com.dwinovo.animus.task.tasks.ContainerOps.countIn(inv, r.input));
         if (loadInput <= 0) {
             fail("nothing to load — input slot full or no " + r.label + " left");
             return;
@@ -258,7 +263,7 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
         }
         int fuelNeeded = FurnaceEngine.fuelItemsNeeded(level, new ItemStack(r.fuel), loadInput, cookTime);
         int fuelRoom = SLOT_MAX - (curFuel.isEmpty() ? 0 : curFuel.getCount());
-        int loadFuel = Math.min(Math.min(fuelNeeded, fuelRoom), inv.countItem(r.fuel));
+        int loadFuel = Math.min(Math.min(fuelNeeded, fuelRoom), com.dwinovo.animus.task.tasks.ContainerOps.countIn(inv, r.fuel));
         if (loadFuel <= 0) {
             fail("no fuel to load (need ~" + fuelNeeded + " "
                     + BuiltInRegistries.ITEM.getKey(r.fuel).getPath() + ")");
@@ -266,8 +271,8 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
         }
 
         // Commit: pull from inventory, write to furnace slots.
-        inv.removeItemType(r.input, loadInput);
-        inv.removeItemType(r.fuel, loadFuel);
+        com.dwinovo.animus.task.tasks.ContainerOps.removeFrom(inv, r.input, loadInput);
+        com.dwinovo.animus.task.tasks.ContainerOps.removeFrom(inv, r.fuel, loadFuel);
         furnace.setItem(FurnaceEngine.SLOT_INPUT,
                 new ItemStack(r.input, (curInput.isEmpty() ? 0 : curInput.getCount()) + loadInput));
         furnace.setItem(FurnaceEngine.SLOT_FUEL,
@@ -292,32 +297,30 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
                 + furnacePos.getX() + "," + furnacePos.getY() + "," + furnacePos.getZ()
                 + "; smelting into " + outputLabel + ", ~" + (loadInput * cookTime / 20)
                 + "s — collect_furnace there when done" + fuelWarn;
-        currentRecord.setState(TaskState.SUCCESS);
+        r.setState(TaskState.SUCCESS);
     }
 
     // ---- helpers (mirror CraftTaskGoal) ----
 
     private boolean withinReach(BlockPos pos) {
-        return entity.onGround()
-                && entity.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
+        return player.onGround()
+                && player.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
     }
 
     private BlockPos placeFurnaceBeside() {
-        int slot = FakePlayerUse.slotOf(entity, Items.FURNACE);
+        int slot = com.dwinovo.animus.task.PlayerInv.findSlot(player.getInventory(), Items.FURNACE);
         if (slot < 0) {
             return null;
         }
-        Level level = entity.level();
-        BlockPos feet = entity.blockPosition();
+        Level level = player.level();
+        BlockPos feet = player.blockPosition();
         for (Direction dir : Direction.Plane.HORIZONTAL) {
             BlockPos at = feet.relative(dir);
             if (BlockHelper.isReplaceableForPlacement(level, at)
                     && BlockHelper.canWalkOn(level, at.below())) {
-                // Real player placement via the fake player: vanilla rules,
-                // place sound/events, consumption accounted inside — and the
-                // furnace FACES the placer instead of defaulting north.
-                if (FakePlayerUse.placeBlockItem(entity, slot, at)
-                        == FakePlayerUse.PlaceResult.PLACED) {
+                // The companion places it itself (survival placement) — vanilla
+                // rules, sound/events, consumption, and it faces the placer.
+                if (com.dwinovo.animus.task.PlayerPlace.place(player, slot, at)) {
                     return at;
                 }
             }
@@ -327,13 +330,12 @@ public final class LoadFurnaceTaskGoal extends LlmTaskGoal<LoadFurnaceTaskRecord
 
     private void fail(String reason) {
         doneReason = reason;
-        currentRecord.setState(TaskState.FAILED);
+        r.setState(TaskState.FAILED);
     }
 
     @Override
-    protected TaskResult buildResult(LoadFurnaceTaskRecord r, TaskState finalState) {
+    public TaskResult buildResult(TaskState finalState) {
         if (nav != null) nav.stop();
-        entity.getNavigation().stop();
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(doneReason, resultData);
             case TIMEOUT -> TaskResult.timeout("timed out before loading the furnace: " + doneReason);

@@ -46,6 +46,14 @@ public final class CompanionTaskFactory {
             return new com.dwinovo.animus.task.tasks.DepositItemsTaskGoal(player, r);
         if (record instanceof com.dwinovo.animus.task.tasks.TakeItemsTaskRecord r)
             return new com.dwinovo.animus.task.tasks.TakeItemsTaskGoal(player, r);
+        if (record instanceof com.dwinovo.animus.task.tasks.CheckFurnaceTaskRecord r)
+            return new com.dwinovo.animus.task.tasks.CheckFurnaceTaskGoal(player, r);
+        if (record instanceof com.dwinovo.animus.task.tasks.LoadFurnaceTaskRecord r)
+            return new com.dwinovo.animus.task.tasks.LoadFurnaceTaskGoal(player, r);
+        if (record instanceof com.dwinovo.animus.task.tasks.CollectFurnaceTaskRecord r)
+            return new com.dwinovo.animus.task.tasks.CollectFurnaceTaskGoal(player, r);
+        if (record instanceof com.dwinovo.animus.task.tasks.CraftTaskRecord r)
+            return new com.dwinovo.animus.task.tasks.CraftTaskGoal(player, r);
         if (record instanceof HuntTaskRecord r) return new HuntCompanionTask(player, r);
         if (record instanceof ShootTaskRecord r) return new ShootCompanionTask(player, r);
         if (record instanceof com.dwinovo.animus.task.tasks.CollectItemsTaskRecord r)

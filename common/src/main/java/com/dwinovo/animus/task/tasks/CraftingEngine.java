@@ -1,11 +1,10 @@
 package com.dwinovo.animus.task.tasks;
 
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
-import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -157,8 +156,8 @@ public final class CraftingEngine {
      * result stack (for counting), or {@code null} if the inventory can no
      * longer satisfy the recipe.
      */
-    public static ItemStack craftOnce(AnimusEntity entity, CraftingRecipe recipe) {
-        SimpleContainer inv = entity.getInventory();
+    public static ItemStack craftOnce(AnimusPlayer player, CraftingRecipe recipe) {
+        Container inv = player.getInventory();
         List<Ingredient> ings = recipe.placementInfo().ingredients();
         int[] slots = matchSlots(inv, ings);
         if (slots == null) return null;
@@ -186,9 +185,9 @@ public final class CraftingEngine {
         for (int slot : slots) {
             inv.removeItem(slot, 1);
         }
-        giveOrDrop(entity, result.copy());
+        giveOrDrop(player, result.copy());
         for (ItemStack rem : remainders) {
-            if (!rem.isEmpty()) giveOrDrop(entity, rem.copy());
+            if (!rem.isEmpty()) giveOrDrop(player, rem.copy());
         }
         return result;
     }
@@ -276,14 +275,14 @@ public final class CraftingEngine {
         return token;
     }
 
-    /** Route a stack into the entity inventory; overflow becomes a ground item. */
-    private static void giveOrDrop(AnimusEntity entity, ItemStack stack) {
-        ItemStack leftover = entity.getInventory().addItem(stack);
+    /** Route a stack into the companion inventory; overflow becomes a ground item. */
+    private static void giveOrDrop(AnimusPlayer player, ItemStack stack) {
+        ItemStack leftover = ContainerOps.addTo(player.getInventory(), stack);
         if (!leftover.isEmpty()) {
-            ItemEntity ie = new ItemEntity(entity.level(),
-                    entity.getX(), entity.getY() + 0.5, entity.getZ(), leftover);
+            ItemEntity ie = new ItemEntity(player.level(),
+                    player.getX(), player.getY() + 0.5, player.getZ(), leftover);
             ie.setDefaultPickUpDelay();
-            entity.level().addFreshEntity(ie);
+            player.level().addFreshEntity(ie);
         }
     }
 }

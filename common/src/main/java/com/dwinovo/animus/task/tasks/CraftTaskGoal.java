@@ -1,21 +1,21 @@
 package com.dwinovo.animus.task.tasks;
 
-import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.pathing.exec.Navigator;
+import com.dwinovo.animus.entity.AnimusPlayer;
+import com.dwinovo.animus.pathing.exec.PlayerNav;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.pathing.util.BlockScanner;
-import com.dwinovo.animus.task.LlmTaskGoal;
+import com.dwinovo.animus.task.CompanionTask;
+import com.dwinovo.animus.task.PlayerInv;
+import com.dwinovo.animus.task.PlayerPlace;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
@@ -25,14 +25,14 @@ import java.util.Set;
 
 /**
  * Intent-level crafter for {@link CraftTaskRecord}: "make N of this item." The
- * LLM only names the item and quantity; this goal owns the whole Voyager-style
+ * LLM only names the item and quantity; this task owns the whole Voyager-style
  * flow, reusing the mod's existing building blocks:
  *
  * <ul>
  *   <li>{@link CraftingEngine} — reverse-lookup the recipe, match/consume
  *       materials, produce the result (the recipe math).</li>
  *   <li>{@link BlockScanner} — find a nearby crafting table for 3×3 recipes.</li>
- *   <li>{@link Navigator} — walk to that table, bridging / digging like
+ *   <li>{@link PlayerNav} — walk to that table, bridging / digging like
  *       {@code move_to} / {@code auto_mine}, planned while moving.</li>
  * </ul>
  *
@@ -43,7 +43,7 @@ import java.util.Set;
  *   FIND_TABLE  → existing table in range? walk to it (GOTO_TABLE) or craft if
  *                 already adjacent. None? place one from inventory beside us, or
  *                 FAILED (no table, none to place).
- *   GOTO_TABLE  → time-sliced A* to the table; in reach → CRAFT.
+ *   GOTO_TABLE  → {@link PlayerNav} to the table; in reach → CRAFT.
  *   CRAFT       → craftOnce in a bounded per-tick batch until the count is met
  *                 or materials run out (partial success, missing list reported).
  * </pre>
@@ -53,7 +53,7 @@ import java.util.Set;
  * with the shortfall listed in the result; the LLM decomposes and re-crafts
  * step by step, exactly like Voyager's {@code craftItem}.
  */
-public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
+public final class CraftTaskGoal implements CompanionTask {
 
     private enum Phase { RESOLVE, FIND_TABLE, GOTO_TABLE, CRAFT }
 
@@ -61,22 +61,26 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
     /** Bound per-tick crafts so a huge count can't stall the server tick. */
     private static final int CRAFTS_PER_TICK = 16;
 
+    private final AnimusPlayer player;
+    private final CraftTaskRecord r;
+
     private Phase phase = Phase.RESOLVE;
     private CraftingEngine.Plan plan;
 
     // Crafting-table logistics (3×3 recipes only).
     private BlockPos tablePos;
     private boolean placedTableOurselves = false;
-    private Navigator nav;
+    private PlayerNav nav;
 
     private String doneReason = "done";
 
-    public CraftTaskGoal(AnimusEntity entity) {
-        super(entity, CraftTaskRecord.TOOL_NAME, CraftTaskRecord.class);
+    public CraftTaskGoal(AnimusPlayer player, CraftTaskRecord record) {
+        this.player = player;
+        this.r = record;
     }
 
     @Override
-    protected void onStart(CraftTaskRecord r) {
+    public void start() {
         this.phase = Phase.RESOLVE;
         this.plan = null;
         this.tablePos = null;
@@ -85,29 +89,30 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
     }
 
     @Override
-    protected void onTick(CraftTaskRecord r) {
+    public TaskState tick() {
         switch (phase) {
-            case RESOLVE -> tickResolve(r);
-            case FIND_TABLE -> tickFindTable(r);
-            case GOTO_TABLE -> tickGotoTable(r);
-            case CRAFT -> tickCraft(r);
+            case RESOLVE -> tickResolve();
+            case FIND_TABLE -> tickFindTable();
+            case GOTO_TABLE -> tickGotoTable();
+            case CRAFT -> tickCraft();
         }
+        return r.getState();
     }
 
     // ---- RESOLVE: reverse-lookup the recipe ----
 
-    private void tickResolve(CraftTaskRecord r) {
-        if (!(entity.level() instanceof ServerLevel sl)) {
+    private void tickResolve() {
+        if (!(player.level() instanceof ServerLevel sl)) {
             fail("not on a server level");
             return;
         }
-        plan = CraftingEngine.findRecipe(sl, entity.getInventory(), r.item);
+        plan = CraftingEngine.findRecipe(sl, player.getInventory(), r.item);
         if (plan == null) {
             fail("no crafting recipe produces " + r.label);
             return;
         }
-        if (!CraftingEngine.canCraftOnce(entity.getInventory(), plan.recipe())) {
-            String missing = CraftingEngine.describeMissing(entity.getInventory(), plan.recipe());
+        if (!CraftingEngine.canCraftOnce(player.getInventory(), plan.recipe())) {
+            String missing = CraftingEngine.describeMissing(player.getInventory(), plan.recipe());
             fail("missing materials for " + r.label + ": " + missing);
             return;
         }
@@ -116,17 +121,17 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
 
     // ---- FIND_TABLE: locate, walk to, or place a crafting table ----
 
-    private void tickFindTable(CraftTaskRecord r) {
-        Level level = entity.level();
+    private void tickFindTable() {
+        Level level = player.level();
         List<BlockScanner.Hit> tables = BlockScanner.findWithin(
-                level, entity.blockPosition(), r.tableSearchRadius, Set.of(Blocks.CRAFTING_TABLE));
+                level, player.blockPosition(), r.tableSearchRadius, Set.of(Blocks.CRAFTING_TABLE));
 
         if (!tables.isEmpty()) {
             tablePos = tables.get(0).pos();
             if (withinReach(tablePos)) {
                 phase = Phase.CRAFT;
             } else {
-                nav = new Navigator(entity, tablePos, WALK_SPEED, () -> withinReach(tablePos));
+                nav = new PlayerNav(player, tablePos, WALK_SPEED, () -> withinReach(tablePos));
                 phase = Phase.GOTO_TABLE;
             }
             return;
@@ -145,7 +150,7 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
 
     // ---- GOTO_TABLE: drive the pathfinder to the table ----
 
-    private void tickGotoTable(CraftTaskRecord r) {
+    private void tickGotoTable() {
         switch (nav.tick()) {
             case RUNNING -> { /* keep walking; planned while moving */ }
             case ARRIVED -> { nav.stop(); phase = Phase.CRAFT; }
@@ -162,19 +167,19 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
 
     // ---- CRAFT: consume materials and produce, bounded per tick ----
 
-    private void tickCraft(CraftTaskRecord r) {
+    private void tickCraft() {
         // A table we walked to could have been removed; re-validate before relying on it.
         if (plan.needsTable()
-                && entity.level().getBlockState(tablePos).getBlock() != Blocks.CRAFTING_TABLE) {
+                && player.level().getBlockState(tablePos).getBlock() != Blocks.CRAFTING_TABLE) {
             phase = Phase.FIND_TABLE;
             return;
         }
         int did = 0;
         while (r.getProduced() < r.count && did < CRAFTS_PER_TICK) {
-            ItemStack result = CraftingEngine.craftOnce(entity, plan.recipe());
+            ItemStack result = CraftingEngine.craftOnce(player, plan.recipe());
             if (result == null) {
                 // Ran out of materials mid-run — partial success if we made any.
-                String missing = CraftingEngine.describeMissing(entity.getInventory(), plan.recipe());
+                String missing = CraftingEngine.describeMissing(player.getInventory(), plan.recipe());
                 doneReason = r.getProduced() > 0
                         ? "made " + r.getProduced() + "/" + r.count + ", then ran out (missing " + missing + ")"
                         : "missing materials: " + missing;
@@ -182,7 +187,7 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
                 return;
             }
             r.addProduced(result.getCount());
-            entity.setDebugTask(r.describe());
+            player.setDebugTask(r.describe());
             did++;
         }
         if (r.getProduced() >= r.count) {
@@ -196,29 +201,28 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
 
     /** Within crafting-table interaction range and standing stably. */
     private boolean withinReach(BlockPos pos) {
-        return entity.onGround()
-                && entity.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
+        return player.onGround()
+                && player.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
     }
 
     /**
-     * Place a carried crafting table on a walkable spot beside the entity.
+     * Place a carried crafting table on a walkable spot beside the companion.
      * Returns the position placed, or {@code null} if we carry none / no spot.
      */
     private BlockPos placeTableBeside() {
-        int slot = FakePlayerUse.slotOf(entity, Items.CRAFTING_TABLE);
+        int slot = PlayerInv.findSlot(player.getInventory(), Items.CRAFTING_TABLE);
         if (slot < 0) {
             return null;
         }
-        Level level = entity.level();
-        BlockPos feet = entity.blockPosition();
+        Level level = player.level();
+        BlockPos feet = player.blockPosition();
         for (Direction dir : Direction.Plane.HORIZONTAL) {
             BlockPos at = feet.relative(dir);
             if (BlockHelper.isReplaceableForPlacement(level, at)
                     && BlockHelper.canWalkOn(level, at.below())) {
-                // Real player placement via the fake player: vanilla rules,
-                // place sound/events, and consumption accounted inside.
-                if (FakePlayerUse.placeBlockItem(entity, slot, at)
-                        == FakePlayerUse.PlaceResult.PLACED) {
+                // The companion places it itself (survival placement): vanilla
+                // rules, sound/events, and consumption accounted inside.
+                if (PlayerPlace.place(player, slot, at)) {
                     return at;
                 }
             }
@@ -228,13 +232,12 @@ public final class CraftTaskGoal extends LlmTaskGoal<CraftTaskRecord> {
 
     private void fail(String reason) {
         doneReason = reason;
-        currentRecord.setState(TaskState.FAILED);
+        r.setState(TaskState.FAILED);
     }
 
     @Override
-    protected TaskResult buildResult(CraftTaskRecord r, TaskState finalState) {
+    public TaskResult buildResult(TaskState finalState) {
         if (nav != null) nav.stop();
-        entity.getNavigation().stop();
 
         Map<String, Object> data = new HashMap<>();
         data.put("item", r.label);
