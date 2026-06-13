@@ -5,6 +5,7 @@ import com.dwinovo.animus.entity.AnimusPlayer;
 import com.dwinovo.animus.pathing.calc.NavContext;
 import com.dwinovo.animus.pathing.calc.Path;
 import com.dwinovo.animus.pathing.movement.Movement;
+import com.dwinovo.animus.pathing.util.PathSettings;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
@@ -32,9 +33,11 @@ public final class PlayerPathExecutor {
 
     public enum Status { RUNNING, ARRIVED, NEEDS_REPLAN, FAILED }
 
-    private static final int RESYNC_SCAN = 8;
-    private static final int AWAY_BUDGET = 60;
-    private static final double HARD_DIST_SQR = 9.0;
+    /** Off-path bands (Baritone MAX_DIST_FROM_PATH 2 / MAX_MAX 3), squared. */
+    private static final double SOFT_DIST_SQR =
+            PathSettings.MAX_DIST_FROM_PATH * PathSettings.MAX_DIST_FROM_PATH;
+    private static final double HARD_DIST_SQR =
+            PathSettings.MAX_MAX_DIST_FROM_PATH * PathSettings.MAX_MAX_DIST_FROM_PATH;
     /** Break at most one obstruction every few ticks so it reads as work, not teleport-mining. */
     private static final int BREAK_INTERVAL = 4;
 
@@ -73,8 +76,8 @@ public final class PlayerPathExecutor {
         }
 
         ticksOnCurrent++;
-        int budget = (int) (mv.cost * 4) + 60;
-        if (ticksOnCurrent > budget) {
+        // Baritone: cancel a movement that overshoots its estimate by movementTimeoutTicks.
+        if (ticksOnCurrent > mv.cost + PathSettings.MOVEMENT_TIMEOUT_TICKS) {
             return Status.NEEDS_REPLAN;
         }
 
@@ -198,25 +201,36 @@ public final class PlayerPathExecutor {
             ticksAway = 0;
             return null;
         }
-        for (int i = index - 1; i >= Math.max(0, index - RESYNC_SCAN); i--) {
+        // Backward: lag / pushed back — scan ALL earlier movements (Baritone).
+        for (int i = index - 1; i >= 0; i--) {
             if (path.movements.get(i).validPositions().contains(feet)) {
                 jumpToIndex(i);
                 return null;
             }
         }
+        // Forward skip +3: a movement signals its own completion (e.g. sneak-place),
+        // so +1/+2 are deliberately skipped (Baritone PathExecutor).
         int last = path.movements.size() - 1;
-        for (int i = index + 1; i <= Math.min(last, index + RESYNC_SCAN); i++) {
+        for (int i = index + 3; i <= last; i++) {
             if (path.movements.get(i).validPositions().contains(feet)) {
-                jumpToIndex(i);
+                jumpToIndex(i - 1);
                 return null;
             }
         }
-        ticksAway++;
+        // Off-path watchdog: Baritone's two bands — >3 blocks cancels immediately,
+        // >2 blocks counts toward MAX_TICKS_AWAY (~10 s) before giving up.
         double distSqr = Math.min(
                 player.distanceToSqr(Vec3.atBottomCenterOf(cur.src)),
                 player.distanceToSqr(Vec3.atBottomCenterOf(cur.dest)));
-        if (distSqr > HARD_DIST_SQR || ticksAway > AWAY_BUDGET) {
+        if (distSqr > HARD_DIST_SQR) {
             return Status.NEEDS_REPLAN;
+        }
+        if (distSqr > SOFT_DIST_SQR) {
+            if (++ticksAway > PathSettings.MAX_TICKS_AWAY) {
+                return Status.NEEDS_REPLAN;
+            }
+        } else {
+            ticksAway = 0;
         }
         return null;
     }
