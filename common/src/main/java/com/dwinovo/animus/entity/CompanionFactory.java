@@ -5,6 +5,8 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Set;
@@ -15,11 +17,13 @@ import java.util.UUID;
  * player-join path — entirely public API, no loader-specific construction needed
  * (the only fake piece is {@link FakeConnection}, which is common).
  *
- * <p>{@link net.minecraft.server.players.PlayerList#placeNewPlayer} loads the
- * companion's playerdata {@code .dat} (restoring inventory / position / owner on
- * a respawn), adds it to the player list (→ chunk loading for free) and to the
- * level. {@link net.minecraft.server.players.PlayerList#remove} saves that data
- * back and removes the body — so despawn is a clean, persisted dormancy.
+ * <p>{@link net.minecraft.server.players.PlayerList#placeNewPlayer} adds the body
+ * to the player list (→ chunk loading for free) and to the level, but does NOT
+ * load a hand-built fake player's {@code .dat} (that path is tied to the real
+ * login flow) — so {@link #spawn} restores position / inventory / owner from disk
+ * explicitly afterwards, the way Carpet's {@code EntityPlayerMPFake} does.
+ * {@link net.minecraft.server.players.PlayerList#remove} saves that data back and
+ * removes the body — so despawn is a clean, persisted dormancy.
  */
 public final class CompanionFactory {
 
@@ -37,14 +41,33 @@ public final class CompanionFactory {
         FakeConnection connection = new FakeConnection();
         server.getPlayerList().placeNewPlayer(connection, player,
                 CommonListenerCookie.createInitial(profile, false));
+        // placeNewPlayer does NOT load a hand-built fake player's .dat, so restore
+        // it ourselves (Carpet's model): position, inventory, health, owner from
+        // disk. Without this a respawned companion spawns at 0,0,0 with no items.
+        loadPlayerData(server, player);
         // First spawn has no .dat to restore the owner from; set it explicitly.
         if (player.getOwnerUuid() == null) {
             player.setOwnerUuid(ownerUuid);
         }
+        // An explicit pos (fresh summon) overrides the restored position; a respawn
+        // from dormancy passes null to keep exactly what the .dat restored.
         if (pos != null) {
             player.teleportTo(level, pos.x, pos.y, pos.z, Set.of(), player.getYRot(), player.getXRot(), false);
         }
         return player;
+    }
+
+    /**
+     * Restore a fake player's saved state from its playerdata {@code .dat}
+     * ({@link net.minecraft.server.players.PlayerList#loadPlayerData} +
+     * {@link net.minecraft.world.entity.Entity#load}). {@code placeNewPlayer}
+     * skips this for hand-constructed players, so we do it like Carpet's
+     * {@code loadPlayerData}. No-op on first summon (no file yet).
+     */
+    private static void loadPlayerData(MinecraftServer server, AnimusPlayer player) {
+        server.getPlayerList().loadPlayerData(player.nameAndId())
+                .map(tag -> TagValueInput.create(ProblemReporter.DISCARDING, player.registryAccess(), tag))
+                .ifPresent(player::load);
     }
 
     /** Save the companion's data and remove it from the world (dormancy). */
