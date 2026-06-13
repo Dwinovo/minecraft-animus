@@ -7,11 +7,13 @@ import com.dwinovo.animus.pathing.calc.Path;
 import com.dwinovo.animus.pathing.movement.Movement;
 import com.dwinovo.animus.pathing.movement.Moves;
 import com.dwinovo.animus.pathing.util.ActionCosts;
+import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.pathing.util.PathSettings;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -153,6 +155,7 @@ public final class PlayerPathExecutor {
      */
     private void drive(Movement mv) {
         player.setShiftKeyDown(false);   // default; pillar re-enables per tick
+        openDoorsForMove(mv);            // a shut wooden door/gate ahead → open it, don't break it
         Vec3 dest = Vec3.atBottomCenterOf(mv.dest);
         switch (mv.kind) {
             case TRAVERSE -> InputDriver.stepToward(player, dest, speed >= 1.0);
@@ -219,6 +222,31 @@ public final class PlayerPathExecutor {
         } else if (player.getY() > mv.dest.getY() + 0.1) {
             tryPlaceScaffold(mv.src);
         }
+    }
+
+    /**
+     * Open any shut wooden door / fence gate in this movement's path (the dest
+     * cell + the head cell above it) by hand — Baritone's alternative to breaking
+     * it. The path planner already treats these as passable (BlockHelper), so they
+     * never enter {@code toBreak}; here we just right-click them open as we arrive.
+     */
+    private void openDoorsForMove(Movement mv) {
+        openDoorAt(mv.dest);
+        openDoorAt(mv.dest.above());
+    }
+
+    private void openDoorAt(BlockPos cell) {
+        BlockState state = player.level().getBlockState(cell);
+        if (!BlockHelper.isOpenableDoor(state) || BlockHelper.isDoorOpen(state)) {
+            return;
+        }
+        // Not sneaking (drive() cleared shift) so the door's own use() fires and
+        // opens it, rather than placing a held block against it.
+        Vec3 centre = Vec3.atCenterOf(cell);
+        InputDriver.lookAt(player, centre);
+        player.gameMode.useItemOn(player, player.level(),
+                player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND,
+                new BlockHitResult(centre, Direction.UP, cell, false));
     }
 
     /**

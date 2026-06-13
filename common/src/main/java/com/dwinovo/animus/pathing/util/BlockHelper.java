@@ -5,8 +5,12 @@ import net.minecraft.core.Direction;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FallingBlock;
+import net.minecraft.world.level.block.FenceGateBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -40,8 +44,34 @@ public final class BlockHelper {
             // swim or wade. (Water support can be added later via a flag.)
             return false;
         }
+        // Wooden doors / fence gates are passable even when shut — the path
+        // executor opens them by hand (Baritone's model). Iron doors stay a hard
+        // obstruction: no redstone, can't open. So they fall through to the
+        // collision test below and read as solid.
+        if (isOpenableDoor(state)) {
+            return true;
+        }
         VoxelShape shape = state.getCollisionShape(level, pos, CollisionContext.empty());
         return shape.isEmpty();
+    }
+
+    /**
+     * A wooden door or fence gate the body can open by hand — NOT an iron door
+     * (needs redstone). The path treats these as passable (no breaking) and the
+     * executor right-clicks them open when shut.
+     */
+    public static boolean isOpenableDoor(BlockState state) {
+        if (state.is(Blocks.IRON_DOOR)) {
+            return false;
+        }
+        return state.getBlock() instanceof DoorBlock
+                || state.getBlock() instanceof FenceGateBlock;
+    }
+
+    /** Is this door/gate currently open (OPEN blockstate property true)? */
+    public static boolean isDoorOpen(BlockState state) {
+        return state.hasProperty(BlockStateProperties.OPEN)
+                && state.getValue(BlockStateProperties.OPEN);
     }
 
     /** Is this cell water (source or flowing)? The one fluid we swim. */
