@@ -333,6 +333,7 @@ public final class Moves {
     // ---- DigDown: mine the floor underfoot and drop one ----
 
     private static Movement digDown(NavContext ctx, BlockPos from) {
+        if (!PathSettings.ALLOW_DOWNWARD) return null;
         BlockGetter level = ctx.view;
         BlockPos below = from.below();       // floor block to mine == destination feet
         BlockPos landing = from.below(2);    // must be solid to stand on after the drop
@@ -363,6 +364,7 @@ public final class Moves {
      * and parkour-place are deferred. Neither breaks nor places anything.
      */
     private static Movement parkour(NavContext ctx, BlockPos from, Direction dir) {
+        if (!PathSettings.ALLOW_PARKOUR) return null;   // Baritone default: parkour off
         BlockGetter level = ctx.view;
         // Only a real gap warrants a jump: a floor immediately ahead means a
         // plain traverse/descend already covers it.

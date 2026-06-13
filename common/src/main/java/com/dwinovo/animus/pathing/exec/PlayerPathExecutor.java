@@ -105,26 +105,92 @@ public final class PlayerPathExecutor {
             return Status.RUNNING;
         }
 
-        // 3) Step toward dest; arrive when the feet reach it.
+        // 3) Drive toward dest by movement kind — per-Movement updateState,
+        //    mirroring Baritone's input-forcing timing.
         BlockPos feet = player.blockPosition();
         if (feet.equals(mv.dest)) {
             advance();
             return Status.RUNNING;
         }
-        boolean sprint = speed >= 1.0 && mv.kind == Movement.Kind.TRAVERSE;
-        InputDriver.stepToward(player, Vec3.atBottomCenterOf(mv.dest), sprint);
-        if (needsHop(mv)) {
-            InputDriver.jump(player);
-        }
+        drive(mv);
         return Status.RUNNING;
     }
 
-    /** True if this move clears the ground and needs an explicit hop. */
-    private boolean needsHop(Movement mv) {
-        return switch (mv.kind) {
-            case ASCEND, PILLAR, PARKOUR -> true;
-            default -> mv.dest.getY() > player.blockPosition().getY();
-        };
+    /** Horizontal speed² this tick — used to gate jump timing (Baritone waits for motion). */
+    private double horizontalSpeedSqr() {
+        var v = player.getDeltaMovement();
+        return v.x * v.x + v.z * v.z;
+    }
+
+    /** Horizontal distance from the body to a cell's centre. */
+    private double horizontalDistTo(BlockPos cell) {
+        double dx = (cell.getX() + 0.5) - player.getX();
+        double dz = (cell.getZ() + 0.5) - player.getZ();
+        return Math.sqrt(dx * dx + dz * dz);
+    }
+
+    /**
+     * Per-movement execution. Each kind forces the inputs Baritone's
+     * {@code updateState} would: walk/diagonal aim + forward (+sprint); ascend
+     * waits for forward motion before jumping; parkour holds the jump until clear
+     * of the takeoff block; pillar sneaks, jumps and places underfoot at the apex;
+     * descend/fall let gravity do the work; dig-down lets phase 1 break the floor.
+     */
+    private void drive(Movement mv) {
+        player.setShiftKeyDown(false);   // default; pillar re-enables per tick
+        Vec3 dest = Vec3.atBottomCenterOf(mv.dest);
+        switch (mv.kind) {
+            case TRAVERSE -> InputDriver.stepToward(player, dest, speed >= 1.0);
+            case DIAGONAL -> InputDriver.stepToward(player, dest, speed >= 1.0);
+            case ASCEND -> {
+                InputDriver.stepToward(player, dest, false);
+                // Jump only once we're actually moving forward and on the ground —
+                // prevents the machine-gun hop that fires before alignment.
+                if (player.onGround() && horizontalSpeedSqr() > 0.006) {
+                    InputDriver.jump(player);
+                }
+            }
+            case PARKOUR -> {
+                int gap = Math.max(Math.abs(mv.dest.getX() - mv.src.getX()),
+                        Math.abs(mv.dest.getZ() - mv.src.getZ()));
+                InputDriver.stepToward(player, dest, gap >= 4);   // a 4-gap needs sprint physics
+                // Hold the jump until clear of the takeoff block (Baritone dist==3 rule),
+                // so the arc starts from the edge, not the centre.
+                if (player.onGround() && horizontalDistTo(mv.src) > 0.7) {
+                    InputDriver.jump(player);
+                }
+            }
+            case PILLAR -> drivePillar(mv);
+            case DESCEND, FALL -> InputDriver.stepToward(player, dest, false); // gravity descends
+            case DIG_DOWN -> InputDriver.halt(player);   // phase 1 breaks the floor; gravity drops us
+            case SWIM -> {
+                InputDriver.stepToward(player, dest, false);
+                if (mv.dest.getY() > player.blockPosition().getY()) {
+                    InputDriver.jump(player);   // swim up toward the surface
+                }
+            }
+        }
+    }
+
+    /**
+     * Block-tower pillar (Baritone MovementPillar): sneak so we never step off the
+     * column, stay centred, jump from the ground, and at the apex place a block in
+     * the cell we just left so we land one higher.
+     */
+    private void drivePillar(Movement mv) {
+        player.setShiftKeyDown(true);
+        // Recentre on the column rather than walking off it.
+        if (horizontalDistTo(mv.src) > 0.17) {
+            InputDriver.stepToward(player, Vec3.atBottomCenterOf(mv.src), false);
+        } else {
+            InputDriver.halt(player);
+        }
+        if (player.onGround()) {
+            InputDriver.jump(player);
+        } else if (player.getY() > mv.dest.getY() - 0.1) {
+            // Near the top of the jump — place the scaffold block underfoot.
+            tryPlaceScaffold(mv.src);
+        }
     }
 
     /** The next still-solid block this move must break, or null when its path is clear. */
