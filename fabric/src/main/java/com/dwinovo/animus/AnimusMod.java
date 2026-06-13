@@ -89,6 +89,9 @@ public class AnimusMod implements ModInitializer {
         // Advance budget-sliced long-range block scans.
         ServerTickEvents.END_SERVER_TICK.register(
                 com.dwinovo.animus.task.tasks.ScanBlocksJob::tick);
+        // Drive companion player-body tasks (move_to / auto_mine) each tick.
+        ServerTickEvents.END_SERVER_TICK.register(
+                com.dwinovo.animus.task.CompanionTickDispatcher::tick);
 
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on Fabric.");

@@ -86,6 +86,20 @@ public record ExecuteToolPayload(UUID entityUuid,
         Constants.LOG.debug("[animus-net] ← execute_tool from {} entity={} tool={} id={} args_chars={}",
                 who, p.entityUuid(), p.toolName(), p.toolCallId(), p.argumentsJson().length());
 
+        // -- 0. companion player body (the new architecture). Resolve it (or
+        //       respawn it from the registry on a cold start) and run the tool
+        //       through the CompanionTickDispatcher instead of the Mob GoalSelector.
+        var server = player.level().getServer();
+        com.dwinovo.animus.entity.AnimusPlayer companion =
+                com.dwinovo.animus.entity.AnimusPlayer.findByUuid(server, p.entityUuid());
+        if (companion == null) {
+            companion = com.dwinovo.animus.entity.Companions.respawn(server, p.entityUuid());
+        }
+        if (companion != null) {
+            handleCompanion(p, player, companion);
+            return;
+        }
+
         // -- 1. resolve entity by UUID across all dimensions: the companion may
         //       be working in another dimension or far outside the owner's view,
         //       kept ticking by its own chunk tickets.
@@ -171,6 +185,48 @@ public record ExecuteToolPayload(UUID entityUuid,
         Constants.LOG.info("[animus-net] ✓ enqueued tool={} id={} on entity {} for {} (queue depth now={})",
                 p.toolName(), p.toolCallId(), p.entityUuid(), who,
                 animus.getTaskQueue().pendingCount());
+    }
+
+    /**
+     * Run a tool against the companion player body: owner-check, then enqueue
+     * world-action tools onto its queue for the {@code CompanionTickDispatcher}.
+     * Query/perception tools aren't ported to the player body yet (Phase 0 wires
+     * move_to + auto_mine), so they reply with a clear not-yet message.
+     */
+    private static void handleCompanion(ExecuteToolPayload p, ServerPlayer player,
+                                        com.dwinovo.animus.entity.AnimusPlayer companion) {
+        if (!companion.isOwnedByPlayer(player.getUUID())) {
+            replyError(player, p, "not the owner");
+            return;
+        }
+        companion.markOwnerHeartbeat();
+        AnimusTool tool = ToolRegistry.get(p.toolName());
+        if (tool == null) {
+            replyError(player, p, "unknown tool: " + p.toolName());
+            return;
+        }
+        JsonObject args;
+        try {
+            args = JsonParser.parseString(p.argumentsJson()).getAsJsonObject();
+        } catch (RuntimeException ex) {
+            replyError(player, p, "invalid arguments JSON: " + ex.getMessage());
+            return;
+        }
+        if (tool.isQuery() || tool.isAsyncQuery()) {
+            replyError(player, p, p.toolName() + ": perception/query tools aren't wired to the "
+                    + "companion player body yet (move_to and auto_mine are)");
+            return;
+        }
+        TaskRecord record;
+        try {
+            record = tool.toTaskRecord(p.toolCallId(), args, companion.level().getGameTime());
+        } catch (RuntimeException ex) {
+            replyError(player, p, "invalid arguments: " + ex.getMessage());
+            return;
+        }
+        companion.getTaskQueue().enqueue(record);
+        Constants.LOG.info("[animus-net] ✓ enqueued tool={} id={} on companion {} (queue depth now={})",
+                p.toolName(), p.toolCallId(), p.entityUuid(), companion.getTaskQueue().pendingCount());
     }
 
     public static void replyError(ServerPlayer player, ExecuteToolPayload p, String message) {

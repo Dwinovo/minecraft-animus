@@ -81,6 +81,28 @@ public final class TaskQueue {
         return null;
     }
 
+    /** The first pending record regardless of tool name (the companion dispatcher
+     *  drives one record at a time, FIFO), or null. */
+    public TaskRecord peekHead() {
+        for (TaskRecord r : pending) {
+            if (r.getState() == TaskState.PENDING) return r;
+        }
+        return null;
+    }
+
+    /** Remove and return the first pending record regardless of tool name. */
+    public TaskRecord pollHead() {
+        var it = pending.iterator();
+        while (it.hasNext()) {
+            TaskRecord r = it.next();
+            if (r.getState() == TaskState.PENDING) {
+                it.remove();
+                return r;
+            }
+        }
+        return null;
+    }
+
     /** Move a record from in-flight to the outbox. Called from {@code Goal.stop}. */
     public void complete(TaskRecord record) {
         completed.addLast(record);

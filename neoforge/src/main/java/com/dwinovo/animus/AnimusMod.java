@@ -117,6 +117,7 @@ public class AnimusMod {
     private static void onServerTickPost(net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) {
         com.dwinovo.animus.network.AnimusRevival.tick(event.getServer());
         com.dwinovo.animus.task.tasks.ScanBlocksJob.tick(event.getServer());
+        com.dwinovo.animus.task.CompanionTickDispatcher.tick(event.getServer());
     }
 
     private static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
