@@ -37,6 +37,10 @@ public final class CompanionTaskFactory {
         if (record instanceof BreakBlockTaskRecord r) return new BreakBlockCompanionTask(player, r);
         if (record instanceof PlaceBlockTaskRecord r) return new PlaceBlockCompanionTask(player, r);
         if (record instanceof UseItemTaskRecord r) return new UseItemCompanionTask(player, r);
+        if (record instanceof com.dwinovo.animus.task.tasks.LocateStructureTaskRecord r)
+            return new com.dwinovo.animus.task.tasks.LocateStructureTaskGoal(player, r);
+        if (record instanceof com.dwinovo.animus.task.tasks.LocateBiomeTaskRecord r)
+            return new com.dwinovo.animus.task.tasks.LocateBiomeTaskGoal(player, r);
         return new UnsupportedCompanionTask(record);
     }
 }

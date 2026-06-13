@@ -1,7 +1,7 @@
 package com.dwinovo.animus.task.tasks;
 
-import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.task.LlmTaskGoal;
+import com.dwinovo.animus.entity.AnimusPlayer;
+import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
@@ -45,7 +45,7 @@ import java.util.function.Predicate;
  * reach is 10k with the same 64-block grid. Worst-case full miss ≈ 40k samples
  * ≈ 160 budgeted ticks ≈ 8s, far under the task deadline.
  */
-public final class LocateBiomeTaskGoal extends LlmTaskGoal<LocateBiomeTaskRecord> {
+public final class LocateBiomeTaskGoal implements CompanionTask {
 
     /** Sample grid pitch — NC's default (16 × biome size 4). Vanilla /locate uses 32. */
     private static final int SAMPLE_STEP_BLOCKS = 64;
@@ -64,19 +64,23 @@ public final class LocateBiomeTaskGoal extends LlmTaskGoal<LocateBiomeTaskRecord
     private BlockPos best;
     private String failReason = "not on a server level";
 
-    public LocateBiomeTaskGoal(AnimusEntity entity) {
-        super(entity, LocateBiomeTaskRecord.TOOL_NAME, LocateBiomeTaskRecord.class);
+    private final AnimusPlayer player;
+    private final LocateBiomeTaskRecord r;
+
+    public LocateBiomeTaskGoal(AnimusPlayer player, LocateBiomeTaskRecord record) {
+        this.player = player;
+        this.r = record;
     }
 
     @Override
-    protected void onStart(LocateBiomeTaskRecord r) {
+    public void start() {
         match = null;
         best = null;
         ring = 0;
         perimIdx = 0;
         exhausted = false;
 
-        if (!(entity.level() instanceof ServerLevel sl)) {
+        if (!(player.level() instanceof ServerLevel sl)) {
             failReason = "not on a server level";
             r.setState(TaskState.FAILED);
             return;
@@ -89,10 +93,10 @@ public final class LocateBiomeTaskGoal extends LlmTaskGoal<LocateBiomeTaskRecord
         }
         biomeSource = sl.getChunkSource().getGenerator().getBiomeSource();
         sampler = sl.getChunkSource().randomState().sampler();
-        yBlocks = Mth.outFromOrigin(entity.getBlockY(),
+        yBlocks = Mth.outFromOrigin(player.getBlockY(),
                 sl.getMinY() + 1, sl.getMaxY(), Y_STEP_BLOCKS).toArray();
-        centerX = entity.getBlockX();
-        centerZ = entity.getBlockZ();
+        centerX = player.getBlockX();
+        centerZ = player.getBlockZ();
     }
 
     /** @return a holder predicate, or null on bad input (failReason set). */
@@ -147,26 +151,26 @@ public final class LocateBiomeTaskGoal extends LlmTaskGoal<LocateBiomeTaskRecord
     }
 
     @Override
-    protected void onTick(LocateBiomeTaskRecord r) {
-        if (!(entity.level() instanceof ServerLevel sl)) {
+    public TaskState tick() {
+        if (!(player.level() instanceof ServerLevel sl)) {
             failReason = "not on a server level";
             r.setState(TaskState.FAILED);
-            return;
+            return r.getState();
         }
         SearchBudget.refresh(sl.getServer());
         while (true) {
             if (exhausted) {
                 r.setState(TaskState.SUCCESS);   // best == null → "not found"
-                return;
+                return r.getState();
             }
             if (!SearchBudget.tryBiomeSample()) {
-                return;                          // pool drained — resume next tick
+                return r.getState();             // pool drained — resume next tick
             }
             BlockPos hit = sampleNext();
             if (hit != null) {
                 best = hit;                      // ring order ⇒ first hit ≈ nearest
                 r.setState(TaskState.SUCCESS);
-                return;
+                return r.getState();
             }
         }
     }
@@ -197,12 +201,12 @@ public final class LocateBiomeTaskGoal extends LlmTaskGoal<LocateBiomeTaskRecord
     }
 
     @Override
-    protected TaskResult buildResult(LocateBiomeTaskRecord r, TaskState finalState) {
+    public TaskResult buildResult(TaskState finalState) {
         Map<String, Object> data = new HashMap<>();
         data.put("biome", r.biome);
-        String dim = entity.level().dimension().identifier().getPath();
+        String dim = player.level().dimension().identifier().getPath();
         if (finalState == TaskState.SUCCESS && best != null) {
-            BlockPos me = entity.blockPosition();
+            BlockPos me = player.blockPosition();
             int dx = best.getX() - me.getX();
             int dz = best.getZ() - me.getZ();
             int dist = (int) Math.sqrt((double) dx * dx + (double) dz * dz);

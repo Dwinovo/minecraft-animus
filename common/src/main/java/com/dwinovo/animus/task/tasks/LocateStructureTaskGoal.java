@@ -1,7 +1,8 @@
 package com.dwinovo.animus.task.tasks;
 
-import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.task.LlmTaskGoal;
+import com.dwinovo.animus.entity.AnimusPlayer;
+import com.dwinovo.animus.task.CompanionTask;
+
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
@@ -56,7 +57,7 @@ import java.util.Optional;
  * </ul>
  * Worst case the answer takes a handful of ticks instead of hitching one.
  */
-public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTaskRecord> {
+public final class LocateStructureTaskGoal implements CompanionTask {
 
     /**
      * Search radius in placement-region RINGS, exactly vanilla /locate's
@@ -109,19 +110,23 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
     private double bestDistSqr = Double.MAX_VALUE;
     private String failReason = "not on a server level";
 
-    public LocateStructureTaskGoal(AnimusEntity entity) {
-        super(entity, LocateStructureTaskRecord.TOOL_NAME, LocateStructureTaskRecord.class);
+    private final AnimusPlayer player;
+    private final LocateStructureTaskRecord r;
+
+    public LocateStructureTaskGoal(AnimusPlayer player, LocateStructureTaskRecord record) {
+        this.player = player;
+        this.r = record;
     }
 
     @Override
-    protected void onStart(LocateStructureTaskRecord r) {
+    public void start() {
         jobs.clear();
         jobIndex = 0;
         pendingCandidate = null;
         best = null;
         bestDistSqr = Double.MAX_VALUE;
 
-        if (!(entity.level() instanceof ServerLevel sl)) {
+        if (!(player.level() instanceof ServerLevel sl)) {
             failReason = "not on a server level";
             r.setState(TaskState.FAILED);
             return;
@@ -138,7 +143,7 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
         }
 
         ChunkGeneratorStructureState state = sl.getChunkSource().getGeneratorState();
-        ChunkPos here = entity.chunkPosition();
+        ChunkPos here = player.chunkPosition();
         Map<StructurePlacement, Job> byPlacement = new LinkedHashMap<>();
         for (Holder<Structure> holder : holders) {
             for (StructurePlacement placement : state.getPlacementsForStructure(holder)) {
@@ -229,11 +234,11 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
     }
 
     @Override
-    protected void onTick(LocateStructureTaskRecord r) {
-        if (!(entity.level() instanceof ServerLevel sl)) {
+    public TaskState tick() {
+        if (!(player.level() instanceof ServerLevel sl)) {
             failReason = "not on a server level";
             r.setState(TaskState.FAILED);
-            return;
+            return r.getState();
         }
         // GLOBAL budget: shared by every searching companion on the server, so
         // total per-tick search cost is a constant regardless of pet count.
@@ -241,7 +246,7 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
         while (true) {
             if (jobIndex >= jobs.size()) {
                 r.setState(TaskState.SUCCESS);
-                return;
+                return r.getState();
             }
             Job job = jobs.get(jobIndex);
             ChunkPos candidate = pendingCandidate != null ? pendingCandidate : job.next();
@@ -252,12 +257,12 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
             }
             if (!SearchBudget.tryCheck()) {
                 pendingCandidate = candidate;   // pool drained — resume next tick
-                return;
+                return r.getState();
             }
             Boolean hit = checkCandidate(sl, job, candidate);
             if (hit == null) {
                 pendingCandidate = candidate;   // out of chunk-load budget — resume next tick
-                return;
+                return r.getState();
             }
             if (hit) {
                 consider(job.placement.getLocatePos(candidate));
@@ -291,7 +296,7 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
     }
 
     private void consider(BlockPos pos) {
-        double d = pos.distSqr(entity.blockPosition());
+        double d = pos.distSqr(player.blockPosition());
         if (d < bestDistSqr) {
             bestDistSqr = d;
             best = pos;
@@ -299,11 +304,11 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
     }
 
     @Override
-    protected TaskResult buildResult(LocateStructureTaskRecord r, TaskState finalState) {
+    public TaskResult buildResult(TaskState finalState) {
         Map<String, Object> data = new HashMap<>();
         data.put("structure", r.structure);
         if (finalState == TaskState.SUCCESS && best != null) {
-            BlockPos me = entity.blockPosition();
+            BlockPos me = player.blockPosition();
             int dx = best.getX() - me.getX();
             int dz = best.getZ() - me.getZ();
             int dist = (int) Math.sqrt((double) dx * dx + (double) dz * dz);
@@ -320,7 +325,7 @@ public final class LocateStructureTaskGoal extends LlmTaskGoal<LocateStructureTa
                     + "then scan_blocks to find its actual blocks.", data);
         }
         data.put("found", false);
-        String dim = entity.level().dimension().identifier().getPath();
+        String dim = player.level().dimension().identifier().getPath();
         return switch (finalState) {
             case SUCCESS -> {
                 int searched = searchedRadiusBlocks();
