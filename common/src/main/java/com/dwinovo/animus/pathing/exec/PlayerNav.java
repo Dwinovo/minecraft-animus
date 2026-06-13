@@ -140,7 +140,7 @@ public final class PlayerNav {
     }
 
     private NavContext freshContext() {
-        return new NavContext(player.level(), player.getMainHandItem(), player.getInventory());
+        return new NavContext(player.level(), player.getInventory());
     }
 
     private void startFreshSearch() {

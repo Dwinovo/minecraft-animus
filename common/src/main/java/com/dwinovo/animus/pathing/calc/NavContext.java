@@ -16,8 +16,8 @@ import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Per-search snapshot binding the world, the entity's capabilities, and a
- * frozen view of its scaffolding inventory + held tool. Mirrors Baritone's
- * {@code CalculationContext}: every {@link com.cost}-returning helper reads
+ * frozen view of its inventory (scaffolding gate + best-tool source). Mirrors
+ * Baritone's {@code CalculationContext}: every cost-returning helper reads
  * only from this immutable snapshot, so an A* search is deterministic and
  * doesn't see mid-search inventory mutation.
  *
@@ -52,25 +52,57 @@ public final class NavContext {
     /** Whether sprinting is allowed (Baritone {@code canSprint}); drives the sprint cost discount. */
     public final boolean canSprint;
 
-    /** Held main-hand tool snapshot, for tool-aware mining duration. */
-    private final ItemStack tool;
+    /**
+     * Frozen view of the body's hotbar, for best-tool-aware mining duration —
+     * Baritone's {@code ToolSet}: a break is costed with the BEST tool the body
+     * has, not just the one currently held, because the body auto-switches to it
+     * before mining ({@code MineCompanionTask.switchToBestTool}). Costing with the
+     * held item instead made A* price an oak log at bare-hand speed when no axe
+     * was selected, so "dig under through soft dirt" beat "break the logs" and the
+     * body tunnelled under trees.
+     */
+    private final Container inventory;
+    private final java.util.Map<net.minecraft.world.level.block.Block, BestTool> toolCache =
+            new java.util.HashMap<>();
+
+    /** Best hotbar tool for a block: its destroy speed and whether it harvests drops. */
+    private record BestTool(float speed, boolean canHarvest) {}
 
     /**
-     * Snapshot the world + the body's capabilities for one A* search. Decoupled
-     * from any specific entity type: callers pass the level, a copy of the held
-     * tool, and the inventory to gate scaffolding on (a {@link Container}, so a
-     * Mob's {@code SimpleContainer} or a player's {@code Inventory} both work).
+     * Snapshot the world + the body's capabilities for one A* search. The
+     * {@code inventory} is both the scaffolding gate and the tool source: the
+     * best tool in its hotbar prices every break (Baritone ToolSet).
      */
-    public NavContext(Level level, ItemStack mainHandTool, Container inventory) {
+    public NavContext(Level level, Container inventory) {
         this.level = level;
         this.view = new NavSnapshot(level);
-        this.tool = mainHandTool.copy();
+        this.inventory = inventory;
         this.hasScaffold = hasAnyScaffold(inventory);
 
         // Survivable fall: Baritone's maxFallHeightNoWater (3) — vanilla fall
         // damage starts at 3.5 blocks; cap conservatively so the bot never hurts itself.
         this.maxFallHeight = PathSettings.MAX_FALL_HEIGHT_NO_WATER;
         this.canSprint = PathSettings.ALLOW_SPRINT;
+    }
+
+    /** Best hotbar tool for the block (Baritone {@code ToolSet.getBestSlot}),
+     *  memoised per block-type for the search. */
+    private BestTool bestTool(BlockState state) {
+        return toolCache.computeIfAbsent(state.getBlock(), b -> scanBestTool(state));
+    }
+
+    private BestTool scanBestTool(BlockState state) {
+        float bestSpeed = 1.0f;                                   // bare hand baseline
+        boolean canHarvest = !state.requiresCorrectToolForDrops();
+        int hotbar = Math.min(9, inventory.getContainerSize());   // quick-switchable slots
+        for (int i = 0; i < hotbar; i++) {
+            ItemStack s = inventory.getItem(i);
+            if (s.isEmpty()) continue;
+            float spd = s.getDestroySpeed(state);
+            if (spd > bestSpeed) bestSpeed = spd;
+            if (!canHarvest && s.isCorrectToolForDrops(state)) canHarvest = true;
+        }
+        return new BestTool(bestSpeed, canHarvest);
     }
 
     private static boolean hasAnyScaffold(Container inv) {
@@ -122,8 +154,8 @@ public final class NavContext {
         if (BlockHelper.breakReleasesFallingBlock(view, pos)) return ActionCosts.COST_INF;
 
         BlockState state = view.getBlockState(pos);
-        if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) {
-            return ActionCosts.COST_INF;   // ineffective with the held tool — route around
+        if (state.requiresCorrectToolForDrops() && !bestTool(state).canHarvest()) {
+            return ActionCosts.COST_INF;   // no hotbar tool can harvest it — route around / teach
         }
         return miningTicks(pos) + PathSettings.BLOCK_BREAK_ADDITIONAL_PENALTY;
     }
@@ -137,8 +169,9 @@ public final class NavContext {
         BlockState state = view.getBlockState(pos);
         float hardness = state.getDestroySpeed(view, pos);
         if (hardness <= 0.0f) return 0.0;   // instabreak — Baritone charges ~0 (the +penalty is added by the caller)
-        boolean correct = !state.requiresCorrectToolForDrops() || tool.isCorrectToolForDrops(state);
-        float toolSpeed = tool.getDestroySpeed(state);
+        BestTool best = bestTool(state);
+        boolean correct = !state.requiresCorrectToolForDrops() || best.canHarvest();
+        float toolSpeed = best.speed();
         if (toolSpeed <= 0.0f) toolSpeed = 1.0f;
         float divisor = correct ? 30.0f : 100.0f;
         // Baritone: ticks = 1/strVsBlock = hardness*divisor/speed — a continuous
@@ -207,12 +240,9 @@ public final class NavContext {
         if (BlockHelper.breakReleasesFallingBlock(view, pos)) {
             return blockId(state) + " (sand/gravel above it would collapse on me)";
         }
-        if (state.requiresCorrectToolForDrops() && !tool.isCorrectToolForDrops(state)) {
-            String held = tool.isEmpty()
-                    ? "nothing"
-                    : BuiltInRegistries.ITEM.getKey(tool.getItem()).getPath();
-            return blockId(state) + " (needs the correct tool and I'm holding "
-                    + held + " — equip_item the right pickaxe first)";
+        if (state.requiresCorrectToolForDrops() && !bestTool(state).canHarvest()) {
+            return blockId(state) + " (needs the correct tool and I have none in my "
+                    + "hotbar — equip_item the right pickaxe first)";
         }
         return null;
     }
