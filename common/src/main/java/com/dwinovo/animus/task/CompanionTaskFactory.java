@@ -5,6 +5,8 @@ import com.dwinovo.animus.task.tasks.BreakBlockCompanionTask;
 import com.dwinovo.animus.task.tasks.BreakBlockTaskRecord;
 import com.dwinovo.animus.task.tasks.DropCompanionTask;
 import com.dwinovo.animus.task.tasks.DropItemsTaskRecord;
+import com.dwinovo.animus.task.tasks.EatCompanionTask;
+import com.dwinovo.animus.task.tasks.EatItemTaskRecord;
 import com.dwinovo.animus.task.tasks.EquipCompanionTask;
 import com.dwinovo.animus.task.tasks.EquipTaskRecord;
 import com.dwinovo.animus.task.tasks.MineBlockTaskRecord;
@@ -35,6 +37,7 @@ public final class CompanionTaskFactory {
         if (record instanceof WaitTaskRecord r) return new WaitCompanionTask(player, r);
         if (record instanceof DropItemsTaskRecord r) return new DropCompanionTask(player, r);
         if (record instanceof BreakBlockTaskRecord r) return new BreakBlockCompanionTask(player, r);
+        if (record instanceof EatItemTaskRecord r) return new EatCompanionTask(player, r);
         if (record instanceof PlaceBlockTaskRecord r) return new PlaceBlockCompanionTask(player, r);
         if (record instanceof UseItemTaskRecord r) return new UseItemCompanionTask(player, r);
         if (record instanceof com.dwinovo.animus.task.tasks.LocateStructureTaskRecord r)
