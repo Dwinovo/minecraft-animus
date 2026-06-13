@@ -113,7 +113,6 @@ public record ExecuteToolPayload(UUID entityUuid,
             replyError(player, p, "not the owner");
             return;
         }
-        companion.markOwnerHeartbeat();
         AnimusTool tool = ToolRegistry.get(p.toolName());
         if (tool == null) {
             replyError(player, p, "unknown tool: " + p.toolName());

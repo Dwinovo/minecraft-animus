@@ -1,12 +1,10 @@
 package com.dwinovo.animus;
 
-import com.dwinovo.animus.entity.AnimusDimensionFollow;
 import com.dwinovo.animus.network.AnimusNetwork;
 import com.dwinovo.animus.platform.NeoForgeAnimusConfig;
 import com.dwinovo.animus.platform.NeoForgeNetworkChannel;
 import com.dwinovo.animus.platform.Services;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -32,9 +30,6 @@ public class AnimusMod {
         // flushes when RegisterPayloadHandlersEvent fires (see below).
         AnimusNetwork.register();
 
-        // Game-bus (not mod-bus) listener: bring owned companions along when the
-        // owner crosses a dimension.
-        NeoForge.EVENT_BUS.addListener(AnimusMod::onPlayerChangedDimension);
         // Per-tick server work: long-range scans + companion task dispatch.
         NeoForge.EVENT_BUS.addListener(AnimusMod::onServerTickPost);
         // Dev: /animus_summon — create a companion fake player at the caller.
@@ -65,17 +60,6 @@ public class AnimusMod {
         if (server != null) {
             com.dwinovo.animus.entity.Companions.respawnAllOwnedBy(server, player.getUUID());
             com.dwinovo.animus.entity.Companions.syncRosterToOwner(server, player);
-        }
-    }
-
-    private static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
-        if (!(event.getEntity() instanceof ServerPlayer player)) return;
-        MinecraftServer server = player.level().getServer();
-        if (server == null) return;
-        ServerLevel from = server.getLevel(event.getFrom());
-        ServerLevel to = server.getLevel(event.getTo());
-        if (from != null && to != null) {
-            AnimusDimensionFollow.onOwnerChangedDimension(player, from, to);
         }
     }
 }

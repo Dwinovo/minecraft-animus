@@ -47,8 +47,6 @@ public final class AnimusPlayer extends ServerPlayer {
     private final PathTally pathTally = new PathTally();
     private TaskRecord activeTask;
     private String debugTask;
-    /** Game time of the last owner-liveness heartbeat (see KeepLoadedPayload). */
-    private long lastOwnerHeartbeatTime = Long.MIN_VALUE;
 
     public AnimusPlayer(MinecraftServer server, ServerLevel level, GameProfile profile,
                         ClientInformation clientInformation) {
@@ -114,12 +112,6 @@ public final class AnimusPlayer extends ServerPlayer {
         return debugTask;
     }
 
-    /** A task running or queued. Reflex/lifecycle gating reads this. */
-    public boolean hasTaskWork() {
-        return (activeTask != null && activeTask.getState() == TaskState.RUNNING)
-                || (taskQueue != null && taskQueue.pendingCount() > 0);
-    }
-
     /** True if {@code item} sits anywhere in the inventory (hotbar/main/offhand all count). */
     public boolean ensureInInventory(Item item) {
         var inv = getInventory();
@@ -127,18 +119,6 @@ public final class AnimusPlayer extends ServerPlayer {
             if (inv.getItem(i).is(item)) return true;
         }
         return false;
-    }
-
-    // ---- owner liveness (heartbeat lease) ----
-
-    private static final int OWNER_HEARTBEAT_GRACE_TICKS = 100;
-
-    public void markOwnerHeartbeat() {
-        this.lastOwnerHeartbeatTime = level().getGameTime();
-    }
-
-    public boolean isOwnerLoopLive() {
-        return level().getGameTime() - lastOwnerHeartbeatTime <= OWNER_HEARTBEAT_GRACE_TICKS;
     }
 
     @Override
