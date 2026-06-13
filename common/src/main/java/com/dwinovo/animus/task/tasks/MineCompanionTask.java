@@ -5,6 +5,7 @@ import com.dwinovo.animus.pathing.calc.NavGoal;
 import com.dwinovo.animus.pathing.exec.InputDriver;
 import com.dwinovo.animus.pathing.exec.PlayerNav;
 import com.dwinovo.animus.pathing.util.BlockScanner;
+import com.dwinovo.animus.pathing.util.ScanExecutor;
 import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
@@ -14,6 +15,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -24,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * {@code auto_mine} — a faithful port of Baritone's {@code MineProcess} to the
@@ -73,6 +76,8 @@ public final class MineCompanionTask implements CompanionTask {
     private int rescanTimer;
     private int branchTicks;
     private String doneReason = "done";
+    /** In-flight background ore scan (Baritone runs its rescan off the tick thread). */
+    private CompletableFuture<List<BlockScanner.Hit>> scan;
 
     // Progressive dig state (Baritone mines tick-by-tick, not instabreak).
     private BlockPos digPos;
@@ -111,12 +116,14 @@ public final class MineCompanionTask implements CompanionTask {
             }
         }
 
-        // Maintain the ore list: full rescan periodically, prune every tick.
+        // Maintain the ore list: merge a finished background scan, prune every
+        // tick (cheap — knownOres is capped at 64), and kick a fresh off-thread
+        // scan every RESCAN_INTERVAL ticks (never more than one in flight).
+        drainScan();
+        prune();
         if (--rescanTimer <= 0) {
             rescanTimer = RESCAN_INTERVAL;
-            rescan();
-        } else {
-            prune();
+            if (scan == null) kickScan();
         }
         drops = droppedItems();
 
@@ -300,10 +307,42 @@ public final class MineCompanionTask implements CompanionTask {
 
     // ---- ore list maintenance ----
 
+    /** Synchronous scan — used once at task start so there are targets immediately. */
     private void rescan() {
+        mergeHits(BlockScanner.findWithin(
+                player.level(), player.blockPosition(), r.maxRadius, r.targets));
+    }
+
+    /** Kick an off-thread scan: capture the loaded chunks on this (main) thread,
+     *  read their section palettes on the scan thread (Baritone's WorldScanner model). */
+    private void kickScan() {
         Level level = player.level();
-        for (BlockScanner.Hit hit : BlockScanner.findWithin(
-                level, player.blockPosition(), r.maxRadius, r.targets)) {
+        BlockPos center = player.blockPosition().immutable();
+        List<ChunkAccess> chunks = BlockScanner.captureLoadedChunks(level, center, r.maxRadius);
+        if (chunks.isEmpty()) return;
+        scan = ScanExecutor.submit(
+                () -> BlockScanner.scanLoaded(level, chunks, center, r.maxRadius, r.targets));
+    }
+
+    /** Merge a finished background scan into knownOres on the main thread. */
+    private void drainScan() {
+        if (scan == null || !scan.isDone()) return;
+        List<BlockScanner.Hit> hits;
+        try {
+            hits = scan.getNow(List.of());
+        } catch (Throwable failed) {
+            hits = List.of();
+        }
+        scan = null;
+        mergeHits(hits);
+    }
+
+    /** Add fresh, non-blacklisted, non-hazardous hits to knownOres, then prune.
+     *  Every candidate is re-validated here on the main thread, so a slightly
+     *  stale async scan result is harmless. */
+    private void mergeHits(List<BlockScanner.Hit> hits) {
+        Level level = player.level();
+        for (BlockScanner.Hit hit : hits) {
             BlockPos p = hit.pos().immutable();
             if (blacklist.contains(p) || knownOres.contains(p)) continue;
             if (BlockMiningProgress.fluidBreakHazard(level, p) != null) continue;
@@ -352,6 +391,10 @@ public final class MineCompanionTask implements CompanionTask {
     public TaskResult buildResult(TaskState finalState) {
         stopNav();
         clearDigProgress();
+        if (scan != null) {
+            scan.cancel(false);
+            scan = null;
+        }
         Map<String, Object> data = new HashMap<>();
         data.put("target", r.label);
         data.put("requested", r.count);

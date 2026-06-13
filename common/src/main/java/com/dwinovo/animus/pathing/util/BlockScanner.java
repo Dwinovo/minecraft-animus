@@ -94,6 +94,61 @@ public final class BlockScanner {
     }
 
     /**
+     * Main-thread: snapshot the LOADED chunks intersecting the search box, with
+     * no loading/generation. The only world-API touch the async scan needs from
+     * the main thread — cheap chunk-map lookups, not a block sweep. Hand the
+     * result to {@link #scanLoaded} on a background thread.
+     */
+    public static List<ChunkAccess> captureLoadedChunks(Level level, BlockPos center, int radius) {
+        int minChunkX = SectionPos.blockToSectionCoord(center.getX() - radius);
+        int maxChunkX = SectionPos.blockToSectionCoord(center.getX() + radius);
+        int minChunkZ = SectionPos.blockToSectionCoord(center.getZ() - radius);
+        int maxChunkZ = SectionPos.blockToSectionCoord(center.getZ() + radius);
+        List<ChunkAccess> chunks = new ArrayList<>();
+        for (int cx = minChunkX; cx <= maxChunkX; cx++) {
+            for (int cz = minChunkZ; cz <= maxChunkZ; cz++) {
+                ChunkAccess chunk = level.getChunk(cx, cz, ChunkStatus.FULL, false);
+                if (chunk != null) chunks.add(chunk);
+            }
+        }
+        return chunks;
+    }
+
+    /**
+     * Off-thread: read the captured chunks' section palettes (Baritone's
+     * {@code WorldScanner} does the same — palette reads of already-loaded
+     * chunks). Reads can race with main-thread block writes, so each chunk is
+     * guarded: a torn palette read skips that chunk this pass rather than
+     * throwing. The result is advisory — callers re-validate every hit on the
+     * main thread (prune / shaft) before mining.
+     */
+    public static List<Hit> scanLoaded(Level level, List<ChunkAccess> chunks,
+                                       BlockPos center, int radius, Set<Block> targets) {
+        if (targets.isEmpty() || chunks.isEmpty()) return List.of();
+        Predicate<BlockState> filter = state -> targets.contains(state.getBlock());
+        double radiusSq = (double) radius * radius;
+        int minSectionY = SectionPos.blockToSectionCoord(center.getY() - radius);
+        int maxSectionY = SectionPos.blockToSectionCoord(center.getY() + radius);
+
+        List<Hit> matches = new ArrayList<>();
+        outer:
+        for (ChunkAccess chunk : chunks) {
+            int cx = chunk.getPos().x();
+            int cz = chunk.getPos().z();
+            try {
+                for (int sy = minSectionY; sy <= maxSectionY; sy++) {
+                    scanChunkSection(level, chunk, cx, sy, cz, center, radius, radiusSq, filter, matches);
+                    if (matches.size() >= MAX_COLLECT) break outer;
+                }
+            } catch (Throwable concurrentPaletteRead) {
+                // The main thread mutated this chunk mid-read; skip it this pass.
+            }
+        }
+        matches.sort(Comparator.comparingDouble(Hit::distance));
+        return matches;
+    }
+
+    /**
      * Scan ONE section of an already-resolved chunk (palette short-circuit
      * included), appending sphere-clipped matches to {@code out}. Public so
      * the budget-sliced {@code ScanBlocksJob} can meter exactly this unit of
