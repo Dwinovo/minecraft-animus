@@ -35,6 +35,30 @@ public final class CompanionTickDispatcher {
         }
     }
 
+    /**
+     * Finalize a companion's running task because the BODY is leaving the world
+     * (dormancy / dismissal / death) — the tick loop only visits players still in
+     * the player list, so without this the running task is orphaned in {@link
+     * #ACTIVE} and its {@code buildResult} side-effects never run (e.g. a mining
+     * dig's crack overlay would stay painted on every viewer until chunk reload).
+     * Cancels the running task through the same terminal path a normal finish
+     * takes, then ships the result if the owner is online.
+     */
+    public static void onCompanionRemoved(AnimusPlayer player) {
+        Running running = ACTIVE.remove(player.getUUID());
+        if (running == null) return;
+        TaskState st = running.record().getState();
+        if (st == TaskState.RUNNING || st == TaskState.PENDING) {
+            st = TaskState.CANCELLED;
+            running.record().setState(st);
+        }
+        running.record().setResult(running.task().buildResult(st));
+        player.getTaskQueue().complete(running.record());
+        player.setActiveTask(null);
+        player.setDebugTask(null);
+        drainResults(player);
+    }
+
     private static void tickOne(AnimusPlayer player) {
         UUID id = player.getUUID();
         Running running = ACTIVE.get(id);

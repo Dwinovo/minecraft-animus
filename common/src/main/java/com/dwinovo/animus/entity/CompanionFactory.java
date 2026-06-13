@@ -49,6 +49,10 @@ public final class CompanionFactory {
 
     /** Save the companion's data and remove it from the world (dormancy). */
     public static void despawn(MinecraftServer server, AnimusPlayer player) {
+        // Finalize any running task first, so its teardown (e.g. clearing a mining
+        // crack overlay) runs instead of being orphaned once the body leaves the
+        // tick loop's player list.
+        com.dwinovo.animus.task.CompanionTickDispatcher.onCompanionRemoved(player);
         server.getPlayerList().remove(player);
     }
 }
