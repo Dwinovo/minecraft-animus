@@ -79,6 +79,7 @@ public final class MineCompanionTask implements CompanionTask {
     private int digTicks;
     private int digTotal;
     private int swingCd;
+    private int lastStage = -1;
 
     public MineCompanionTask(AnimusPlayer player, MineBlockTaskRecord record) {
         this.player = player;
@@ -189,10 +190,11 @@ public final class MineCompanionTask implements CompanionTask {
         return goals.isEmpty() ? NavGoal.exact(player.blockPosition()) : NavGoal.composite(goals);
     }
 
-    /** Nearby dropped items (Baritone droppedItemsScan). Small radius — mining drops
-     *  land next to the body; walking over them lets native pickup collect them. */
+    /** Nearby dropped items (Baritone droppedItemsScan). Tight radius — mining drops
+     *  land next to the body; walking over them lets native pickup collect them, and
+     *  a small radius keeps the body from detouring across the cave for stray items. */
     private List<BlockPos> droppedItems() {
-        AABB box = new AABB(player.blockPosition()).inflate(8.0);
+        AABB box = new AABB(player.blockPosition()).inflate(5.0);
         List<BlockPos> out = new ArrayList<>();
         for (ItemEntity ie : player.level().getEntitiesOfClass(ItemEntity.class, box)) {
             out.add(ie.blockPosition());
@@ -231,6 +233,7 @@ public final class MineCompanionTask implements CompanionTask {
         digPos = pos.immutable();
         digTicks = 0;
         swingCd = 0;
+        lastStage = -1;
         digTotal = vanillaMiningTicks(pos);
     }
 
@@ -245,8 +248,11 @@ public final class MineCompanionTask implements CompanionTask {
             swingCd = 5;                       // vanilla swings ~every 6 ticks while mining
         }
         digTicks++;
-        int stage = (int) ((digTicks / (float) digTotal) * 10.0f);
-        level.destroyBlockProgress(player.getId(), digPos, Math.min(9, stage));
+        int stage = Math.min(9, (int) ((digTicks / (float) digTotal) * 10.0f));
+        if (stage != lastStage) {                 // a real player only re-broadcasts on stage change
+            level.destroyBlockProgress(player.getId(), digPos, stage);
+            lastStage = stage;
+        }
         if (digTicks >= digTotal) {
             BlockPos done = digPos;
             player.gameMode.destroyBlock(done);

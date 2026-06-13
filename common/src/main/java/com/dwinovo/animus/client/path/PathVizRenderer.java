@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
 
@@ -29,6 +30,8 @@ public final class PathVizRenderer {
     private static final int PLACE_COLOR = 0xFF00FF00; // green
     private static final int GOAL_COLOR  = 0xFF00FF00; // green
     private static final float LINE_WIDTH = 2.0F;
+    /** Box inset so the wireframe hugs faces without z-fighting (Baritone uses .002). */
+    private static final double BOX_INSET = 0.002;
 
     private PathVizRenderer() {}
 
@@ -37,18 +40,25 @@ public final class PathVizRenderer {
         if (active.isEmpty()) return;
 
         Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        Identifier here = mc.level.dimension().identifier();
         Vec3 cam = mc.gameRenderer.getMainCamera().position();
         MultiBufferSource.BufferSource buffers = mc.renderBuffers().bufferSource();
         VertexConsumer vc = buffers.getBuffer(RenderTypes.lines());
         PoseStack.Pose pose = poseStack.last();
 
         for (ClientPathViz.Viz v : active) {
+            // Baritone skips paths for bots in another dimension; ours are at world
+            // coords that only make sense in their own dimension.
+            if (!here.equals(v.dimension())) continue;
             drawPathLine(vc, pose, v.nodes(), cam);
             for (BlockPos b : v.toBreak()) drawBox(vc, pose, b, cam, BREAK_COLOR);
             for (BlockPos p : v.toPlace()) drawBox(vc, pose, p, cam, PLACE_COLOR);
             if (v.goal() != null) drawBox(vc, pose, v.goal(), cam, GOAL_COLOR);
         }
-        buffers.endLastBatch();
+        // Flush only our line batch (not endLastBatch, which could flush a foreign
+        // open batch in the shared buffer source at this render stage).
+        buffers.endBatch(RenderTypes.lines());
     }
 
     /** Poly-line through block centres (Baritone drawPath). */
@@ -65,8 +75,8 @@ public final class PathVizRenderer {
 
     /** The 12 edges of a unit block at {@code pos} (Baritone drawManySelectionBoxes). */
     private static void drawBox(VertexConsumer vc, PoseStack.Pose pose, BlockPos pos, Vec3 cam, int color) {
-        double x0 = pos.getX() - cam.x, y0 = pos.getY() - cam.y, z0 = pos.getZ() - cam.z;
-        double x1 = x0 + 1, y1 = y0 + 1, z1 = z0 + 1;
+        double x0 = pos.getX() - cam.x + BOX_INSET, y0 = pos.getY() - cam.y + BOX_INSET, z0 = pos.getZ() - cam.z + BOX_INSET;
+        double x1 = pos.getX() - cam.x + 1 - BOX_INSET, y1 = pos.getY() - cam.y + 1 - BOX_INSET, z1 = pos.getZ() - cam.z + 1 - BOX_INSET;
         // bottom rectangle
         line(vc, pose, x0, y0, z0, x1, y0, z0, color);
         line(vc, pose, x1, y0, z0, x1, y0, z1, color);

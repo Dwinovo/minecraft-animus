@@ -2,6 +2,7 @@ package com.dwinovo.animus.client.path;
 
 import com.dwinovo.animus.network.payload.PathVizPayload;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.Identifier;
 
 import java.util.Collection;
 import java.util.List;
@@ -19,7 +20,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ClientPathViz {
 
     /** One companion's overlay snapshot. {@code goal} may be null. */
-    public record Viz(List<BlockPos> nodes, List<BlockPos> toBreak, List<BlockPos> toPlace, BlockPos goal) {}
+    public record Viz(Identifier dimension, List<BlockPos> nodes, List<BlockPos> toBreak,
+                      List<BlockPos> toPlace, BlockPos goal) {}
 
     private static final Map<UUID, Viz> ACTIVE = new ConcurrentHashMap<>();
 
@@ -31,7 +33,7 @@ public final class ClientPathViz {
             return;
         }
         ACTIVE.put(p.companion(),
-                new Viz(p.nodes(), p.toBreak(), p.toPlace(), p.goal().orElse(null)));
+                new Viz(p.dimension(), p.nodes(), p.toBreak(), p.toPlace(), p.goal().orElse(null)));
     }
 
     public static Collection<Viz> all() {

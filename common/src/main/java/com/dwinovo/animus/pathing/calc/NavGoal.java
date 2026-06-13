@@ -128,6 +128,20 @@ public interface NavGoal {
         if (gs.isEmpty()) {
             throw new IllegalArgumentException("composite goal needs at least one member");
         }
+        // Centre = centroid of the members, NOT gs.get(0). The member list is
+        // rebuilt every tick (ores re-sorted by distance as the body moves), so a
+        // first-member centre would jitter and trip PlayerNav's goal-moved replan
+        // every tick. The centroid only shifts when the SET changes (an ore mined
+        // or found), which is what "the goal moved" should actually mean.
+        long sx = 0, sy = 0, sz = 0;
+        for (NavGoal g : gs) {
+            BlockPos c = g.center();
+            sx += c.getX();
+            sy += c.getY();
+            sz += c.getZ();
+        }
+        BlockPos centroid = new BlockPos(
+                (int) (sx / gs.size()), (int) (sy / gs.size()), (int) (sz / gs.size()));
         return new NavGoal() {
             @Override public boolean isAt(BlockPos feet) {
                 for (NavGoal g : gs) {
@@ -143,7 +157,7 @@ public interface NavGoal {
                 return min;
             }
             @Override public BlockPos center() {
-                return gs.get(0).center();
+                return centroid;
             }
         };
     }

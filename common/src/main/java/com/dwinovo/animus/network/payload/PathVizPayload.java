@@ -30,6 +30,7 @@ import java.util.UUID;
  * </ul>
  */
 public record PathVizPayload(UUID companion,
+                             Identifier dimension,
                              List<BlockPos> nodes,
                              List<BlockPos> toBreak,
                              List<BlockPos> toPlace,
@@ -44,6 +45,7 @@ public record PathVizPayload(UUID companion,
     public static final StreamCodec<RegistryFriendlyByteBuf, PathVizPayload> STREAM_CODEC =
             StreamCodec.composite(
                     UUIDUtil.STREAM_CODEC, PathVizPayload::companion,
+                    Identifier.STREAM_CODEC, PathVizPayload::dimension,
                     BlockPos.STREAM_CODEC.apply(ByteBufCodecs.list(MAX)), PathVizPayload::nodes,
                     BlockPos.STREAM_CODEC.apply(ByteBufCodecs.list(MAX)), PathVizPayload::toBreak,
                     BlockPos.STREAM_CODEC.apply(ByteBufCodecs.list(MAX)), PathVizPayload::toPlace,

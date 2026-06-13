@@ -40,7 +40,7 @@ public final class PathVizPublisher {
         }
 
         Services.NETWORK.sendToPlayer(owner, new PathVizPayload(
-                player.getUUID(),
+                player.getUUID(), player.level().dimension().identifier(),
                 cap(nodes), cap(toBreak), cap(toPlace),
                 Optional.ofNullable(goal)));
     }
@@ -50,7 +50,8 @@ public final class PathVizPublisher {
         ServerPlayer owner = player.resolveOwnerPlayer();
         if (owner == null) return;
         Services.NETWORK.sendToPlayer(owner, new PathVizPayload(
-                player.getUUID(), List.of(), List.of(), List.of(), Optional.empty()));
+                player.getUUID(), player.level().dimension().identifier(),
+                List.of(), List.of(), List.of(), Optional.empty()));
     }
 
     private static List<BlockPos> cap(List<BlockPos> list) {

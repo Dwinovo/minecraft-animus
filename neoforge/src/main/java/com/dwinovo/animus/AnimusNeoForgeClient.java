@@ -35,6 +35,12 @@ public class AnimusNeoForgeClient {
     }
 
     @SubscribeEvent
+    static void onLoggingOut(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
+        // Drop every path overlay on disconnect so a frozen path can't survive a relog.
+        com.dwinovo.animus.client.path.ClientPathViz.clearAll();
+    }
+
+    @SubscribeEvent
     static void registerReloadListeners(AddClientReloadListenersEvent event) {
         Path animusConfigRoot = Minecraft.getInstance().gameDirectory.toPath()
                 .resolve("config").resolve(Constants.MOD_ID);
