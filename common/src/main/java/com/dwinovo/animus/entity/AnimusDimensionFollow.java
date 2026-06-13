@@ -29,25 +29,27 @@ import java.util.Set;
  * (see {@link com.dwinovo.animus.client.agent.AgentLoopRegistry}); the
  * recreated body in the new dimension resolves back to the same loop.
  *
- * <h2>Why ENGAGED companions stay behind</h2>
+ * <h2>Why WORKING or CONVERSING companions stay behind</h2>
  * The agent loop drives the body over UUID-addressed payloads that the server
- * resolves across all dimensions ({@code AnimusEntity.findByUuid}), so a
- * working pet does not need to share the owner's dimension — its chunk
- * tickets keep it simulating and the roster reaches it from anywhere. (TLM
- * forbids maid dimension travel outright; we need both directions, so the
- * split is by engagement.)
+ * resolves across all dimensions ({@code AnimusEntity.findByUuid}), so a busy
+ * pet does not need to share the owner's dimension — its chunk tickets keep it
+ * simulating and the roster reaches it from anywhere. A pet stays put if it has
+ * task work ({@code hasTaskWork}) OR its owner is mid-conversation with it right
+ * now ({@code isOwnerLoopLive} — a fresh heartbeat); only a fully idle pet
+ * follows. (TLM forbids maid dimension travel outright; we need both
+ * directions, so the split is by activity.)
  */
 public final class AnimusDimensionFollow {
 
     private AnimusDimensionFollow() {}
 
     /**
-     * Teleport every owned, living, IDLE Animus in {@code from} to the
-     * owner's new position in {@code to}. Engaged companions (task
-     * running/queued or mid-conversation) stay behind: yanking a worker off
-     * its mining run because the owner took a portal home would break the
-     * task — chunk tickets keep it working and the revival path keeps it
-     * reachable from any dimension.
+     * Teleport every owned, living, fully-IDLE Animus in {@code from} to the
+     * owner's new position in {@code to}. A pet with task work, or whose owner
+     * is actively conversing with it (a live heartbeat), stays behind: yanking a
+     * worker off its mining run — or a pet the owner is mid-chat with — because
+     * the owner took a portal would break the task or the conversation's spatial
+     * context. Chunk tickets keep such a pet reachable from any dimension.
      */
     public static void onOwnerChangedDimension(ServerPlayer owner, ServerLevel from, ServerLevel to) {
         if (from == to) return;
@@ -56,7 +58,8 @@ public final class AnimusDimensionFollow {
                 EntityTypeTest.forClass(AnimusEntity.class),
                 // UUID comparison: this event fires AFTER the owner left `from`,
                 // so a level-scoped owner lookup would match no companion here.
-                a -> a.isAlive() && a.isOwnedByPlayer(owner.getUUID()) && !a.isEngaged());
+                a -> a.isAlive() && a.isOwnedByPlayer(owner.getUUID())
+                        && !a.hasTaskWork() && !a.isOwnerLoopLive());
         if (companions.isEmpty()) return;
 
         for (AnimusEntity companion : companions) {

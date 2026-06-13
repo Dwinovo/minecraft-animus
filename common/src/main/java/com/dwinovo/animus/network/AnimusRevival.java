@@ -2,12 +2,9 @@ package com.dwinovo.animus.network;
 
 import com.dwinovo.animus.Constants;
 import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.entity.AnimusLastSeen;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.ChunkPos;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -15,16 +12,15 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Revives companions that sit in unloaded chunks when a tool call arrives.
- *
- * <p>A pet outside everyone's view keeps itself loaded with chunk tickets
- * only while engaged; after the linger window (or a server restart) it
- * unloads in place. {@code findByUuid} then misses — but the owner's agent
- * loop is very much alive and wants to talk to it. The cure: look up the
- * pet's last known whereabouts in {@link AnimusLastSeen}, drop the same
- * self-loading ticket there, and retry the dispatch for a few seconds while
- * the chunk (and the entity riding in it) loads. Entity attach is async, so
- * this is a poll, not a callback.
+ * The cold-start retry for a tool call that arrives a beat before its pet
+ * finishes loading. The owner-liveness heartbeat ({@code KeepLoadedPayload})
+ * normally has the pet loaded well before the first tool call, but a server
+ * restart — or a synchronous query as the very first call after dormancy — can
+ * race the async chunk load. When {@code findByUuid} misses, this drops a ticket
+ * at the pet's resolved column (via {@link AnimusLocator}, the same resolver the
+ * heartbeat uses) and re-dispatches the call once the entity loads, for a few
+ * seconds before giving up. Entity attach is async, so this is a bounded poll,
+ * not a callback.
  *
  * <p>Server main thread only; ticked from both loaders' end-of-tick hooks.
  */
@@ -32,44 +28,40 @@ public final class AnimusRevival {
 
     /** Give chunk + entity loading this long before giving up (5s). */
     private static final int REVIVAL_TIMEOUT_TICKS = 100;
-    /** Ticket radius for the revival poke — entity could have drifted a bit. */
-    private static final int REVIVAL_TICKET_RADIUS = 2;
 
     private record Pending(ExecuteToolPayload payload, UUID playerUuid, long deadline,
-                           AnimusLastSeen.Entry lastSeen) {}
+                           AnimusLocator.Target target) {}
 
     private static final List<Pending> PENDING = new ArrayList<>();
 
     private AnimusRevival() {}
 
     /**
-     * Try to start a revival for a findByUuid miss. Returns {@code true} if
-     * one was started (or already in flight) — the caller must NOT reply, the
-     * retry will. Returns {@code false} when the pet is unknown to the index
-     * (never seen / died) and the caller should fail the call normally.
+     * Try to start a retry for a findByUuid miss. Returns {@code true} if one
+     * was started (or already in flight) — the caller must NOT reply, the retry
+     * will. Returns {@code false} when the pet is unknown / unowned / its level
+     * is unloaded ({@link AnimusLocator} couldn't resolve it) and the caller
+     * should fail the call normally.
      */
     public static boolean tryRevive(MinecraftServer server, ServerPlayer player, ExecuteToolPayload p) {
         for (Pending pending : PENDING) {
             if (pending.payload.toolCallId().equals(p.toolCallId())) return true;
         }
-        AnimusLastSeen.Entry lastSeen = AnimusLastSeen.find(server, p.entityUuid());
-        if (lastSeen == null) return false;
-        // The pet can't vouch for its owner while unloaded — the index does.
-        // Without this, anyone knowing a UUID could force-load foreign chunks.
-        if (!lastSeen.owner().equals(player.getUUID())) return false;
-        ServerLevel level = server.getLevel(lastSeen.dimension());
-        if (level == null) return false;
-        level.getChunkSource().addTicketWithRadius(com.dwinovo.animus.init.InitTicketType.TASK,
-                ChunkPos.containing(lastSeen.pos()), REVIVAL_TICKET_RADIUS);
+        AnimusLocator.Target target =
+                AnimusLocator.resolveChunk(server, p.entityUuid(), player.getUUID());
+        if (target == null) return false;
+        target.level().getChunkSource().addTicketWithRadius(
+                com.dwinovo.animus.init.InitTicketType.TASK, target.chunk(),
+                com.dwinovo.animus.init.InitTicketType.TASK_TICKET_RADIUS);
         PENDING.add(new Pending(p, player.getUUID(),
-                server.getTickCount() + REVIVAL_TIMEOUT_TICKS, lastSeen));
+                server.getTickCount() + REVIVAL_TIMEOUT_TICKS, target));
         Constants.LOG.info("[animus-net] reviving entity {} at {} in {} for tool={} id={}",
-                p.entityUuid(), lastSeen.pos().toShortString(),
-                lastSeen.dimension().identifier(), p.toolName(), p.toolCallId());
+                p.entityUuid(), target.chunk(),
+                target.level().dimension().identifier(), p.toolName(), p.toolCallId());
         return true;
     }
 
-    /** Poll pending revivals; re-dispatch on entity load, fail on deadline. */
+    /** Poll pending retries; re-dispatch on entity load, fail on deadline. */
     public static void tick(MinecraftServer server) {
         if (PENDING.isEmpty()) return;
         Iterator<Pending> it = PENDING.iterator();
@@ -89,8 +81,8 @@ public final class AnimusRevival {
                 it.remove();
                 ExecuteToolPayload.replyError(player, pending.payload,
                         "companion did not load back in — last seen near "
-                                + pending.lastSeen().pos().toShortString() + " in "
-                                + pending.lastSeen().dimension().identifier()
+                                + pending.target().chunk() + " in "
+                                + pending.target().level().dimension().identifier()
                                 + "; it may have died while away. Tell your owner those "
                                 + "coordinates so they can check the site");
             }

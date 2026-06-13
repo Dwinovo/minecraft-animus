@@ -108,9 +108,10 @@ public record ExecuteToolPayload(UUID entityUuid,
             replyError(player, p, "not the owner");
             return;
         }
-        // Any owner-driven tool call counts as engagement: it keeps the pet's
-        // self-loading chunk ticket alive through LLM think-time gaps.
-        animus.markEngagement();
+        // No engagement stamp here: the owner-liveness heartbeat (KeepLoadedPayload)
+        // holds the chunk lease through think-time gaps. By the time a tool call
+        // arrives the loop has already been heartbeating, so the pet is loaded —
+        // and if it wasn't, findByUuid above took the AnimusRevival path.
         // -- 3. tool lookup
         AnimusTool tool = ToolRegistry.get(p.toolName());
         if (tool == null) {

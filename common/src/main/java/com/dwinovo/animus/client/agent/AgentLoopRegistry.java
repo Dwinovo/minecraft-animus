@@ -1,6 +1,8 @@
 package com.dwinovo.animus.client.agent;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,6 +42,20 @@ public final class AgentLoopRegistry {
     /** Read-only lookup; never creates. Used by the S→C result handler. */
     public static Optional<EntityAgentLoop> get(UUID entityUuid) {
         return Optional.ofNullable(ENTITY_LOOPS.get(entityUuid));
+    }
+
+    /**
+     * UUIDs of the companions whose loop is mid-turn ({@link EntityAgentLoop#canInterrupt()}
+     * — thinking, awaiting tool results, or with a queued prompt). These are the
+     * heartbeat targets: a server-side chunk-ticket lease should be held for each
+     * so the body stays loaded through the owner's think-time.
+     */
+    public static List<UUID> activeEntityUuids() {
+        List<UUID> out = new ArrayList<>();
+        for (Map.Entry<UUID, EntityAgentLoop> e : ENTITY_LOOPS.entrySet()) {
+            if (e.getValue().canInterrupt()) out.add(e.getKey());
+        }
+        return out;
     }
 
     /** Drop one entity's loop (e.g. when it dies / unloads). */

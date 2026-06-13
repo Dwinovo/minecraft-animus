@@ -96,18 +96,14 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
 
     public static final int INVENTORY_SIZE = 27;
 
-    /** Refresh cadence (must stay well under the task ticket's 200-tick timeout). */
-    private static final int CHUNK_TICKET_REFRESH_TICKS = 60;
     /**
-     * How long after the last sign of engagement the ticket keeps refreshing.
-     * The agent loop lives on the owner's client: between two tool calls the
-     * server sees NO running task while the LLM thinks (5–30s is normal), and
-     * 200 ticks of ticket timeout would unload the pet mid-mission. Two
-     * minutes comfortably covers think time + the owner typing a follow-up.
+     * How long after the last owner heartbeat the loop still counts as "live"
+     * for dimension-follow. The heartbeat arrives every
+     * {@code InitTicketType.TASK_TICKET_REFRESH_TICKS} ticks while the owner is
+     * mid-conversation; a few periods of grace means a dropped packet doesn't
+     * flip a conversing pet into following the owner through a portal.
      */
-    private static final int CHUNK_TICKET_LINGER_TICKS = 2400;
-    /** Ticket radius in chunks: 5x5 covers pathfinder snapshots and dig radii. */
-    private static final int CHUNK_TICKET_RADIUS = 2;
+    private static final int OWNER_HEARTBEAT_GRACE_TICKS = 100;
 
     /**
      * Owner reference — THE tame state (null = wild). Synched so the client
@@ -371,11 +367,13 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
     }
 
     /**
-     * Game time of the last sign the owner's agent loop is driving this pet:
-     * a task running or queued, or any tool payload arriving (queries count —
-     * remote chat is mostly get_self_status). Engagement ends by silence.
+     * Game time of the last owner-liveness heartbeat ({@code KeepLoadedPayload}).
+     * The owner's agent loop, which runs on the owner's client, beats while it
+     * is mid-turn; the server reads recency through {@link #isOwnerLoopLive()}.
+     * Transient (not saved): a fresh body starts cold and the next heartbeat
+     * re-warms it within a second.
      */
-    private long lastEngagementTime = Long.MIN_VALUE;
+    private long lastOwnerHeartbeatTime = Long.MIN_VALUE;
 
     /**
      * Cross-dimension owner identity check. Vanilla {@code isOwnedBy} resolves
@@ -398,18 +396,18 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
         return sl.getServer().getPlayerList().getPlayer(ref.getUUID());
     }
 
-    /** Stamp engagement; called by payload handlers on every owner tool call. */
-    public void markEngagement() {
+    /** Stamp owner liveness; called by the {@code KeepLoadedPayload} heartbeat handler. */
+    public void markOwnerHeartbeat() {
         if (this.level() instanceof ServerLevel sl) {
-            lastEngagementTime = sl.getGameTime();
+            lastOwnerHeartbeatTime = sl.getGameTime();
         }
     }
 
     /**
-     * Is a world task currently executing or queued? Reflex goals that would
-     * fight a task's own body control (water escape vs a SWIM path) gate on
-     * this; tighter than {@link #isEngaged} (no linger — an idle pet knocked
-     * into a pond two minutes after its last job must still self-rescue).
+     * Is a world task currently executing or queued? Two callers: reflex goals
+     * that would fight a task's own body control (water escape vs a SWIM path),
+     * and the chunk-ticket floor in {@link #refreshChunkTicket} (a body mid-task
+     * keeps itself loaded even if a heartbeat packet is dropped).
      */
     public boolean hasTaskWork() {
         return (activeTask != null && activeTask.getState() == TaskState.RUNNING)
@@ -417,35 +415,32 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
     }
 
     /**
-     * Is the owner's agent loop actively driving this pet — a task running or
-     * queued, or a tool call within the linger window? Gates both the chunk
-     * ticket and dimension-follow (an engaged pet stays on its job when the
-     * owner takes a portal; tickets + revival keep it reachable).
+     * Has the owner's agent loop heartbeat arrived recently — i.e. is the owner
+     * mid-conversation with this pet right now? Dimension-follow reads this to
+     * leave a conversing-but-idle pet behind when the owner takes a portal
+     * (it's reachable cross-dimension via tickets), while a fully idle pet
+     * follows along.
      */
-    public boolean isEngaged() {
-        if (hasTaskWork()) {
-            return true;
-        }
+    public boolean isOwnerLoopLive() {
         return this.level() instanceof ServerLevel sl
-                && sl.getGameTime() - lastEngagementTime <= CHUNK_TICKET_LINGER_TICKS;
+                && sl.getGameTime() - lastOwnerHeartbeatTime <= OWNER_HEARTBEAT_GRACE_TICKS;
     }
 
     /**
-     * While engaged — and for {@link #CHUNK_TICKET_LINGER_TICKS} afterwards —
-     * periodically re-issue the self-loading chunk ticket at the current
-     * position. The ticket's own timeout handles every teardown case (task
-     * done, cancelled, death, server crash) by simply expiring once we stop
-     * refreshing.
+     * Server-side floor of the owner-liveness chunk lease: while a task is
+     * running or queued, keep re-issuing the self-loading ticket so an in-flight
+     * job survives even if a client heartbeat is momentarily lost. The owner
+     * heartbeat ({@code KeepLoadedPayload}) is the primary lease holder during
+     * think-time gaps; this covers the body's own work. The ticket's timeout
+     * handles every teardown case (task done, loop idle, death, crash) by simply
+     * expiring once nothing refreshes it.
      */
     private void refreshChunkTicket(ServerLevel level) {
-        long now = level.getGameTime();
-        if (hasTaskWork()) {
-            lastEngagementTime = now;
-        }
-        if (!isEngaged()) return;
-        if (now % CHUNK_TICKET_REFRESH_TICKS != 0) return;
+        if (!hasTaskWork()) return;
+        if (level.getGameTime() % com.dwinovo.animus.init.InitTicketType.TASK_TICKET_REFRESH_TICKS != 0) return;
         level.getChunkSource().addTicketWithRadius(
-                com.dwinovo.animus.init.InitTicketType.TASK, this.chunkPosition(), CHUNK_TICKET_RADIUS);
+                com.dwinovo.animus.init.InitTicketType.TASK, this.chunkPosition(),
+                com.dwinovo.animus.init.InitTicketType.TASK_TICKET_RADIUS);
     }
 
     private void drainTaskResultsToOwner() {
@@ -561,19 +556,22 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
 
     /**
      * Cross-dimension travel CLONES the entity (same UUID, new instance), and
-     * the clone starts with cold transient state — no engagement stamp, no
-     * chunk ticket. Vanilla's PORTAL ticket covers the destination for only
-     * 15s; hand the clone a warm start so it survives the LLM round-trip that
-     * re-engages it (the loop itself is UUID-keyed and notices nothing).
+     * the clone starts with cold transient state — no heartbeat stamp, no chunk
+     * ticket. Vanilla's PORTAL ticket covers the destination for only 15s; hand
+     * the clone a warm ticket so it survives the gap until the owner's next
+     * heartbeat re-targets it in the new dimension (the loop is UUID-keyed and
+     * resolves to the clone without noticing the trip). The last-seen index is
+     * rewritten on the clone's tick, so a heartbeat racing the move still aims
+     * at the right dimension within ~2s.
      */
     @Override
     public Entity teleport(net.minecraft.world.level.portal.TeleportTransition transition) {
         Entity result = super.teleport(transition);
         if (result instanceof AnimusEntity fresh && fresh != this
                 && fresh.level() instanceof ServerLevel sl) {
-            fresh.markEngagement();
             sl.getChunkSource().addTicketWithRadius(
-                    com.dwinovo.animus.init.InitTicketType.TASK, fresh.chunkPosition(), CHUNK_TICKET_RADIUS);
+                    com.dwinovo.animus.init.InitTicketType.TASK, fresh.chunkPosition(),
+                    com.dwinovo.animus.init.InitTicketType.TASK_TICKET_RADIUS);
         }
         return result;
     }

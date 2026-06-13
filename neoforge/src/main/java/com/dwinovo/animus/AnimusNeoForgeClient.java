@@ -74,6 +74,7 @@ public class AnimusNeoForgeClient {
     @SubscribeEvent
     static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
         com.dwinovo.animus.client.AnimusKeys.tick();
+        com.dwinovo.animus.client.agent.ClientHeartbeat.tick();
     }
 
     @SubscribeEvent

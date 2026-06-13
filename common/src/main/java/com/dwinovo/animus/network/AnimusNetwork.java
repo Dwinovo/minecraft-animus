@@ -5,6 +5,7 @@ import com.dwinovo.animus.network.payload.AnimusLocationsPayload;
 import com.dwinovo.animus.network.payload.LocateAnimusPayload;
 import com.dwinovo.animus.network.payload.CancelTasksPayload;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
+import com.dwinovo.animus.network.payload.KeepLoadedPayload;
 import com.dwinovo.animus.network.payload.OpenAnimusInventoryPayload;
 import com.dwinovo.animus.network.payload.SetModelPayload;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
@@ -42,6 +43,11 @@ public final class AnimusNetwork {
         // C→S: owner pressed Stop — cancel the running + queued tasks (body stop).
         Services.NETWORK.registerClientToServer(
                 CancelTasksPayload.TYPE, CancelTasksPayload.STREAM_CODEC, CancelTasksPayload::handle);
+
+        // C→S: owner-liveness heartbeat — the agent loop is mid-turn, hold the
+        // pet's chunk ticket (the lease that replaced engagement linger).
+        Services.NETWORK.registerClientToServer(
+                KeepLoadedPayload.TYPE, KeepLoadedPayload.STREAM_CODEC, KeepLoadedPayload::handle);
 
         // S→C: tool execution finished; ship the result back to the owner.
         Services.NETWORK.registerServerToClient(
