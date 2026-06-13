@@ -10,16 +10,6 @@ import com.dwinovo.animus.task.TaskQueue;
 import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
-import com.dwinovo.animus.task.tasks.DropItemsTaskGoal;
-import com.dwinovo.animus.task.tasks.EquipTaskGoal;
-import com.dwinovo.animus.task.tasks.WaitTaskGoal;
-import com.dwinovo.animus.task.tasks.HuntTaskGoal;
-import com.dwinovo.animus.task.tasks.ShootTaskGoal;
-import com.dwinovo.animus.task.tasks.MineBlockTaskGoal;
-import com.dwinovo.animus.task.tasks.MoveToTaskGoal;
-import com.dwinovo.animus.task.tasks.PlaceBlockTaskGoal;
-import com.dwinovo.animus.task.tasks.UseItemTaskGoal;
-import com.dwinovo.animus.task.tasks.EatItemTaskGoal;
 import net.minecraft.core.Vec3i;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -245,23 +235,8 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
     @Override
     protected void registerGoals() {
         super.registerGoals();
-        // Water reflexes first: FloatGoal (vanilla, JUMP-channel only) bobs the
-        // body to the surface so it never drowns; WaterEscapeGoal swims it to
-        // the nearest shore. Land mobs sink like stones without these.
         this.goalSelector.addGoal(0, new net.minecraft.world.entity.ai.goal.FloatGoal(this));
-        this.goalSelector.addGoal(1, new com.dwinovo.animus.entity.ai.WaterEscapeGoal(this));
         this.goalSelector.addGoal(0, new MeleeAttackGoal(this, 1.2D, true));
-        this.goalSelector.addGoal(0, new MoveToTaskGoal(this));
-        this.goalSelector.addGoal(0, new HuntTaskGoal(this));
-        this.goalSelector.addGoal(0, new ShootTaskGoal(this));
-        this.goalSelector.addGoal(0, new MineBlockTaskGoal(this));
-        this.goalSelector.addGoal(0, new EquipTaskGoal(this));
-        this.goalSelector.addGoal(0, new PlaceBlockTaskGoal(this));
-        this.goalSelector.addGoal(0, new com.dwinovo.animus.task.tasks.BreakBlockTaskGoal(this));
-        this.goalSelector.addGoal(0, new UseItemTaskGoal(this));
-        this.goalSelector.addGoal(0, new EatItemTaskGoal(this));
-        this.goalSelector.addGoal(0, new WaitTaskGoal(this));
-        this.goalSelector.addGoal(0, new DropItemsTaskGoal(this));
     }
 
     // ---- inventory ----
@@ -331,14 +306,6 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
     /** Per-task pathfinder terrain tally (dug / placed while travelling). */
     public PathTally pathTally() {
         return pathTally;
-    }
-
-    /** The single sanctioned writer of this body's locomotion controls. */
-    private final com.dwinovo.animus.pathing.exec.BodyMotor motor =
-            new com.dwinovo.animus.pathing.exec.BodyMotor(this);
-
-    public com.dwinovo.animus.pathing.exec.BodyMotor motor() {
-        return motor;
     }
 
     @Override
