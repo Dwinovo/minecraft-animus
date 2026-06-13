@@ -11,6 +11,10 @@ import com.dwinovo.animus.task.tasks.MineBlockTaskRecord;
 import com.dwinovo.animus.task.tasks.MineCompanionTask;
 import com.dwinovo.animus.task.tasks.MoveToCompanionTask;
 import com.dwinovo.animus.task.tasks.MoveToTaskRecord;
+import com.dwinovo.animus.task.tasks.PlaceBlockCompanionTask;
+import com.dwinovo.animus.task.tasks.UseItemCompanionTask;
+import com.dwinovo.animus.task.tasks.UseItemTaskRecord;
+import com.dwinovo.animus.task.tasks.PlaceBlockTaskRecord;
 import com.dwinovo.animus.task.tasks.WaitCompanionTask;
 import com.dwinovo.animus.task.tasks.WaitTaskRecord;
 
@@ -31,6 +35,8 @@ public final class CompanionTaskFactory {
         if (record instanceof WaitTaskRecord r) return new WaitCompanionTask(player, r);
         if (record instanceof DropItemsTaskRecord r) return new DropCompanionTask(player, r);
         if (record instanceof BreakBlockTaskRecord r) return new BreakBlockCompanionTask(player, r);
+        if (record instanceof PlaceBlockTaskRecord r) return new PlaceBlockCompanionTask(player, r);
+        if (record instanceof UseItemTaskRecord r) return new UseItemCompanionTask(player, r);
         return new UnsupportedCompanionTask(record);
     }
 }
