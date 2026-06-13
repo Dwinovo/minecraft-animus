@@ -121,6 +121,35 @@ public final class AnimusPlayer extends ServerPlayer {
         return false;
     }
 
+    // ---- server tick (Carpet's EntityPlayerMPFake trick) ----
+
+    /**
+     * Drive the body's own movement physics. A real {@link ServerPlayer} runs
+     * {@code travel} (against {@code zza}/{@code xxa}), food, air and pose inside
+     * {@link #doTick()}, which the network layer invokes via
+     * {@code connection.tick()}. A fake player's connection is a no-op, so
+     * {@code doTick()} never fires and the body would only ever turn (a direct
+     * {@code setYRot} write) without walking. The entity system already calls
+     * {@code super.tick()} (menus / container / position sync), so we add the
+     * missing {@code doTick()} movement pass here — exactly as Carpet's
+     * {@code EntityPlayerMPFake.tick()} does. Every 10 ticks we resync the
+     * connection position and let chunk loading follow the body so it never
+     * walks out of its loaded area.
+     */
+    @Override
+    public void tick() {
+        if (level() instanceof ServerLevel sl && sl.getGameTime() % 10 == 0) {
+            this.connection.resetPosition();
+            sl.getChunkSource().move(this);
+        }
+        super.tick();
+        try {
+            this.doTick();
+        } catch (Exception ignored) {
+            // mirrors Carpet — fake-connection internals can NPE on edge cases
+        }
+    }
+
     @Override
     protected void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output);

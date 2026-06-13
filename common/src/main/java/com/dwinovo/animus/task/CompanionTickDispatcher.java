@@ -4,7 +4,6 @@ import com.dwinovo.animus.entity.AnimusPlayer;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
 import com.dwinovo.animus.platform.Services;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.HashMap;
@@ -73,37 +72,7 @@ public final class CompanionTickDispatcher {
             }
         }
 
-        // Drive the fake player's own server-side player tick AFTER the task set
-        // its inputs this tick. A real ServerPlayer's movement physics
-        // (travel against zza/xxa), food, air and pose are driven by the network
-        // layer calling doTick(); our FakeConnection is a no-op, so without this
-        // the body only ever turns (setYRot writes a field directly) and never
-        // walks — zza has no consumer. This is Carpet's EntityPlayerMPFake.tick()
-        // trick. ServerPlayer.tick() (run by the entity system) handles only
-        // menus/sync, not movement, so calling doTick() once here adds the
-        // missing travel pass without double-ticking.
-        driveVanillaPlayerTick(player);
-
         drainResults(player);
-    }
-
-    /**
-     * Run one vanilla player tick on the fake body. Every 10 ticks resync the
-     * connection's tracked position and let chunk loading follow the body so it
-     * doesn't walk out of its loaded area — mirrors Carpet's fake-player tick.
-     */
-    private static void driveVanillaPlayerTick(AnimusPlayer player) {
-        if (player.level() instanceof ServerLevel sl) {
-            if (sl.getGameTime() % 10 == 0) {
-                player.connection.resetPosition();
-                sl.getChunkSource().move(player);
-            }
-        }
-        try {
-            player.doTick();
-        } catch (Exception ignored) {
-            // mirrors Carpet — fake-connection internals can NPE on edge cases
-        }
     }
 
     private static void drainResults(AnimusPlayer player) {
