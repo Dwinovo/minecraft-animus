@@ -1,22 +1,24 @@
 package com.dwinovo.animus.client.agent;
 
-import com.dwinovo.animus.entity.AnimusEntity;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.world.entity.Entity;
 
 import java.util.UUID;
 
 /**
- * Resolve an {@link AnimusEntity} on the client by its stable {@link UUID}.
+ * Resolve a companion's <strong>client-side body</strong> by its stable
+ * {@link UUID}. The companion is a server-side fake {@code ServerPlayer}; on a
+ * tracking client it materialises as a {@link AbstractClientPlayer}
+ * ({@code RemotePlayer}) in the loaded entity list, exactly like any other
+ * player. So "find the companion" is "find the player entity with this UUID."
  *
  * <h2>Why UUID, not network id</h2>
  * The vanilla network {@code entity.getId()} (int) is a per-session handle that
- * <strong>changes every time the entity is recreated</strong> — most notably on
- * cross-dimension travel, where a non-player entity is destroyed in the source
- * dimension and rebuilt as a fresh instance (new int id) in the destination,
- * keeping only its UUID. The client-side agent loop is therefore keyed by UUID
- * and resolves the current body through here, so it survives the int-id churn
- * of a Nether/End trip. See {@link AgentLoopRegistry}.
+ * changes whenever the entity is recreated (most notably on cross-dimension
+ * travel). The client agent loop is therefore keyed by UUID and resolves the
+ * current body through here, surviving the int-id churn of a Nether/End trip.
+ * See {@link AgentLoopRegistry}.
  *
  * <p>{@code ClientLevel} exposes no public by-UUID lookup, so we scan the
  * loaded entities. Callers (chat GUI, agent loop) hit this infrequently — per
@@ -29,14 +31,14 @@ public final class ClientAnimusLookup {
 
     private ClientAnimusLookup() {}
 
-    /** The currently-loaded Animus body with this UUID, or {@code null}. */
-    public static AnimusEntity resolve(UUID uuid) {
+    /** The currently-loaded companion body with this UUID, or {@code null}. */
+    public static AbstractClientPlayer resolve(UUID uuid) {
         if (uuid == null) return null;
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return null;
         for (Entity e : mc.level.entitiesForRendering()) {
-            if (e instanceof AnimusEntity ae && uuid.equals(ae.getUUID())) {
-                return ae;
+            if (e instanceof AbstractClientPlayer p && uuid.equals(p.getUUID())) {
+                return p;
             }
         }
         return null;

@@ -5,9 +5,6 @@ import com.dwinovo.animus.network.payload.AnimusLocationsPayload;
 import com.dwinovo.animus.network.payload.LocateAnimusPayload;
 import com.dwinovo.animus.network.payload.CancelTasksPayload;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
-import com.dwinovo.animus.network.payload.KeepLoadedPayload;
-import com.dwinovo.animus.network.payload.OpenAnimusInventoryPayload;
-import com.dwinovo.animus.network.payload.SetModelPayload;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
 import com.dwinovo.animus.platform.Services;
 
@@ -32,10 +29,6 @@ public final class AnimusNetwork {
     private AnimusNetwork() {}
 
     public static void register() {
-        // C→S: owner picked a model in the GUI's model tab.
-        Services.NETWORK.registerClientToServer(
-                SetModelPayload.TYPE, SetModelPayload.STREAM_CODEC, SetModelPayload::handle);
-
         // C→S: the client-side LLM emitted a tool_call; execute on the owner's Animus.
         Services.NETWORK.registerClientToServer(
                 ExecuteToolPayload.TYPE, ExecuteToolPayload.STREAM_CODEC, ExecuteToolPayload::handle);
@@ -43,11 +36,6 @@ public final class AnimusNetwork {
         // C→S: owner pressed Stop — cancel the running + queued tasks (body stop).
         Services.NETWORK.registerClientToServer(
                 CancelTasksPayload.TYPE, CancelTasksPayload.STREAM_CODEC, CancelTasksPayload::handle);
-
-        // C→S: owner-liveness heartbeat — the agent loop is mid-turn, hold the
-        // pet's chunk ticket (the lease that replaced engagement linger).
-        Services.NETWORK.registerClientToServer(
-                KeepLoadedPayload.TYPE, KeepLoadedPayload.STREAM_CODEC, KeepLoadedPayload::handle);
 
         // S→C: tool execution finished; ship the result back to the owner.
         Services.NETWORK.registerServerToClient(
@@ -57,11 +45,6 @@ public final class AnimusNetwork {
         Services.NETWORK.registerServerToClient(
                 AnimusDeathPayload.TYPE, AnimusDeathPayload.STREAM_CODEC,
                 AnimusDeathPayload::handle);
-
-        // C→S: open one Animus's inventory as a vanilla chest menu.
-        Services.NETWORK.registerClientToServer(
-                OpenAnimusInventoryPayload.TYPE, OpenAnimusInventoryPayload.STREAM_CODEC,
-                OpenAnimusInventoryPayload::handle);
 
         // C→S: roster panel asks where its (possibly far / cross-dimension) pets are.
         Services.NETWORK.registerClientToServer(

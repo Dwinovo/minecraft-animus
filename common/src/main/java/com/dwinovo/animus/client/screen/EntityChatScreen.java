@@ -4,24 +4,18 @@ import com.dwinovo.animus.agent.llm.AnimusLlmClient;
 import com.dwinovo.animus.agent.llm.ConvoState;
 import com.dwinovo.animus.agent.provider.AssistantTurn;
 import com.dwinovo.animus.agent.provider.LlmToolCall;
-import com.dwinovo.animus.anim.api.ModelLibrary;
 import com.dwinovo.animus.client.agent.AgentLoopRegistry;
 import com.dwinovo.animus.client.agent.ClientAnimusLookup;
 import com.dwinovo.animus.client.agent.EntityAgentLoop;
-import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.network.payload.OpenAnimusInventoryPayload;
-import com.dwinovo.animus.network.payload.SetModelPayload;
-import com.dwinovo.animus.platform.Services;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
-import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
-import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
@@ -46,8 +40,6 @@ import java.util.UUID;
  */
 public final class EntityChatScreen extends Screen {
 
-    private enum View { CHAT, MODEL }
-
     private static final int CONTENT_WIDTH = 320;
     private static final int CONTENT_HEIGHT = 220;
     private static final int TOP_BAR = 20;
@@ -57,7 +49,6 @@ public final class EntityChatScreen extends Screen {
     private static final int MAX_PROMPT_LENGTH = 1024;
     private static final int MAX_LINES_PER_MESSAGE = 8;
     private static final int MAX_TOTAL_LINES = 200;
-    private static final int MODEL_ROW_HEIGHT = 14;
 
     /** Height of the vitals strip (HP bar + equipment slots) atop the chat body. */
     private static final int STATUS_HEIGHT = 24;
@@ -70,7 +61,6 @@ public final class EntityChatScreen extends Screen {
     private final UUID entityUuid;
     private final String targetName;
 
-    private View view = View.CHAT;
     private EditBox input;
     private SimpleButton stopButton;
     private SimpleButton compactButton;
@@ -91,18 +81,10 @@ public final class EntityChatScreen extends Screen {
         this.targetName = targetName;
     }
 
-    /** Physical entry point: owner right-clicked the body. Enrolls it in the roster. */
-    public static void open(AnimusEntity entity) {
-        com.dwinovo.animus.client.agent.AnimusRoster.instance()
-                .record(entity.getUUID(), entity.getName().getString());
-        Minecraft.getInstance().setScreen(
-                new EntityChatScreen(entity.getUUID(), entity.getName().getString()));
-    }
-
     /**
-     * Remote entry point (roster panel / hotkey): no entity instance needed —
-     * everything in this screen resolves the body lazily by UUID and tolerates
-     * it being unloaded, so chat, Stop, and Compact all work at any distance.
+     * Entry point (roster panel / hotkey): no body instance needed — everything
+     * in this screen resolves the companion lazily by UUID and tolerates it
+     * being unloaded, so chat, Stop, and Compact all work at any distance.
      */
     public static void openRemote(UUID entityUuid, String name) {
         Minecraft.getInstance().setScreen(new EntityChatScreen(entityUuid, name));
@@ -112,7 +94,7 @@ public final class EntityChatScreen extends Screen {
         return AgentLoopRegistry.getOrCreate(entityUuid);
     }
 
-    private AnimusEntity resolveEntity() {
+    private AbstractClientPlayer resolveEntity() {
         return ClientAnimusLookup.resolve(entityUuid);
     }
 
@@ -127,33 +109,14 @@ public final class EntityChatScreen extends Screen {
         this.bodyHeight = CONTENT_HEIGHT - TOP_BAR - PADDING * 2;
 
         buildTopBar();
-        if (view == View.CHAT) {
-            buildChatView();
-        }
+        buildChatView();
     }
 
     private void buildTopBar() {
         int btnW = 56;
-        int x = left;
-        SimpleButton chat = new SimpleButton(x, top, btnW, TOP_BAR - 2,
-                Component.literal("Chat"), b -> switchView(View.CHAT));
-        if (view == View.CHAT) chat.active = false;
-        addRenderableWidget(chat);
-        x += btnW + 2;
-
-        SimpleButton model = new SimpleButton(x, top, btnW, TOP_BAR - 2,
-                Component.literal("Model"), b -> switchView(View.MODEL));
-        if (view == View.MODEL) model.active = false;
-        addRenderableWidget(model);
-        x += btnW + 2;
-
-        addRenderableWidget(new SimpleButton(x, top, btnW, TOP_BAR - 2,
-                Component.literal("Inventory"), b -> openInventory()));
-        x += btnW + 2;
-
         // Manual context compaction: summarize the whole history into one
         // message. Enabled state refreshed each frame (idle + enough history).
-        this.compactButton = new SimpleButton(x, top, btnW, TOP_BAR - 2,
+        this.compactButton = new SimpleButton(left, top, btnW, TOP_BAR - 2,
                 Component.literal("Compact"), b -> loop().requestCompact());
         this.compactButton.active = loop().canCompact();
         addRenderableWidget(this.compactButton);
@@ -200,31 +163,11 @@ public final class EntityChatScreen extends Screen {
         this.bodyHeight = inputRowY - this.bodyY - PADDING;
     }
 
-    private void switchView(View v) {
-        if (this.input != null) {
-            this.savedInputText = this.input.getValue();
-        }
-        this.view = v;
-        this.input = null;
-        this.stopButton = null;
-        this.compactButton = null;
-        rebuildWidgets();
-    }
-
     private void openSettings() {
         if (this.input != null) {
             this.savedInputText = this.input.getValue();
         }
         Minecraft.getInstance().setScreen(new SettingsScreen(this));
-    }
-
-    private void openInventory() {
-        // GUI request/response is momentary and same-dimension (the body is in
-        // view), so the volatile network int id is valid here — resolve it live.
-        AnimusEntity entity = resolveEntity();
-        if (entity != null) {
-            Services.NETWORK.sendToServer(new OpenAnimusInventoryPayload(entity.getId()));
-        }
     }
 
     private void onSend() {
@@ -256,27 +199,6 @@ public final class EntityChatScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent mouseButtonEvent, boolean doubleClick) {
-        if (view == View.MODEL && mouseButtonEvent.button() == 0) {
-            double mouseX = mouseButtonEvent.x();
-            double mouseY = mouseButtonEvent.y();
-            List<Identifier> models = sortedModels();
-            for (int i = 0; i < models.size(); i++) {
-                int rowY = bodyY + i * MODEL_ROW_HEIGHT;
-                if (mouseX >= bodyX && mouseX <= bodyX + bodyWidth
-                        && mouseY >= rowY && mouseY < rowY + MODEL_ROW_HEIGHT) {
-                    AnimusEntity entity = resolveEntity();
-                    if (entity != null) {
-                        Services.NETWORK.sendToServer(new SetModelPayload(entity.getId(), models.get(i)));
-                    }
-                    return true;
-                }
-            }
-        }
-        return super.mouseClicked(mouseButtonEvent, doubleClick);
-    }
-
-    @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
         super.extractRenderState(g, mouseX, mouseY, partial);
 
@@ -286,16 +208,12 @@ public final class EntityChatScreen extends Screen {
         if (this.compactButton != null) {
             this.compactButton.active = loop().canCompact();
         }
-        if (view == View.CHAT) {
-            // Stop is only actionable while a turn runs or prompts are queued.
-            if (this.stopButton != null) {
-                this.stopButton.active = loop().canInterrupt();
-            }
-            renderStatusStrip(g, mouseX, mouseY);
-            renderChat(g);
-        } else {
-            renderModelList(g, mouseX, mouseY);
+        // Stop is only actionable while a turn runs or prompts are queued.
+        if (this.stopButton != null) {
+            this.stopButton.active = loop().canInterrupt();
         }
+        renderStatusStrip(g, mouseX, mouseY);
+        renderChat(g);
     }
 
     /**
@@ -305,7 +223,7 @@ public final class EntityChatScreen extends Screen {
      * the vanilla item tooltip.
      */
     private void renderStatusStrip(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-        AnimusEntity entity = resolveEntity();
+        AbstractClientPlayer entity = resolveEntity();
         if (entity == null) {
             g.text(font, Component.literal("(body out of view)"), bodyX, statusY + 5, 0xFF606060);
             return;
@@ -365,36 +283,6 @@ public final class EntityChatScreen extends Screen {
             }
         }
         g.disableScissor();
-    }
-
-    private void renderModelList(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-        Font font = this.font;
-        AnimusEntity entity = resolveEntity();
-        Identifier current = entity == null ? null : entity.getModelKey();
-        List<Identifier> models = sortedModels();
-        if (models.isEmpty()) {
-            g.text(font, Component.literal("No models installed."), bodyX, bodyY, 0xFF888888);
-            return;
-        }
-        for (int i = 0; i < models.size(); i++) {
-            Identifier id = models.get(i);
-            int rowY = bodyY + i * MODEL_ROW_HEIGHT;
-            if (rowY + MODEL_ROW_HEIGHT > bodyY + bodyHeight) {
-                break;
-            }
-            boolean hovered = mouseX >= bodyX && mouseX <= bodyX + bodyWidth
-                    && mouseY >= rowY && mouseY < rowY + MODEL_ROW_HEIGHT;
-            boolean selected = id.equals(current);
-            int color = selected ? 0xFF80CBC4 : (hovered ? 0xFFFFFFFF : 0xFFBBBBBB);
-            String prefix = selected ? "* " : "  ";
-            g.text(font, Component.literal(prefix + id), bodyX + 2, rowY + 2, color);
-        }
-    }
-
-    private static List<Identifier> sortedModels() {
-        List<Identifier> out = new ArrayList<>(ModelLibrary.keys());
-        out.sort((a, b) -> a.toString().compareTo(b.toString()));
-        return out;
     }
 
     private List<RenderedLine> buildChatLines(Font font) {

@@ -10,7 +10,6 @@ import com.dwinovo.animus.agent.skill.SkillRegistry;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ClientToolContext;
 import com.dwinovo.animus.agent.tool.ToolRegistry;
-import com.dwinovo.animus.entity.AnimusEntity;
 import com.dwinovo.animus.network.payload.CancelTasksPayload;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
 import com.dwinovo.animus.platform.Services;
@@ -18,6 +17,7 @@ import com.dwinovo.animus.platform.services.IAnimusConfig;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
 
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -626,7 +626,7 @@ public final class EntityAgentLoop {
     private String composeSystemPrompt(String basePrompt) {
         String base = basePrompt == null ? "" : basePrompt;
         String envBlock = buildEnvBlock();
-        AnimusEntity body = resolveEntity();
+        AbstractClientPlayer body = resolveEntity();
         String knownBlocks = workBlocks.formatXml(body != null ? body.level() : null);
         String skillsXml = SkillRegistry.instance().formatXml();
 
@@ -646,12 +646,11 @@ public final class EntityAgentLoop {
     }
 
     private String buildEnvBlock() {
-        AnimusEntity entity = resolveEntity();
+        AbstractClientPlayer entity = resolveEntity();
         if (entity == null) return null;
-        String ownerName = "unknown";
-        if (entity.getOwner() != null) {
-            ownerName = entity.getOwner().getName().getString();
-        }
+        // The brain runs on the owner's client, so the local player IS the owner.
+        var localOwner = Minecraft.getInstance().player;
+        String ownerName = localOwner != null ? localOwner.getName().getString() : "unknown";
         return "<env>\n"
                 + "  entity_uuid: " + entityUuid + "\n"
                 + "  owner_name: " + ownerName + "\n"
@@ -660,7 +659,7 @@ public final class EntityAgentLoop {
                 + "</env>";
     }
 
-    private AnimusEntity resolveEntity() {
+    private AbstractClientPlayer resolveEntity() {
         return ClientAnimusLookup.resolve(entityUuid);
     }
 

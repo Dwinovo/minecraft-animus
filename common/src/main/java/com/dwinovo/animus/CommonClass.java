@@ -52,7 +52,7 @@ public class CommonClass {
      *
      * <p>Adding a new tool: instantiate it here. World-action tools also need
      * a matching {@code Goal} added in
-     * {@link com.dwinovo.animus.entity.AnimusEntity#registerGoals}; local
+     * the companion task pipeline; local
      * tools ({@link com.dwinovo.animus.agent.tool.AnimusTool#isLocal})
      * don't, they execute synchronously inside {@code EntityAgentLoop}.
      *

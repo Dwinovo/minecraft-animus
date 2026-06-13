@@ -1,7 +1,7 @@
 package com.dwinovo.animus.network.payload;
 
 import com.dwinovo.animus.Constants;
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
@@ -46,7 +46,7 @@ public record CancelTasksPayload(UUID entityUuid) implements CustomPacketPayload
     public static void handle(CancelTasksPayload p, ServerPlayer player) {
         // Cross-dimension lookup: the owner must be able to stop a companion
         // that has wandered into another dimension or out of view distance.
-        AnimusEntity animus = AnimusEntity.findByUuid(player.level().getServer(), p.entityUuid());
+        AnimusPlayer animus = AnimusPlayer.findByUuid(player.level().getServer(), p.entityUuid());
         if (animus == null) {
             Constants.LOG.debug("[animus-net] cancel_tasks for unknown entity {}", p.entityUuid());
             return;

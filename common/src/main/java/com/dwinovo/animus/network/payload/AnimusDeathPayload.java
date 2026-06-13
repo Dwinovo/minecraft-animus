@@ -25,8 +25,7 @@ import java.util.UUID;
  * <h2>Not fired on dimension travel</h2>
  * Sent only when the removal {@code shouldDestroy()} (e.g. KILLED), which is
  * false for {@code CHANGED_DIMENSION} — so a Nether/End trip (which recreates
- * the entity, same UUID) does NOT look like a death. See
- * {@link com.dwinovo.animus.entity.AnimusEntity#remove}.
+ * the body, same UUID) does NOT look like a death.
  */
 public record AnimusDeathPayload(UUID entityUuid) implements CustomPacketPayload {
 

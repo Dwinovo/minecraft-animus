@@ -4,8 +4,8 @@ import com.dwinovo.animus.Constants;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Relative;
-import net.minecraft.world.level.entity.EntityTypeTest;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
@@ -31,7 +31,7 @@ import java.util.Set;
  *
  * <h2>Why WORKING or CONVERSING companions stay behind</h2>
  * The agent loop drives the body over UUID-addressed payloads that the server
- * resolves across all dimensions ({@code AnimusEntity.findByUuid}), so a busy
+ * resolves across all dimensions ({@code AnimusPlayer.findByUuid}), so a busy
  * pet does not need to share the owner's dimension — its chunk tickets keep it
  * simulating and the roster reaches it from anywhere. A pet stays put if it has
  * task work ({@code hasTaskWork}) OR its owner is mid-conversation with it right
@@ -54,15 +54,19 @@ public final class AnimusDimensionFollow {
     public static void onOwnerChangedDimension(ServerPlayer owner, ServerLevel from, ServerLevel to) {
         if (from == to) return;
 
-        List<? extends AnimusEntity> companions = from.getEntities(
-                EntityTypeTest.forClass(AnimusEntity.class),
-                // UUID comparison: this event fires AFTER the owner left `from`,
-                // so a level-scoped owner lookup would match no companion here.
-                a -> a.isAlive() && a.isOwnedByPlayer(owner.getUUID())
-                        && !a.hasTaskWork() && !a.isOwnerLoopLive());
+        // The companion is a fake ServerPlayer, so it lives in the level's player
+        // list. UUID comparison: this event fires AFTER the owner left `from`, so
+        // a level-scoped owner lookup would match no companion here.
+        List<AnimusPlayer> companions = new ArrayList<>();
+        for (ServerPlayer p : from.players()) {
+            if (p instanceof AnimusPlayer a && a.isAlive() && a.isOwnedByPlayer(owner.getUUID())
+                    && !a.hasTaskWork() && !a.isOwnerLoopLive()) {
+                companions.add(a);
+            }
+        }
         if (companions.isEmpty()) return;
 
-        for (AnimusEntity companion : companions) {
+        for (AnimusPlayer companion : companions) {
             // teleportTo handles the cross-dimension recreate (new int id, same
             // UUID); the rebuilt body lands on the owner. Absolute coords (empty
             // relative-movement set), facing the owner's direction.

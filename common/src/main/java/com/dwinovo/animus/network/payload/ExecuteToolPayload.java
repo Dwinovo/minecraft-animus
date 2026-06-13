@@ -3,7 +3,6 @@ package com.dwinovo.animus.network.payload;
 import com.dwinovo.animus.Constants;
 import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.agent.tool.ToolRegistry;
-import com.dwinovo.animus.entity.AnimusEntity;
 import com.dwinovo.animus.task.TaskRecord;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -24,7 +23,7 @@ import java.util.UUID;
  * <h2>Trust model</h2>
  * The server treats this as unvalidated input. Validation chain:
  * <ol>
- *   <li>Target entity must be an {@link AnimusEntity} (searched across ALL
+ *   <li>Target must be an {@link com.dwinovo.animus.entity.AnimusPlayer} (searched across ALL
  *       dimensions — a working companion may be in the Nether while the owner
  *       waits in the overworld).</li>
  *   <li>Sender must be the entity's owner (UUID comparison, cross-dimension safe).</li>

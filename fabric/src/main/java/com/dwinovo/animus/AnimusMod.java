@@ -1,24 +1,12 @@
 package com.dwinovo.animus;
 
 import com.dwinovo.animus.entity.AnimusDimensionFollow;
-import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.entity.InitEntity;
-import com.dwinovo.animus.init.InitItem;
-import com.dwinovo.animus.init.InitTicketType;
-import net.minecraft.resources.Identifier;
 import com.dwinovo.animus.network.AnimusNetwork;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
-import net.minecraft.core.Registry;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.MobCategory;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.level.Level;
 
 import java.util.HashMap;
@@ -37,35 +25,6 @@ public class AnimusMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        EntityType<AnimusEntity> animusType = Registry.register(
-                BuiltInRegistries.ENTITY_TYPE,
-                InitEntity.ANIMUS_KEY,
-                EntityType.Builder.<AnimusEntity>of(AnimusEntity::new, MobCategory.CREATURE)
-                        .sized(0.6f, 0.9f)
-                        .build(InitEntity.ANIMUS_KEY));
-        InitEntity.ANIMUS = () -> animusType;
-
-        FabricDefaultAttributeRegistry.register(animusType,
-                AnimusEntity.createAttributes().build());
-
-        // Spawn egg item — how players obtain a (wild) Animus to tame.
-        // Creative-tab placement on Fabric is wired separately (the
-        // fabric-item-group module isn't on this project's compile classpath);
-        // obtainable via /give animus:animus_spawn_egg in the meantime.
-        Item spawnEgg = Registry.register(
-                BuiltInRegistries.ITEM,
-                InitItem.ANIMUS_SPAWN_EGG_KEY,
-                new SpawnEggItem(new Item.Properties()
-                        .spawnEgg(animusType)
-                        .setId(InitItem.ANIMUS_SPAWN_EGG_KEY)));
-        InitItem.ANIMUS_SPAWN_EGG = () -> spawnEgg;
-
-        // Registered ticket types are visible to debug tooling and the ticket
-        // storage; vanilla registers all of its own the same way.
-        Registry.register(BuiltInRegistries.TICKET_TYPE,
-                Identifier.fromNamespaceAndPath(Constants.MOD_ID, InitTicketType.TASK_ID),
-                InitTicketType.TASK);
-
         AnimusNetwork.register();
 
         // Dev: /animus_summon — create a companion fake player at the caller.
@@ -83,9 +42,6 @@ public class AnimusMod implements ModInitializer {
 
         // Bring owned companions along when the owner crosses a dimension.
         ServerTickEvents.END_SERVER_TICK.register(AnimusMod::detectDimensionChanges);
-        // Poll chunk-ticket revivals of companions stranded in unloaded chunks.
-        ServerTickEvents.END_SERVER_TICK.register(
-                com.dwinovo.animus.network.AnimusRevival::tick);
         // Advance budget-sliced long-range block scans.
         ServerTickEvents.END_SERVER_TICK.register(
                 com.dwinovo.animus.task.tasks.ScanBlocksJob::tick);

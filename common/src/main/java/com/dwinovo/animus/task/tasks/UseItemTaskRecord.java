@@ -7,7 +7,7 @@ import net.minecraft.world.item.Item;
 /**
  * Typed task descriptor for {@code use_item}: right-click an item, optionally on
  * a target block. The goal ({@link UseItemTaskGoal}) performs it through the
- * loader's shared fake player ({@link FakePlayerUse}) so real vanilla item logic
+ * loader's shared fake player (the companion fake player) so real vanilla item logic
  * runs (flint&steel ignites, ender eye fills an end-portal frame / is thrown,
  * bucket/bonemeal, …).
  *

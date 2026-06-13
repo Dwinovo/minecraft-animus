@@ -1,7 +1,8 @@
 package com.dwinovo.animus.network.payload;
 
 import com.dwinovo.animus.Constants;
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
+import com.dwinovo.animus.entity.CompanionRegistry;
 import com.dwinovo.animus.platform.Services;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -48,8 +49,9 @@ public record LocateAnimusPayload(List<UUID> entityUuids) implements CustomPacke
     /** Handler invoked on the server main thread. */
     public static void handle(LocateAnimusPayload p, ServerPlayer player) {
         List<AnimusLocationsPayload.Snapshot> out = new ArrayList<>(p.entityUuids().size());
+        CompanionRegistry registry = CompanionRegistry.get(player.level().getServer());
         for (UUID uuid : p.entityUuids()) {
-            AnimusEntity animus = AnimusEntity.findByUuid(player.level().getServer(), uuid);
+            AnimusPlayer animus = AnimusPlayer.findByUuid(player.level().getServer(), uuid);
             if (animus != null && animus.isOwnedByPlayer(player.getUUID())) {
                 out.add(AnimusLocationsPayload.Snapshot.live(uuid,
                         animus.getX(), animus.getY(), animus.getZ(),
@@ -57,17 +59,16 @@ public record LocateAnimusPayload(List<UUID> entityUuids) implements CustomPacke
                         animus.getHealth(), animus.getMaxHealth()));
                 continue;
             }
-            // Unloaded (idle past the ticket linger, or a fresh session): fall
-            // back to the persistent last-seen index so the roster can show
-            // WHERE it sleeps instead of a useless "offline". Owner-gated —
-            // the index carries ownership precisely because the entity can't.
-            var lastSeen = com.dwinovo.animus.entity.AnimusLastSeen.find(
-                    player.level().getServer(), uuid);
-            if (animus == null && lastSeen != null && lastSeen.owner().equals(player.getUUID())) {
-                var pos = lastSeen.pos();
+            // Dormant (owner logged out, or not yet respawned this session): fall
+            // back to the persistent companion index so the roster can show WHERE
+            // it sleeps instead of a useless "offline". Owner-gated — the registry
+            // carries ownership and the respawn-hint position.
+            CompanionRegistry.Entry entry = registry.find(uuid);
+            if (animus == null && entry != null && entry.owner().equals(player.getUUID())) {
+                var pos = entry.pos();
                 out.add(AnimusLocationsPayload.Snapshot.lastSeen(uuid,
                         pos.getX(), pos.getY(), pos.getZ(),
-                        lastSeen.dimension().identifier().toString()));
+                        entry.dimension().identifier().toString()));
                 continue;
             }
             out.add(AnimusLocationsPayload.Snapshot.notFound(uuid));

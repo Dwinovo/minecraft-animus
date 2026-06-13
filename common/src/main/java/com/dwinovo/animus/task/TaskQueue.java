@@ -18,7 +18,7 @@ import java.util.List;
  *   <li>{@link #peekMatching}, {@link #pollMatching}, {@link #complete} all
  *       run from {@code GoalSelector.tick} (canUse / start / stop) via the
  *       matching {@link LlmTaskGoal}.</li>
- *   <li>{@link #drainCompleted} runs from {@code AnimusEntity.customServerAiStep}
+ *   <li>{@link #drainCompleted} runs from the companion tick dispatcher
  *       once per tick, shipping completed records back to the owning player as
  *       {@code TaskResultPayload} for the client-side agent loop to consume.</li>
  * </ul>

@@ -4,7 +4,6 @@ import com.dwinovo.animus.client.agent.AgentLoopRegistry;
 import com.dwinovo.animus.client.agent.AnimusRoster;
 import com.dwinovo.animus.client.agent.ClientAnimusLookup;
 import com.dwinovo.animus.client.data.ClientAnimusLocations;
-import com.dwinovo.animus.entity.AnimusEntity;
 import com.dwinovo.animus.network.payload.LocateAnimusPayload;
 import com.dwinovo.animus.platform.Services;
 import net.minecraft.client.Minecraft;
@@ -145,7 +144,7 @@ public final class RosterScreen extends Screen {
 
     /** Position/HP line: live entity if in view, else the last server snapshot. */
     private String whereabouts(UUID uuid) {
-        AnimusEntity live = ClientAnimusLookup.resolve(uuid);
+        var live = ClientAnimusLookup.resolve(uuid);
         Player self = Minecraft.getInstance().player;
         if (live != null) {
             String dist = self != null ? (int) live.distanceTo(self) + "m away" : "in view";
