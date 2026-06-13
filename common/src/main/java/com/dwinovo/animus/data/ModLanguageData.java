@@ -30,16 +30,6 @@ public final class ModLanguageData {
 
         private Keys() {}
 
-        /** Entity display name shown on name plates and spawn eggs. */
-        public static final String ENTITY_ANIMUS = "entity.animus.animus";
-
-        /** Spawn-egg item display name. */
-        public static final String ITEM_ANIMUS_SPAWN_EGG = "item.animus.animus_spawn_egg";
-
-        // Built-in model display strings (referenced by model manifest.json).
-        public static final String MODEL_HACHIWARE_NAME        = "animus.model.hachiware.name";
-        public static final String MODEL_HACHIWARE_DESCRIPTION = "animus.model.hachiware.description";
-
         // Settings GUI labels.
         public static final String GUI_SETTINGS_TITLE       = "animus.gui.settings.title";
         public static final String GUI_SETTINGS_PROVIDER    = "animus.gui.settings.provider";
@@ -65,12 +55,6 @@ public final class ModLanguageData {
     }
 
     private static void addEn(Adder adder) {
-        adder.add(Keys.ENTITY_ANIMUS, "Animus");
-        adder.add(Keys.ITEM_ANIMUS_SPAWN_EGG, "Animus Spawn Egg");
-
-        adder.add(Keys.MODEL_HACHIWARE_NAME,        "Hachiware");
-        adder.add(Keys.MODEL_HACHIWARE_DESCRIPTION, "Default model — a small black-and-white feline character.");
-
         adder.add(Keys.GUI_SETTINGS_TITLE,         "Animus Settings");
         adder.add(Keys.GUI_SETTINGS_PROVIDER,      "Provider");
         adder.add(Keys.GUI_SETTINGS_API_KEY,       "API Key");
@@ -85,12 +69,6 @@ public final class ModLanguageData {
     }
 
     private static void addZh(Adder adder) {
-        adder.add(Keys.ENTITY_ANIMUS, "Animus");
-        adder.add(Keys.ITEM_ANIMUS_SPAWN_EGG, "Animus 刷怪蛋");
-
-        adder.add(Keys.MODEL_HACHIWARE_NAME,        "帕奇猫");
-        adder.add(Keys.MODEL_HACHIWARE_DESCRIPTION, "默认模型——一只黑白花纹的小猫角色。");
-
         adder.add(Keys.GUI_SETTINGS_TITLE,         "Animus 设置");
         adder.add(Keys.GUI_SETTINGS_PROVIDER,      "服务商");
         adder.add(Keys.GUI_SETTINGS_API_KEY,       "API Key");
