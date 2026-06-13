@@ -1,7 +1,7 @@
 package com.dwinovo.animus.agent.tool.tools;
 
 import com.dwinovo.animus.agent.tool.AnimusTool;
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import com.dwinovo.animus.pathing.util.BlockScanner;
 import com.dwinovo.animus.task.tasks.ScanBlocksJob;
 import com.google.gson.JsonArray;
@@ -105,7 +105,7 @@ public final class ScanBlocksTool implements AnimusTool {
     public boolean isAsyncQuery() { return true; }
 
     @Override
-    public void startAsyncQuery(JsonObject args, AnimusEntity entity,
+    public void startAsyncQuery(JsonObject args, AnimusPlayer entity,
                                 java.util.function.Consumer<String> reply) {
         int radius = readInt(args, "radius", MIN_RADIUS, MAX_RADIUS);
         Set<Block> targets = readBlockIds(args);

@@ -1,7 +1,7 @@
 package com.dwinovo.animus.agent.tool.tools;
 
 import com.dwinovo.animus.agent.tool.AnimusTool;
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import com.dwinovo.animus.task.tasks.BlockMiningProgress;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
@@ -83,7 +83,7 @@ public final class InspectBlockTool implements AnimusTool {
     @Override
     @SuppressWarnings("deprecation")  // BlockBehaviour.isSolid() carries Mojang's
                                      // "deprecated for override" marker, not phased out.
-    public String executeQuery(JsonObject args, AnimusEntity entity) {
+    public String executeQuery(JsonObject args, AnimusPlayer entity) {
         int x = readInt(args, "x");
         int y = readInt(args, "y");
         int z = readInt(args, "z");

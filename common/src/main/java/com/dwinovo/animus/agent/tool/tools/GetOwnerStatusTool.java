@@ -1,7 +1,7 @@
 package com.dwinovo.animus.agent.tool.tools;
 
 import com.dwinovo.animus.agent.tool.AnimusTool;
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.EntityReference;
@@ -58,15 +58,15 @@ public final class GetOwnerStatusTool implements AnimusTool {
     }
 
     @Override
-    public String executeQuery(JsonObject args, AnimusEntity entity) {
+    public String executeQuery(JsonObject args, AnimusPlayer entity) {
         JsonObject root = new JsonObject();
-        EntityReference<LivingEntity> ownerRef = entity.getOwnerReference();
-        if (ownerRef == null) {
+        java.util.UUID ownerUuid = entity.getOwnerUuid();
+        if (ownerUuid == null) {
             root.addProperty("online", false);
             root.addProperty("message", "no owner (untamed)");
             return root.toString();
         }
-        root.addProperty("owner_uuid", ownerRef.getUUID().toString());
+        root.addProperty("owner_uuid", ownerUuid.toString());
 
         // Server-wide resolution: vanilla getOwner() is scoped to the PET's
         // level and would report a cross-dimension owner as "offline".

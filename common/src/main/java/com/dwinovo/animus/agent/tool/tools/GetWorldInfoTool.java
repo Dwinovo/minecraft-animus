@@ -1,7 +1,7 @@
 package com.dwinovo.animus.agent.tool.tools;
 
 import com.dwinovo.animus.agent.tool.AnimusTool;
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import com.google.gson.JsonObject;
 
 import java.util.LinkedHashMap;
@@ -57,7 +57,7 @@ public final class GetWorldInfoTool implements AnimusTool {
     }
 
     @Override
-    public String executeQuery(JsonObject args, AnimusEntity entity) {
+    public String executeQuery(JsonObject args, AnimusPlayer entity) {
         var level = entity.level();
 
         JsonObject root = new JsonObject();

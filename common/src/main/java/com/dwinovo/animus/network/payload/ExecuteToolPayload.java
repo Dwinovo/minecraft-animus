@@ -99,92 +99,7 @@ public record ExecuteToolPayload(UUID entityUuid,
             handleCompanion(p, player, companion);
             return;
         }
-
-        // -- 1. resolve entity by UUID across all dimensions: the companion may
-        //       be working in another dimension or far outside the owner's view,
-        //       kept ticking by its own chunk tickets.
-        AnimusEntity animus = AnimusEntity.findByUuid(player.level().getServer(), p.entityUuid());
-        if (animus == null) {
-            // Likely sitting in unloaded chunks (idle past the ticket linger, or
-            // a server restart). Try a chunk-ticket revival at its last known
-            // position; if one starts, the retry loop owns the reply.
-            if (com.dwinovo.animus.network.AnimusRevival.tryRevive(
-                    player.level().getServer(), player, p)) {
-                return;
-            }
-            replyError(player, p, "entity not found in any dimension (never seen or dead?)");
-            return;
-        }
-        // -- 2. owner check (the actual authorization). UUID comparison, NOT
-        //       vanilla isOwnedBy — that resolves through the PET's level and
-        //       rejects a cross-dimension owner as "not the owner".
-        if (!animus.isOwnedByPlayer(player.getUUID())) {
-            replyError(player, p, "not the owner");
-            return;
-        }
-        // No engagement stamp here: the owner-liveness heartbeat (KeepLoadedPayload)
-        // holds the chunk lease through think-time gaps. By the time a tool call
-        // arrives the loop has already been heartbeating, so the pet is loaded —
-        // and if it wasn't, findByUuid above took the AnimusRevival path.
-        // -- 3. tool lookup
-        AnimusTool tool = ToolRegistry.get(p.toolName());
-        if (tool == null) {
-            replyError(player, p, "unknown tool: " + p.toolName());
-            return;
-        }
-        // -- 4. parse args
-        JsonObject args;
-        try {
-            args = JsonParser.parseString(p.argumentsJson()).getAsJsonObject();
-        } catch (RuntimeException ex) {
-            replyError(player, p, "invalid arguments JSON: " + ex.getMessage());
-            return;
-        }
-
-        // -- 5pre. async query: register a budget-sliced server job; the
-        //          reply rides TaskResultPayload on a later tick. No queue,
-        //          no body occupancy — the pet keeps doing whatever it was.
-        if (tool.isAsyncQuery()) {
-            try {
-                tool.startAsyncQuery(args, animus, json ->
-                        com.dwinovo.animus.platform.Services.NETWORK.sendToPlayer(player,
-                                new TaskResultPayload(p.entityUuid(), p.toolCallId(), json)));
-                Constants.LOG.debug("[animus-net] ✓ async query tool={} id={} started for {}",
-                        p.toolName(), p.toolCallId(), who);
-            } catch (RuntimeException ex) {
-                replyError(player, p, "invalid arguments: " + ex.getMessage());
-            }
-            return;
-        }
-
-        // -- 5a. query fast path: execute now, reply now, never queue.
-        if (tool.isQuery()) {
-            String result;
-            try {
-                result = tool.executeQuery(args, animus);
-            } catch (RuntimeException ex) {
-                result = "{\"success\":false,\"message\":\"" + escape(ex.getMessage()) + "\"}";
-            }
-            com.dwinovo.animus.platform.Services.NETWORK.sendToPlayer(player,
-                    new TaskResultPayload(p.entityUuid(), p.toolCallId(), result));
-            Constants.LOG.debug("[animus-net] ✓ query tool={} id={} answered inline for {}",
-                    p.toolName(), p.toolCallId(), who);
-            return;
-        }
-
-        // -- 5b. world-action path: validate into a TaskRecord and enqueue.
-        TaskRecord record;
-        try {
-            record = tool.toTaskRecord(p.toolCallId(), args,
-                    animus.level().getGameTime());
-        } catch (RuntimeException ex) {
-            replyError(player, p, "invalid arguments: " + ex.getMessage());
-            return;
-        }
-        animus.getTaskQueue().enqueue(record);
-        Constants.LOG.info("[animus-net] ✓ enqueued tool={} id={} on entity {} for {} (queue depth now={})",
-                p.toolName(), p.toolCallId(), p.entityUuid(), who,
-                animus.getTaskQueue().pendingCount());
+        replyError(player, p, "companion not found (never summoned, or its data is gone)");
     }
 
     /**
@@ -212,11 +127,33 @@ public record ExecuteToolPayload(UUID entityUuid,
             replyError(player, p, "invalid arguments JSON: " + ex.getMessage());
             return;
         }
-        if (tool.isQuery() || tool.isAsyncQuery()) {
-            replyError(player, p, p.toolName() + ": perception/query tools aren't wired to the "
-                    + "companion player body yet (move_to and auto_mine are)");
+
+        // Async query: budget-sliced server job; reply rides a later tick.
+        if (tool.isAsyncQuery()) {
+            try {
+                tool.startAsyncQuery(args, companion, json ->
+                        com.dwinovo.animus.platform.Services.NETWORK.sendToPlayer(player,
+                                new TaskResultPayload(p.entityUuid(), p.toolCallId(), json)));
+            } catch (RuntimeException ex) {
+                replyError(player, p, "invalid arguments: " + ex.getMessage());
+            }
             return;
         }
+
+        // Query fast path: execute now, reply now, never queue.
+        if (tool.isQuery()) {
+            String result;
+            try {
+                result = tool.executeQuery(args, companion);
+            } catch (RuntimeException ex) {
+                result = "{\"success\":false,\"message\":\"" + escape(ex.getMessage()) + "\"}";
+            }
+            com.dwinovo.animus.platform.Services.NETWORK.sendToPlayer(player,
+                    new TaskResultPayload(p.entityUuid(), p.toolCallId(), result));
+            return;
+        }
+
+        // World-action: validate into a record and enqueue for the dispatcher.
         TaskRecord record;
         try {
             record = tool.toTaskRecord(p.toolCallId(), args, companion.level().getGameTime());

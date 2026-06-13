@@ -1,7 +1,7 @@
 package com.dwinovo.animus.agent.tool.tools;
 
 import com.dwinovo.animus.agent.tool.AnimusTool;
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.minecraft.world.entity.Entity;
@@ -88,7 +88,7 @@ public final class ScanNearbyEntitiesTool implements AnimusTool {
     }
 
     @Override
-    public String executeQuery(JsonObject args, AnimusEntity entity) {
+    public String executeQuery(JsonObject args, AnimusPlayer entity) {
         double radius = readDouble(args, "radius", MIN_RADIUS, MAX_RADIUS);
         String filter = readEnum(args, "type_filter",
                 List.of("hostile", "passive", "player", "all"));

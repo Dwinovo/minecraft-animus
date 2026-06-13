@@ -1,7 +1,7 @@
 package com.dwinovo.animus.agent.tool.tools;
 
 import com.dwinovo.animus.agent.tool.AnimusTool;
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
@@ -70,7 +70,7 @@ public final class GetSelfStatusTool implements AnimusTool {
     }
 
     @Override
-    public String executeQuery(JsonObject args, AnimusEntity entity) {
+    public String executeQuery(JsonObject args, AnimusPlayer entity) {
         JsonObject root = new JsonObject();
         root.addProperty("entity_id", entity.getId());
         root.addProperty("hp", entity.getHealth());
@@ -97,7 +97,7 @@ public final class GetSelfStatusTool implements AnimusTool {
         root.add("equipment", equipment);
 
         // Full backpack inventory (empty slots omitted).
-        SimpleContainer inv = entity.getInventory();
+        var inv = entity.getInventory();
         JsonArray items = new JsonArray();
         int used = 0;
         for (int i = 0; i < inv.getContainerSize(); i++) {
@@ -116,16 +116,8 @@ public final class GetSelfStatusTool implements AnimusTool {
         inventory.addProperty("slots_total", inv.getContainerSize());
         root.add("inventory", inventory);
 
-        LivingEntity tgt = entity.getTarget();
-        if (tgt != null) {
-            JsonObject t = new JsonObject();
-            t.addProperty("entity_id", tgt.getId());
-            t.addProperty("type", tgt.getType().getDescriptionId());
-            t.addProperty("hp", tgt.getHealth());
-            root.add("target", t);
-        } else {
-            root.add("target", JsonNull.INSTANCE);
-        }
+        // A player body has no AI attack-target; combat is task-driven.
+        root.add("target", JsonNull.INSTANCE);
 
         root.addProperty("on_ground", entity.onGround());
         root.addProperty("in_water", entity.isInWater());

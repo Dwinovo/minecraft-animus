@@ -149,7 +149,7 @@ public interface AnimusTool {
      * @throws IllegalArgumentException for malformed args; the payload
      *                                  handler reports it as a failed result
      */
-    default void startAsyncQuery(JsonObject args, com.dwinovo.animus.entity.AnimusEntity entity,
+    default void startAsyncQuery(JsonObject args, com.dwinovo.animus.entity.AnimusPlayer entity,
                                  java.util.function.Consumer<String> reply) {
         throw new UnsupportedOperationException("not an async query tool: " + name());
     }
@@ -163,7 +163,7 @@ public interface AnimusTool {
      * @throws IllegalArgumentException for malformed args; the payload handler
      *                                  converts it into a failed tool result
      */
-    default String executeQuery(JsonObject args, com.dwinovo.animus.entity.AnimusEntity entity) {
+    default String executeQuery(JsonObject args, com.dwinovo.animus.entity.AnimusPlayer entity) {
         throw new UnsupportedOperationException(
                 "executeQuery called on non-query tool " + name());
     }
