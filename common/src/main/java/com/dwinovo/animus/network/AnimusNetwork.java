@@ -4,6 +4,7 @@ import com.dwinovo.animus.network.payload.AnimusDeathPayload;
 import com.dwinovo.animus.network.payload.AnimusLocationsPayload;
 import com.dwinovo.animus.network.payload.LocateAnimusPayload;
 import com.dwinovo.animus.network.payload.CancelTasksPayload;
+import com.dwinovo.animus.network.payload.ClientUiActionPayload;
 import com.dwinovo.animus.network.payload.CompanionListPayload;
 import com.dwinovo.animus.network.payload.ExecuteToolPayload;
 import com.dwinovo.animus.network.payload.TaskResultPayload;
@@ -52,6 +53,12 @@ public final class AnimusNetwork {
         Services.NETWORK.registerServerToClient(
                 CompanionListPayload.TYPE, CompanionListPayload.STREAM_CODEC,
                 CompanionListPayload::handle);
+
+        // S→C: server `/animus` verbs that must act on the caller's own client
+        // (open settings GUI / reset conversations).
+        Services.NETWORK.registerServerToClient(
+                ClientUiActionPayload.TYPE, ClientUiActionPayload.STREAM_CODEC,
+                ClientUiActionPayload::handle);
 
         // C→S: roster panel asks where its (possibly far / cross-dimension) pets are.
         Services.NETWORK.registerClientToServer(
