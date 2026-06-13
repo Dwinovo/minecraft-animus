@@ -68,6 +68,19 @@ public class AnimusMod implements ModInitializer {
 
         AnimusNetwork.register();
 
+        // Dev: /animus_summon — create a companion fake player at the caller.
+        net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register(
+                (dispatcher, registry, env) ->
+                        com.dwinovo.animus.entity.AnimusCommands.register(dispatcher));
+
+        // When an owner logs in, bring their dormant companions back.
+        net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents.JOIN.register(
+                (handler, sender, server) -> {
+                    ServerPlayer player = handler.getPlayer();
+                    if (player instanceof com.dwinovo.animus.entity.AnimusPlayer) return;  // not the companion itself
+                    com.dwinovo.animus.entity.Companions.respawnAllOwnedBy(server, player.getUUID());
+                });
+
         // Bring owned companions along when the owner crosses a dimension.
         ServerTickEvents.END_SERVER_TICK.register(AnimusMod::detectDimensionChanges);
         // Poll chunk-ticket revivals of companions stranded in unloaded chunks.

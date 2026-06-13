@@ -7,7 +7,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.world.phys.Vec3;
 
-import javax.annotation.Nullable;
 import java.util.Set;
 import java.util.UUID;
 
@@ -32,7 +31,7 @@ public final class CompanionFactory {
      * pass {@code null} to keep the position restored from its {@code .dat}.
      */
     public static AnimusPlayer spawn(MinecraftServer server, UUID companionUuid, String name,
-                                     UUID ownerUuid, ServerLevel level, @Nullable Vec3 pos) {
+                                     UUID ownerUuid, ServerLevel level, Vec3 pos) {
         GameProfile profile = new GameProfile(companionUuid, name);
         AnimusPlayer player = new AnimusPlayer(server, level, profile, ClientInformation.createDefault());
         FakeConnection connection = new FakeConnection();

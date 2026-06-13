@@ -88,6 +88,11 @@ public class AnimusMod {
         NeoForge.EVENT_BUS.addListener(AnimusMod::onPlayerChangedDimension);
         // Poll chunk-ticket revivals of companions stranded in unloaded chunks.
         NeoForge.EVENT_BUS.addListener(AnimusMod::onServerTickPost);
+        // Dev: /animus_summon — create a companion fake player at the caller.
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.RegisterCommandsEvent e) ->
+                com.dwinovo.animus.entity.AnimusCommands.register(e.getDispatcher()));
+        // When an owner logs in, bring their dormant companions back.
+        NeoForge.EVENT_BUS.addListener(AnimusMod::onPlayerLoggedIn);
 
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on NeoForge.");
@@ -112,6 +117,15 @@ public class AnimusMod {
     private static void onServerTickPost(net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) {
         com.dwinovo.animus.network.AnimusRevival.tick(event.getServer());
         com.dwinovo.animus.task.tasks.ScanBlocksJob.tick(event.getServer());
+    }
+
+    private static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer player)) return;
+        if (player instanceof com.dwinovo.animus.entity.AnimusPlayer) return;  // not the companion itself
+        MinecraftServer server = player.level().getServer();
+        if (server != null) {
+            com.dwinovo.animus.entity.Companions.respawnAllOwnedBy(server, player.getUUID());
+        }
     }
 
     private static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
