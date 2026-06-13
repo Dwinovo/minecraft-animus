@@ -161,10 +161,17 @@ public final class Moves {
 
         if (BlockHelper.isHazard(level, dest) || BlockHelper.isHazard(level, head)) return null;
 
-        // Baritone walk cost: base WALK + half soul-sand penalty per soul-sand floor.
+        // Baritone walk cost: base WALK + half soul-sand penalty per soul-sand floor
+        // touched — BOTH the destination floor and the source floor (Baritone
+        // MovementTraverse adds destOn and srcDownBlock separately).
         double walk = ActionCosts.WALK_ONE_BLOCK;
+        double soulSandHalf =
+                (ActionCosts.WALK_ONE_OVER_SOUL_SAND - ActionCosts.WALK_ONE_BLOCK) / 2.0;
         if (level.getBlockState(floor).is(Blocks.SOUL_SAND)) {
-            walk += (ActionCosts.WALK_ONE_OVER_SOUL_SAND - ActionCosts.WALK_ONE_BLOCK) / 2.0;
+            walk += soulSandHalf;
+        }
+        if (level.getBlockState(from.below()).is(Blocks.SOUL_SAND)) {
+            walk += soulSandHalf;
         }
         // A clear walk (nothing to break or place) takes the sprint discount;
         // otherwise base walk + mining + placement (Baritone MovementTraverse).
@@ -222,8 +229,12 @@ public final class Moves {
         BlockGetter level = ctx.view;
         BlockPos col = from.relative(dir); // horizontal cell we step into
 
-        // Baritone MovementDescend: walking off the edge is WALK_OFF_BLOCK.
+        // Baritone MovementDescend: walking off the edge is WALK_OFF_BLOCK, scaled
+        // by the soul-sand ratio when stepping off soul sand.
         double cost = ActionCosts.WALK_OFF_BLOCK;
+        if (level.getBlockState(from.below()).is(Blocks.SOUL_SAND)) {
+            cost *= ActionCosts.WALK_ONE_OVER_SOUL_SAND / ActionCosts.WALK_ONE_BLOCK;
+        }
         List<BlockPos> toBreak = new ArrayList<>(2);
 
         // Clear the two body cells of the column we step into at source height.

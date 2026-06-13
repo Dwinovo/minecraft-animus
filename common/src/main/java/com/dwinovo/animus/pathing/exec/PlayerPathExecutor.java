@@ -176,7 +176,18 @@ public final class PlayerPathExecutor {
                 }
             }
             case PILLAR -> drivePillar(mv);
-            case DESCEND, FALL -> InputDriver.stepToward(player, dest, false); // gravity descends
+            case DESCEND, FALL -> {
+                // Baritone fakeDest: aim one block PAST dest for the first ~20 ticks
+                // to carry momentum off the ledge (a step-down stalls at the lip
+                // without forward push), then settle onto dest. Gravity does the rest.
+                Vec3 aim = (ticksOnCurrent < 20)
+                        ? Vec3.atBottomCenterOf(new BlockPos(
+                                2 * mv.dest.getX() - mv.src.getX(),
+                                mv.dest.getY(),
+                                2 * mv.dest.getZ() - mv.src.getZ()))
+                        : dest;
+                InputDriver.stepToward(player, aim, false);
+            }
             case DIG_DOWN -> InputDriver.halt(player);   // phase 1 breaks the floor; gravity drops us
             case SWIM -> {
                 InputDriver.stepToward(player, dest, false);
