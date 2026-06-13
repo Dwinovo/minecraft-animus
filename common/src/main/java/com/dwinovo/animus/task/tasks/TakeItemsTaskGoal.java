@@ -1,6 +1,6 @@
 package com.dwinovo.animus.task.tasks;
 
-import com.dwinovo.animus.entity.AnimusEntity;
+import com.dwinovo.animus.entity.AnimusPlayer;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.Container;
@@ -20,8 +20,8 @@ public final class TakeItemsTaskGoal extends AbstractContainerItemGoal<TakeItems
     /** Cap the contents listing on a miss — enough to orient, not a token bomb. */
     private static final int MAX_LISTED_TYPES = 8;
 
-    public TakeItemsTaskGoal(AnimusEntity entity) {
-        super(entity, TakeItemsTaskRecord.TOOL_NAME, TakeItemsTaskRecord.class);
+    public TakeItemsTaskGoal(AnimusPlayer player, TakeItemsTaskRecord record) {
+        super(player, record);
     }
 
     @Override
@@ -32,17 +32,17 @@ public final class TakeItemsTaskGoal extends AbstractContainerItemGoal<TakeItems
                     + " — it holds: " + summarise(container));
             return;
         }
-        int taken = ContainerOps.extract(container, entity.getInventory(), r.item, r.count);
+        int taken = ContainerOps.extract(container, player.getInventory(), r.item, r.count);
         if (taken <= 0) {
             fail("my inventory is full — deposit_items or drop_items something first");
             return;
         }
         resultData.put("taken", taken);
-        resultData.put("now_carrying", entity.getInventory().countItem(r.item));
+        resultData.put("now_carrying", ContainerOps.countIn(player.getInventory(), r.item));
         doneReason = "took " + taken + "x " + r.label + " from the container at " + posLabel()
                 + (taken < Math.min(r.count, available) ? " — my inventory filled up" :
                    taken < r.count ? " (it only had " + taken + ")" : "");
-        currentRecord.setState(TaskState.SUCCESS);
+        r.setState(TaskState.SUCCESS);
     }
 
     private static int countIn(Container container, TakeItemsTaskRecord r) {

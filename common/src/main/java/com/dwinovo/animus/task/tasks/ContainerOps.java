@@ -42,8 +42,8 @@ final class ContainerOps {
      *
      * @return how many were actually moved (0 = container full or none held)
      */
-    static int deposit(SimpleContainer from, Container into, Item item, int count) {
-        int toMove = Math.min(count, from.countItem(item));
+    static int deposit(Container from, Container into, Item item, int count) {
+        int toMove = Math.min(count, countIn(from, item));
         int remaining = toMove;
         int maxStack = new ItemStack(item).getMaxStackSize();
 
@@ -66,11 +66,55 @@ final class ContainerOps {
         }
         int moved = toMove - remaining;
         if (moved > 0) {
-            from.removeItemType(item, moved);
+            removeFrom(from, item, moved);
             from.setChanged();
             into.setChanged();
         }
         return moved;
+    }
+
+    /** Total count of {@code item} across a container. */
+    static int countIn(Container c, Item item) {
+        int n = 0;
+        for (int i = 0; i < c.getContainerSize(); i++) {
+            ItemStack s = c.getItem(i);
+            if (!s.isEmpty() && s.is(item)) n += s.getCount();
+        }
+        return n;
+    }
+
+    /** Remove up to {@code count} of {@code item} from a container. */
+    static void removeFrom(Container c, Item item, int count) {
+        int left = count;
+        for (int i = 0; i < c.getContainerSize() && left > 0; i++) {
+            ItemStack s = c.getItem(i);
+            if (s.isEmpty() || !s.is(item)) continue;
+            int take = Math.min(s.getCount(), left);
+            s.shrink(take);
+            left -= take;
+        }
+    }
+
+    /** Add {@code stack} to a container (merge then fill); returns the leftover. */
+    static ItemStack addTo(Container c, ItemStack stack) {
+        for (int pass = 0; pass < 2 && !stack.isEmpty(); pass++) {
+            boolean merge = pass == 0;
+            for (int i = 0; i < c.getContainerSize() && !stack.isEmpty(); i++) {
+                ItemStack slot = c.getItem(i);
+                if (merge) {
+                    if (slot.isEmpty() || !ItemStack.isSameItemSameComponents(slot, stack)) continue;
+                    int add = Math.min(stack.getCount(), slot.getMaxStackSize() - slot.getCount());
+                    if (add <= 0) continue;
+                    slot.grow(add);
+                    stack.shrink(add);
+                } else if (slot.isEmpty()) {
+                    int add = Math.min(stack.getCount(), stack.getMaxStackSize());
+                    c.setItem(i, stack.copyWithCount(add));
+                    stack.shrink(add);
+                }
+            }
+        }
+        return stack;
     }
 
     /**
@@ -80,14 +124,14 @@ final class ContainerOps {
      *
      * @return how many actually landed in the entity inventory
      */
-    static int extract(Container from, SimpleContainer into, Item item, int count) {
+    static int extract(Container from, Container into, Item item, int count) {
         int taken = 0;
         for (int i = 0; i < from.getContainerSize() && taken < count; i++) {
             ItemStack slot = from.getItem(i);
             if (slot.isEmpty() || slot.getItem() != item) continue;
             int want = Math.min(count - taken, slot.getCount());
             ItemStack moving = new ItemStack(item, want);
-            ItemStack overflow = into.addItem(moving);
+            ItemStack overflow = addTo(into, moving);
             int landed = want - overflow.getCount();
             if (landed <= 0) break;          // entity inventory is full
             slot.shrink(landed);

@@ -13,10 +13,8 @@ import com.dwinovo.animus.task.TaskState;
 import com.dwinovo.animus.task.tasks.CheckFurnaceTaskGoal;
 import com.dwinovo.animus.task.tasks.CollectFurnaceTaskGoal;
 import com.dwinovo.animus.task.tasks.CraftTaskGoal;
-import com.dwinovo.animus.task.tasks.DepositItemsTaskGoal;
 import com.dwinovo.animus.task.tasks.DropItemsTaskGoal;
 import com.dwinovo.animus.task.tasks.EquipTaskGoal;
-import com.dwinovo.animus.task.tasks.TakeItemsTaskGoal;
 import com.dwinovo.animus.task.tasks.WaitTaskGoal;
 import com.dwinovo.animus.task.tasks.HuntTaskGoal;
 import com.dwinovo.animus.task.tasks.ShootTaskGoal;
@@ -272,8 +270,6 @@ public class AnimusEntity extends PathfinderMob implements OwnableEntity, Animus
         this.goalSelector.addGoal(0, new EatItemTaskGoal(this));
         this.goalSelector.addGoal(0, new WaitTaskGoal(this));
         this.goalSelector.addGoal(0, new DropItemsTaskGoal(this));
-        this.goalSelector.addGoal(0, new DepositItemsTaskGoal(this));
-        this.goalSelector.addGoal(0, new TakeItemsTaskGoal(this));
     }
 
     // ---- inventory ----

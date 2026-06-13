@@ -1,9 +1,9 @@
 package com.dwinovo.animus.task.tasks;
 
-import com.dwinovo.animus.entity.AnimusEntity;
-import com.dwinovo.animus.pathing.exec.Navigator;
+import com.dwinovo.animus.entity.AnimusPlayer;
+import com.dwinovo.animus.task.CompanionTask;
+import com.dwinovo.animus.pathing.exec.PlayerNav;
 import com.dwinovo.animus.pathing.util.BlockScanner;
-import com.dwinovo.animus.task.LlmTaskGoal;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
@@ -23,25 +23,29 @@ import java.util.Map;
  * the same find/goto/operate shape as {@link LoadFurnaceTaskGoal}.
  */
 abstract class AbstractContainerItemGoal<T extends ContainerItemTaskRecord>
-        extends LlmTaskGoal<T> {
+        implements CompanionTask {
 
     private enum Phase { FIND, GOTO, OPERATE }
 
     private static final double WALK_SPEED = 1.0;
 
+    protected final AnimusPlayer player;
+    protected final T r;
+
     private Phase phase = Phase.FIND;
     protected BlockPos containerPos;
-    private Navigator nav;
+    private PlayerNav nav;
 
     protected String doneReason = "done";
     protected final Map<String, Object> resultData = new HashMap<>();
 
-    protected AbstractContainerItemGoal(AnimusEntity entity, String toolName, Class<T> recordClass) {
-        super(entity, toolName, recordClass);
+    protected AbstractContainerItemGoal(AnimusPlayer player, T record) {
+        this.player = player;
+        this.r = record;
     }
 
     @Override
-    protected void onStart(T r) {
+    public void start() {
         phase = Phase.FIND;
         containerPos = null;
         nav = null;
@@ -50,16 +54,17 @@ abstract class AbstractContainerItemGoal<T extends ContainerItemTaskRecord>
     }
 
     @Override
-    protected void onTick(T r) {
+    public TaskState tick() {
         switch (phase) {
             case FIND -> tickFind(r);
             case GOTO -> tickGoto(r);
             case OPERATE -> tickOperate(r);
         }
+        return r.getState();
     }
 
     private void tickFind(T r) {
-        Level level = entity.level();
+        Level level = player.level();
         if (r.target != null) {
             if (!ContainerOps.isContainerBlock(level, r.target)) {
                 fail("no chest/barrel at " + r.target.getX() + "," + r.target.getY() + ","
@@ -70,7 +75,7 @@ abstract class AbstractContainerItemGoal<T extends ContainerItemTaskRecord>
             return;
         }
         List<BlockScanner.Hit> hits = BlockScanner.findWithin(
-                level, entity.blockPosition(), r.searchRadius, ContainerOps.CONTAINER_BLOCKS);
+                level, player.blockPosition(), r.searchRadius, ContainerOps.CONTAINER_BLOCKS);
         if (hits.isEmpty()) {
             fail("no chest or barrel within " + r.searchRadius + " blocks — place_block one "
                     + "first (craft a chest from 8 planks), or give x/y/z of a known container");
@@ -84,7 +89,7 @@ abstract class AbstractContainerItemGoal<T extends ContainerItemTaskRecord>
         if (withinReach(pos)) {
             phase = Phase.OPERATE;
         } else {
-            nav = new Navigator(entity, pos, WALK_SPEED, () -> withinReach(containerPos));
+            nav = new PlayerNav(player, pos, WALK_SPEED, () -> withinReach(containerPos));
             phase = Phase.GOTO;
         }
     }
@@ -107,7 +112,7 @@ abstract class AbstractContainerItemGoal<T extends ContainerItemTaskRecord>
     }
 
     private void tickOperate(T r) {
-        Container container = ContainerOps.containerAt(entity.level(), containerPos);
+        Container container = ContainerOps.containerAt(player.level(), containerPos);
         if (container == null) {
             fail("the container at " + containerPos.getX() + "," + containerPos.getY() + ","
                     + containerPos.getZ() + " is gone");
@@ -119,7 +124,7 @@ abstract class AbstractContainerItemGoal<T extends ContainerItemTaskRecord>
         resultData.put("y", containerPos.getY());
         resultData.put("z", containerPos.getZ());
         resultData.put("block", BuiltInRegistries.BLOCK.getKey(
-                entity.level().getBlockState(containerPos).getBlock()).toString());
+                player.level().getBlockState(containerPos).getBlock()).toString());
         operate(r, container);
     }
 
@@ -128,7 +133,7 @@ abstract class AbstractContainerItemGoal<T extends ContainerItemTaskRecord>
 
     protected void fail(String reason) {
         doneReason = reason;
-        currentRecord.setState(TaskState.FAILED);
+        r.setState(TaskState.FAILED);
     }
 
     protected String posLabel() {
@@ -136,14 +141,13 @@ abstract class AbstractContainerItemGoal<T extends ContainerItemTaskRecord>
     }
 
     private boolean withinReach(BlockPos pos) {
-        return entity.onGround()
-                && entity.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
+        return player.onGround()
+                && player.distanceToSqr(Vec3.atCenterOf(pos)) <= BlockMiningProgress.REACH_SQR;
     }
 
     @Override
-    protected TaskResult buildResult(T r, TaskState finalState) {
+    public TaskResult buildResult(TaskState finalState) {
         if (nav != null) nav.stop();
-        entity.getNavigation().stop();
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(doneReason, resultData);
             case TIMEOUT -> TaskResult.timeout("timed out: " + doneReason);
