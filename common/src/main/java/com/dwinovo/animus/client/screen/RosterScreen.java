@@ -107,8 +107,8 @@ public final class RosterScreen extends Screen {
         g.text(font, Component.literal("Companions"), bodyX, top + 6, 0xFFFFFFFF);
 
         if (roster.isEmpty()) {
-            g.text(font, Component.literal("No companions yet."), bodyX, bodyY + 4, 0xFF888888);
-            g.text(font, Component.literal("Summon one with /animus_summon."),
+            g.text(font, Component.literal("No companions in this world."), bodyX, bodyY + 4, 0xFF888888);
+            g.text(font, Component.literal("Summon one with /animus player summon <name>."),
                     bodyX, bodyY + 16, 0xFF606060);
             return;
         }

@@ -51,9 +51,10 @@ public record CompanionListPayload(List<Entry> companions) implements CustomPack
 
     /** Client-side handler. Runs on the client main thread (network layer arranges that). */
     public static void handle(CompanionListPayload p) {
-        AnimusRoster roster = AnimusRoster.instance();
+        java.util.List<AnimusRoster.Entry> snapshot = new java.util.ArrayList<>();
         for (Entry e : p.companions()) {
-            roster.record(e.uuid(), e.name());
+            snapshot.add(new AnimusRoster.Entry(e.uuid(), e.name()));
         }
+        AnimusRoster.instance().replaceAll(snapshot);
     }
 }

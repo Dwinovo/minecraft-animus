@@ -56,16 +56,20 @@ public final class Companions {
     }
 
     /**
-     * Push the owner's companion roster (UUID + name) to their client, so the
-     * roster panel knows which fake players are its companions — the replacement
-     * for the deleted right-click enrolment. Safe to call repeatedly; the client
-     * roster is a write-through upsert.
+     * Push a snapshot of the owner's companions <em>currently live in the world</em>
+     * (UUID + name) to their client, so the G panel reflects what actually exists
+     * rather than a persisted list. The server is the only place that can answer
+     * "which in-world players are AnimusPlayers owned by you" — owner is a
+     * server-side field — so it does the detection and ships the result. The
+     * client treats each push as a complete replacement. Call after any change to
+     * the live set (login-respawn, summon, despawn, death).
      */
     public static void syncRosterToOwner(MinecraftServer server, ServerPlayer owner) {
         List<CompanionListPayload.Entry> list = new ArrayList<>();
-        for (Map.Entry<UUID, CompanionRegistry.Entry> e
-                : CompanionRegistry.get(server).ownedBy(owner.getUUID())) {
-            list.add(new CompanionListPayload.Entry(e.getKey(), e.getValue().name()));
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            if (p instanceof AnimusPlayer a && a.isOwnedByPlayer(owner.getUUID())) {
+                list.add(new CompanionListPayload.Entry(a.getUUID(), a.getName().getString()));
+            }
         }
         Services.NETWORK.sendToPlayer(owner, new CompanionListPayload(list));
     }
