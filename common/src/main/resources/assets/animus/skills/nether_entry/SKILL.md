@@ -14,18 +14,15 @@ Phase 2 of the dragon route. Build a portal, ignite it, walk through. Actual Net
 
 ## Obsidian (need 10)
 
-**Route A — natural (try this first, no bucket needed)**: obsidian forms wherever water touched lava, common in caves. `equip_item(diamond_pickaxe)` then just `auto_mine(obsidian, 10, radius=96)` — it finds AND digs on its own. Best odds: descend to Y ≈ -20…-50 first (big lava lakes live in the deepslate layer) and run the auto_mine from there. ~9.4s per block is normal.
+Mine it from a **ruined portal** — a structure that's just standing obsidian, no lava-casting. This is the only route: casting your own (water over lava) leaves every fresh obsidian block touching lava, and I refuse to mine fluid-adjacent blocks (it would flood or burn the dig), so a cast wall is unminable by design.
 
-**Route B — cast it yourself** when Route A finds nothing:
+1. `locate_structure("#minecraft:ruined_portal")` — searches the whole family and returns the nearest. **Skip `ruined_portal_ocean`** (underwater) if the result names it; re-search or pick a land one — I can't dive.
+2. `equip_item(diamond_pickaxe)` (obsidian needs diamond), `move_to` the portal coordinates.
+3. `auto_mine(obsidian, 10, radius=24)` — it digs the frame's obsidian on its own. ~9.4s per block is normal.
 
-1. `craft(bucket)` (3 iron ingots).
-2. **Find water**: `scan_blocks(["minecraft:water"], radius=192)` — water is landscape-scale, always scan at max radius, and look where water lives: rivers/lakes/oceans sit in LOW terrain, so scan from a valley or shoreline, not a hilltop. Matches carry `source: true/false` — a bucket only fills from a **source** cell.
-3. Fill: `use_item(bucket, x, y, z)` on a source water cell.
-4. **Find lava**: `scan_blocks(["minecraft:lava"], radius=128)` near Y -20…-50, or surface lava pools. You need `source: true` cells — **water over SOURCE lava = obsidian; water over flowing lava = cobblestone** (the classic waste).
-5. Stand on solid ground beside the lava (never over it), `use_item(water_bucket, x, y, z)` aimed at a cell ABOVE the lava edge so the water flows across the sources. Each source it touches hardens to obsidian.
-6. Scoop the water back (`use_item(bucket)` on the source you placed), `auto_mine(obsidian, ...)`, repeat until 10.
-
-Tip: two water sources placed in a 2×2 pit make an infinite well — refill forever from the same spot.
+Notes:
+- A portal's frame mixes plain **obsidian** with **crying obsidian** (purple particles). Crying obsidian is a *different block and useless for a portal frame* — `auto_mine(obsidian)` already ignores it, so a single portal may yield fewer than 10. If you come up short, `locate_structure("#minecraft:ruined_portal")` again for the next nearest and top up.
+- If `auto_mine` reports it skipped blocks "against water or lava", that portal sits in a wet/lava pocket — relocate to a cleaner one rather than fighting the fluid.
 
 ## Portal build
 

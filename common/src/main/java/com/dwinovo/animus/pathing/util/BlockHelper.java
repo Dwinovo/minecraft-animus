@@ -1,6 +1,8 @@
 package com.dwinovo.animus.pathing.util;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.FallingBlock;
@@ -97,18 +99,38 @@ public final class BlockHelper {
     }
 
     /**
-     * Would breaking {@code pos} expose the cell to an adjacent fluid that
-     * would then flow into the entity's path? Mirrors mineflayer's
-     * {@code dontCreateFlow} — refuse to mine blocks touching liquid so the
-     * bot doesn't flood or lava-bathe itself.
+     * The neighbour direction whose fluid would pour into {@code pos} if it
+     * were broken — {@link Direction#UP} or a horizontal, never {@code DOWN}
+     * (vanilla fluids spread to the cardinals + down, so only an overhead or
+     * sideways source can fill a cell you just emptied; a fluid below can't
+     * flow up into it). Lava is returned in preference to water as the worse
+     * hazard. Returns {@code null} when breaking releases no flow.
+     *
+     * <p>The single source of truth for "breaking this unleashes a fluid",
+     * shared by the A* break cost ({@link #breakWouldCreateFlow}) and the
+     * miner's teach gate ({@code BlockMiningProgress.fluidBreakHazard}) so
+     * "safe to route through" and "safe to mine on purpose" never disagree.
+     * Mirrors mineflayer's {@code dontCreateFlow} neighbour set.
+     */
+    public static Direction fluidReleasedByBreaking(BlockGetter level, BlockPos pos) {
+        Direction water = null;
+        for (Direction dir : Direction.values()) {
+            if (dir == Direction.DOWN) continue;
+            FluidState fluid = level.getBlockState(pos.relative(dir)).getFluidState();
+            if (fluid.isEmpty()) continue;
+            if (fluid.is(FluidTags.LAVA)) return dir;   // worst hazard wins
+            if (water == null) water = dir;
+        }
+        return water;
+    }
+
+    /**
+     * Boolean form of {@link #fluidReleasedByBreaking} for the A* break cost:
+     * would breaking {@code pos} expose the cell to an adjacent fluid that
+     * then floods or lava-bathes the route?
      */
     public static boolean breakWouldCreateFlow(BlockGetter level, BlockPos pos) {
-        for (net.minecraft.core.Direction dir : net.minecraft.core.Direction.values()) {
-            if (dir == net.minecraft.core.Direction.DOWN) continue;
-            BlockState neighbor = level.getBlockState(pos.relative(dir));
-            if (!neighbor.getFluidState().isEmpty()) return true;
-        }
-        return false;
+        return fluidReleasedByBreaking(level, pos) != null;
     }
 
     /**

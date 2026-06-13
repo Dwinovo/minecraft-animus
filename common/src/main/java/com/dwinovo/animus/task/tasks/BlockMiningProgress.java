@@ -100,27 +100,34 @@ public final class BlockMiningProgress {
     }
 
     /**
-     * Is this block diggable only from inside water? We deliberately don't
-     * dive (surface swimming is for escape/crossing; underwater work means
-     * 25× vanilla mining penalties and buoyancy management nobody — not even
-     * Baritone — models properly): a target whose top AND all four sides sit
-     * in water has no dry approach and is declared unreachable with guidance.
-     * A shoreline block with one dry face stays perfectly mineable.
+     * Physical-safety gate for a deliberate dig: would breaking the block at
+     * {@code pos} unleash a fluid into the worksite? Returns {@code null} when
+     * safe, otherwise a teachable reason naming the fluid and what to do.
+     *
+     * <p>This is the task-layer twin of the pathfinder's break cost: both
+     * consult {@link com.dwinovo.animus.pathing.util.BlockHelper#fluidReleasedByBreaking}
+     * (UP + the four horizontals — vanilla's flood directions) so "safe to
+     * route through" and "safe to mine on purpose" can never disagree. We
+     * refuse the dig whole rather than dive, dam, or race the flow — mirroring
+     * mineflayer's {@code dontCreateFlow} and Baritone's {@code COST_INF}:
+     * there is no finite price that correctly values flooding the worksite or
+     * bathing in lava. Water teaches "drain it"; lava teaches "leave it".
+     * A fully-submerged block trips this too (water on every face), so it
+     * subsumes the old submerged-only check.
      */
-    public static boolean submergedBeyondReach(Level level, BlockPos pos) {
-        if (!level.getBlockState(pos.above()).getFluidState()
-                .is(net.minecraft.tags.FluidTags.WATER)) {
-            return false;
-        }
-        for (net.minecraft.core.Direction d : net.minecraft.core.Direction.Plane.HORIZONTAL) {
-            // Any non-water side — open (dry approach) or solid (can be dug
-            // open from dry land) — keeps the block approachable.
-            if (!level.getBlockState(pos.relative(d)).getFluidState()
-                    .is(net.minecraft.tags.FluidTags.WATER)) {
-                return false;
-            }
-        }
-        return true;
+    public static String fluidBreakHazard(Level level, BlockPos pos) {
+        net.minecraft.core.Direction dir =
+                com.dwinovo.animus.pathing.util.BlockHelper.fluidReleasedByBreaking(level, pos);
+        if (dir == null) return null;
+        boolean lava = level.getBlockState(pos.relative(dir)).getFluidState()
+                .is(net.minecraft.tags.FluidTags.LAVA);
+        String where = dir == net.minecraft.core.Direction.UP ? "directly above" : "right beside";
+        return lava
+                ? "won't mine here — LAVA sits " + where + " this block; breaking it "
+                        + "would pour lava into the dig. Pick a target away from lava."
+                : "won't mine here — water sits " + where + " this block; breaking it "
+                        + "would flood the dig. Scoop the water with use_item(bucket) or "
+                        + "wall it off first, then mine.";
     }
 
     /**
