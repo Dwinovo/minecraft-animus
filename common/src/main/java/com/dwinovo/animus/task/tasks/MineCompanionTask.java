@@ -9,9 +9,11 @@ import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -60,6 +62,8 @@ public final class MineCompanionTask implements CompanionTask {
     private final MineBlockTaskRecord r;
     private final List<BlockPos> knownOres = new ArrayList<>();
     private final Set<BlockPos> blacklist = new HashSet<>();
+    /** Nearby dropped items to collect (Baritone droppedItemsScan), refreshed per tick. */
+    private List<BlockPos> drops = List.of();
 
     private PlayerNav nav;
     private boolean navIsBranch;
@@ -93,6 +97,7 @@ public final class MineCompanionTask implements CompanionTask {
         } else {
             prune();
         }
+        drops = droppedItems();
 
         // 1) Shaft: a target in our own column within reach → break it now.
         BlockPos shaft = shaftTarget();
@@ -102,8 +107,9 @@ public final class MineCompanionTask implements CompanionTask {
             return TaskState.RUNNING;
         }
 
-        // 2) Head for the ore field (GoalComposite), arriving when a shaft opens up.
-        if (!knownOres.isEmpty()) {
+        // 2) Head for the ore field + nearby drops (GoalComposite), arriving when a
+        //    shaft opens up; drops are collected by walking over them (native pickup).
+        if (!knownOres.isEmpty() || !drops.isEmpty()) {
             branchTicks = 0;
             if (nav == null || navIsBranch) {
                 stopNav();
@@ -115,7 +121,7 @@ public final class MineCompanionTask implements CompanionTask {
                 case RUNNING -> { return TaskState.RUNNING; }
                 case ARRIVED -> { stopNav(); return TaskState.RUNNING; } // shaft handled next tick
                 case FAILED -> {
-                    blacklistNearest();
+                    if (!knownOres.isEmpty()) blacklistNearest();
                     stopNav();
                     return TaskState.RUNNING;
                 }
@@ -148,13 +154,28 @@ public final class MineCompanionTask implements CompanionTask {
 
     // ---- goals ----
 
-    /** GoalComposite over a mining stance for each known ore. */
+    /** GoalComposite over a mining stance per ore, plus a walk-over goal per nearby
+     *  drop — one A* search heads for the closest of either. */
     private NavGoal oreFieldGoal() {
-        List<NavGoal> goals = new ArrayList<>(knownOres.size());
+        List<NavGoal> goals = new ArrayList<>(knownOres.size() + drops.size());
         for (BlockPos ore : knownOres) {
             goals.add(NavGoal.mine(ore));
         }
+        for (BlockPos drop : drops) {
+            goals.add(NavGoal.near(drop, 1.0));   // walk over it; native pickup grabs it
+        }
         return goals.isEmpty() ? NavGoal.exact(player.blockPosition()) : NavGoal.composite(goals);
+    }
+
+    /** Nearby dropped items (Baritone droppedItemsScan). Small radius — mining drops
+     *  land next to the body; walking over them lets native pickup collect them. */
+    private List<BlockPos> droppedItems() {
+        AABB box = new AABB(player.blockPosition()).inflate(8.0);
+        List<BlockPos> out = new ArrayList<>();
+        for (ItemEntity ie : player.level().getEntitiesOfClass(ItemEntity.class, box)) {
+            out.add(ie.blockPosition());
+        }
+        return out;
     }
 
     /** A known ore in our own column, at/above feet, within reach, still solid. */
