@@ -12,8 +12,11 @@ import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -130,12 +133,12 @@ public final class MineCompanionTask implements CompanionTask {
         }
         drops = droppedItems();
 
-        // 1) Shaft: a target in our own column within reach → start breaking it
-        //    (tick-by-tick), no pathing.
-        BlockPos shaft = shaftTarget();
-        if (shaft != null) {
+        // 1) Mine any target we can already reach + see from here (no pathing) —
+        //    a tree gets mined from beside, never by digging under it.
+        BlockPos reachable = reachableTarget();
+        if (reachable != null) {
             stopNav();
-            mineProgress(shaft);
+            mineProgress(reachable);
             return TaskState.RUNNING;
         }
 
@@ -146,7 +149,7 @@ public final class MineCompanionTask implements CompanionTask {
             if (nav == null || navIsBranch) {
                 stopNav();
                 nav = PlayerNav.toGoal(player, this::oreFieldGoal, MINE_SPEED,
-                        () -> shaftTarget() != null);
+                        () -> reachableTarget() != null);
                 nav.setHighlights(() -> new ArrayList<>(knownOres));   // box every known target
                 navIsBranch = false;
             }
@@ -213,25 +216,39 @@ public final class MineCompanionTask implements CompanionTask {
         return out;
     }
 
-    /** A known ore in our own column, at/above feet, within reach, still solid. */
-    private BlockPos shaftTarget() {
+    /**
+     * The nearest known target the body can mine FROM WHERE IT STANDS — within
+     * reach and with a clear line of sight — like a player punching a tree from
+     * the side. This is what stops the companion pathing INTO an ore's column
+     * (Baritone's vertical-shaft stance), which for a surface tree meant digging
+     * down UNDER the trunk; here it just mines the trunk from beside. Buried ore
+     * has no line of sight until the path tunnels up to it, so this returns null
+     * and normal pathing exposes it first.
+     */
+    private BlockPos reachableTarget() {
         if (!player.onGround()) return null;
         Level level = player.level();
-        BlockPos feet = player.blockPosition();
+        Vec3 eyes = player.getEyePosition();
         BlockPos best = null;
         double bestD = Double.MAX_VALUE;
         for (BlockPos ore : knownOres) {
-            if (ore.getX() != feet.getX() || ore.getZ() != feet.getZ()) continue;
-            if (ore.getY() < feet.getY()) continue;
             if (level.getBlockState(ore).isAir()) continue;
-            if (!withinReach(ore)) continue;
-            double d = ore.distSqr(feet.above());
-            if (d < bestD) {
-                bestD = d;
-                best = ore;
-            }
+            double d = player.distanceToSqr(Vec3.atCenterOf(ore));
+            if (d > REACH_SQR || d >= bestD) continue;
+            if (!hasLineOfSight(eyes, ore)) continue;
+            bestD = d;
+            best = ore;
         }
         return best;
+    }
+
+    /** Clear sight line from the eyes to the target block's centre (nothing solid
+     *  blocks it but the target itself). */
+    private boolean hasLineOfSight(Vec3 eyes, BlockPos target) {
+        BlockHitResult hit = player.level().clip(new ClipContext(
+                eyes, Vec3.atCenterOf(target),
+                ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+        return hit.getType() == HitResult.Type.MISS || hit.getBlockPos().equals(target);
     }
 
     // ---- mining (progressive, tick-by-tick like Baritone / a real player) ----
