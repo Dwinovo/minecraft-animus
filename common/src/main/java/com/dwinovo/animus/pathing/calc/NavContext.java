@@ -122,6 +122,10 @@ public final class NavContext {
     public double costOfPlacing(BlockPos pos) {
         if (!hasScaffold) return ActionCosts.COST_INF;
         if (!BlockHelper.isReplaceableForPlacement(view, pos)) return ActionCosts.COST_INF;
+        // Baritone costOfPlacingAt: never place INTO a fluid (source or flowing) at default
+        // settings (allowPlaceInFluidsSource/Flow both false) — so a bridge can't be planned
+        // straight into a water source.
+        if (!view.getBlockState(pos).getFluidState().isEmpty()) return ActionCosts.COST_INF;
         if (BlockHelper.isHazard(view, pos)) return ActionCosts.COST_INF;
         return PathSettings.BLOCK_PLACEMENT_PENALTY;
     }

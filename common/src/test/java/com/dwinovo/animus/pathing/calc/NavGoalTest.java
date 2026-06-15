@@ -26,18 +26,18 @@ class NavGoalTest {
     }
 
     @Test
-    void nearAcceptsTheSphereAndStaysAdmissible() {
+    void nearAcceptsTheSphereWithFullBlockHeuristic() {
         NavGoal g = NavGoal.near(GOAL, 2.0);
         assertTrue(g.isAt(new BlockPos(11, 64, 10)));
         assertTrue(g.isAt(new BlockPos(10, 65, 11)));
         assertFalse(g.isAt(new BlockPos(13, 64, 10)));
-        // Inside the radius the remaining cost may legitimately be zero.
-        assertEquals(0.0, g.heuristic(new BlockPos(11, 64, 10)));
-        // Outside, the bound must never exceed the point bound (admissibility
-        // slack for stopping early), and never go negative.
-        BlockPos far = new BlockPos(40, 64, 10);
-        assertTrue(g.heuristic(far) <= NavGoal.pointBound(GOAL, far));
-        assertTrue(g.heuristic(far) >= 0.0);
+        // Baritone GoalNear.heuristic IS the full GoalBlock.calculate — the radius only
+        // relaxes isInGoal, it is NOT subtracted from the aim (so it can be non-zero even
+        // for an in-radius node, and equals the point bound everywhere).
+        for (BlockPos p : new BlockPos[]{
+                new BlockPos(11, 64, 10), new BlockPos(40, 64, 10), new BlockPos(10, 70, 10)}) {
+            assertEquals(NavGoal.pointBound(GOAL, p), g.heuristic(p));
+        }
     }
 
     @Test

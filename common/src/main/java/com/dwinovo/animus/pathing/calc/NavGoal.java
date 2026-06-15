@@ -126,10 +126,11 @@ public interface NavGoal {
                 return feet.distSqr(goal) <= radiusSqr;
             }
             @Override public double heuristic(BlockPos from) {
-                // Stopping up to `radius` short: subtract the walkable slack,
-                // clamped — keeps the bound admissible for in-radius nodes.
-                return Math.max(0.0, pointBound(goal, from)
-                        - radius * PathSettings.COST_HEURISTIC);
+                // Baritone GoalNear.heuristic IS the full GoalBlock.calculate — the radius
+                // only relaxes isInGoal, it is NOT subtracted from the aim. (Slightly
+                // inadmissible, but that's exactly what Baritone does, so node ordering and
+                // the best-so-far partial match.)
+                return pointBound(goal, from);
             }
             @Override public BlockPos center() {
                 return goal;
