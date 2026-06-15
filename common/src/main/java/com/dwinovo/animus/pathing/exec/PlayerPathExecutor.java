@@ -565,13 +565,42 @@ public final class PlayerPathExecutor {
             case PARKOUR:
                 return ticksOnCurrent == 0;
             case ASCEND:
-                return !placedThisMove;
+                // Baritone: unsafe once we've STARTED placing the step block
+                // (ticksWithoutPlacement>0) — for us, once the place maneuver began or finished.
+                return mv.toPlace == null || (placeManeuver == null && !placedThisMove);
             case TRAVERSE:
                 return mv.toPlace == null
                         || BlockHelper.canWalkOn(player.level(), mv.dest.below());
+            case DIAGONAL:
+                return diagonalSafeToCancel(mv);
             default:
                 return true;
         }
+    }
+
+    /** Baritone MovementDiagonal.safeToCancel: safe at the start cell, or when both cut
+     *  corners have a floor; if we're cornering through an unwalkable corner cell, only
+     *  safe when a block actually supports us (one of the four 0.25 offsets below). */
+    private boolean diagonalSafeToCancel(Movement mv) {
+        net.minecraft.world.level.Level level = player.level();
+        BlockPos feet = player.blockPosition();
+        if (feet.equals(mv.src)) return true;
+        BlockPos floorA = new BlockPos(mv.src.getX(), mv.src.getY() - 1, mv.dest.getZ());
+        BlockPos floorB = new BlockPos(mv.dest.getX(), mv.src.getY() - 1, mv.src.getZ());
+        if (BlockHelper.canWalkOn(level, floorA) && BlockHelper.canWalkOn(level, floorB)) {
+            return true;
+        }
+        BlockPos cornerA = new BlockPos(mv.src.getX(), mv.src.getY(), mv.dest.getZ());
+        BlockPos cornerB = new BlockPos(mv.dest.getX(), mv.src.getY(), mv.src.getZ());
+        if (feet.equals(cornerA) || feet.equals(cornerB)) {
+            double off = 0.25;
+            double x = player.getX(), y = player.getY() - 1, z = player.getZ();
+            return BlockHelper.canWalkOn(level, BlockPos.containing(x + off, y, z + off))
+                    || BlockHelper.canWalkOn(level, BlockPos.containing(x + off, y, z - off))
+                    || BlockHelper.canWalkOn(level, BlockPos.containing(x - off, y, z + off))
+                    || BlockHelper.canWalkOn(level, BlockPos.containing(x - off, y, z - off));
+        }
+        return true;
     }
 
     /** Kinds whose execution changes the world such that regenerating them mid-move
@@ -707,27 +736,42 @@ public final class PlayerPathExecutor {
                 return null;
             }
         }
-        // Off-path watchdog: Baritone's two bands — >3 blocks cancels immediately,
-        // >2 blocks counts toward MAX_TICKS_AWAY (~10 s) before giving up. Distance
-        // is to the CLOSEST of this movement's valid cells (mirrors Baritone's
-        // closestPathPos), not just src/dest — so a fall's airborne column or a
-        // landing knock-back isn't mistaken for going off-path.
-        double distSqr = Double.MAX_VALUE;
-        for (BlockPos vp : cur.validPositions()) {
-            double d = player.distanceToSqr(Vec3.atBottomCenterOf(vp));
-            if (d < distSqr) distSqr = d;
+        // Off-path watchdog (Baritone PathExecutor.onTick + closestPathPos): distance to the
+        // closest valid cell of the WHOLE path — not just the current movement — so the body
+        // being near any part of the route doesn't read as off-path. Two bands: >2 blocks
+        // counts toward MAX_TICKS_AWAY before giving up, >3 cancels immediately.
+        double bestSq = Double.MAX_VALUE;
+        for (Movement m : path.movements) {
+            for (BlockPos vp : m.validPositions()) {
+                double d = player.distanceToSqr(Vec3.atCenterOf(vp));
+                if (d < bestSq) bestSq = d;
+            }
         }
-        if (distSqr > HARD_DIST_SQR) {
-            return Status.NEEDS_REPLAN;
-        }
-        if (distSqr > SOFT_DIST_SQR) {
+        // Soft band first (matches Baritone's order), then the immediate hard band.
+        if (possiblyOffPath(cur, bestSq, SOFT_DIST_SQR)) {
             if (++ticksAway > PathSettings.MAX_TICKS_AWAY) {
                 return Status.NEEDS_REPLAN;
             }
         } else {
             ticksAway = 0;
         }
+        if (possiblyOffPath(cur, bestSq, HARD_DIST_SQR)) {
+            return Status.NEEDS_REPLAN;
+        }
         return null;
+    }
+
+    /** Baritone PathExecutor.possiblyOffPath: are we further than {@code leniencySq} from the
+     *  path? With a mid-FALL carve-out — falling you're far in Y from both ends but not off
+     *  path, so judge a fall by the FLAT (XZ) distance to its landing cell instead. */
+    private boolean possiblyOffPath(Movement cur, double bestSq, double leniencySq) {
+        if (bestSq <= leniencySq) return false;
+        if (cur.kind == Movement.Kind.FALL) {
+            double dx = (cur.dest.getX() + 0.5) - player.getX();
+            double dz = (cur.dest.getZ() + 0.5) - player.getZ();
+            return (dx * dx + dz * dz) >= leniencySq;
+        }
+        return true;
     }
 
     private void jumpToIndex(int i) {

@@ -6,9 +6,14 @@ import net.minecraft.core.Direction;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * Progressive block breaking that drives the SAME native server entry point a
@@ -72,8 +77,16 @@ public final class BlockDigger {
             start(target);
         }
         InputDriver.halt(player);
-        InputDriver.lookAt(player, Vec3.atCenterOf(pos));
-        Direction side = faceToward(player.getEyePosition(), pos);
+        // Aim the crosshair at a raycast-VERIFIED point on the block (Baritone
+        // RotationUtils.reachable) and break the face the ray actually hits — like a real
+        // player. If nothing on the block is in line of sight, don't break this tick
+        // (Baritone: no reachable rotation → no CLICK_LEFT); hold for a clear angle.
+        BlockHitResult hit = reachableHit(pos);
+        if (hit == null) {
+            return false;
+        }
+        InputDriver.lookAt(player, hit.getLocation());
+        Direction side = hit.getDirection();
         BlockState state = level.getBlockState(pos);
 
         if (!started) {
@@ -163,14 +176,51 @@ public final class BlockDigger {
         started = false;
     }
 
-    /** The block face nearest the eye — the side a real raycast would have hit. */
-    private static Direction faceToward(Vec3 from, BlockPos pos) {
-        double dx = from.x - (pos.getX() + 0.5);
-        double dy = from.y - (pos.getY() + 0.5);
-        double dz = from.z - (pos.getZ() + 0.5);
-        double ax = Math.abs(dx), ay = Math.abs(dy), az = Math.abs(dz);
-        if (ax >= ay && ax >= az) return dx > 0 ? Direction.EAST : Direction.WEST;
-        if (az >= ax && az >= ay) return dz > 0 ? Direction.SOUTH : Direction.NORTH;
-        return dy > 0 ? Direction.UP : Direction.DOWN;
+    /**
+     * Baritone {@code RotationUtils.reachable}: the first point ON {@code pos} the eye can
+     * actually raycast to — the block's shape centre first, then its six face centres. The
+     * returned {@link BlockHitResult} carries the exact aim point ({@code getLocation}) AND
+     * the face the ray hits ({@code getDirection}), so the dig looks at the real interaction
+     * face like a player would. {@code null} if nothing on the block is in line of sight.
+     */
+    private BlockHitResult reachableHit(BlockPos pos) {
+        Level level = player.level();
+        Vec3 eye = player.getEyePosition();
+        double reach = player.blockInteractionRange();
+        VoxelShape shape = level.getBlockState(pos).getShape(level, pos);
+        if (shape.isEmpty()) {
+            shape = Shapes.block();
+        }
+        // Shape centre, then Baritone's BLOCK_SIDE_MULTIPLIERS (the six face centres).
+        Vec3[] aims = {
+                offsetOn(pos, shape, 0.5, 0.5, 0.5),
+                offsetOn(pos, shape, 0.5, 0.0, 0.5),
+                offsetOn(pos, shape, 0.5, 1.0, 0.5),
+                offsetOn(pos, shape, 0.5, 0.5, 0.0),
+                offsetOn(pos, shape, 0.5, 0.5, 1.0),
+                offsetOn(pos, shape, 0.0, 0.5, 0.5),
+                offsetOn(pos, shape, 1.0, 0.5, 0.5),
+        };
+        for (Vec3 aim : aims) {
+            Vec3 dir = aim.subtract(eye);
+            if (dir.lengthSqr() < 1.0e-8) continue;
+            Vec3 end = eye.add(dir.normalize().scale(reach));
+            BlockHitResult res = level.clip(new ClipContext(
+                    eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
+            if (res.getType() == HitResult.Type.BLOCK && res.getBlockPos().equals(pos)) {
+                return res;
+            }
+        }
+        return null;
     }
+
+    /** A point on the block's shape per Baritone's offset formula:
+     *  {@code min*m + max*(1-m)} on each axis. */
+    private static Vec3 offsetOn(BlockPos pos, VoxelShape shape, double mx, double my, double mz) {
+        double x = shape.min(Direction.Axis.X) * mx + shape.max(Direction.Axis.X) * (1 - mx);
+        double y = shape.min(Direction.Axis.Y) * my + shape.max(Direction.Axis.Y) * (1 - my);
+        double z = shape.min(Direction.Axis.Z) * mz + shape.max(Direction.Axis.Z) * (1 - mz);
+        return new Vec3(pos.getX() + x, pos.getY() + y, pos.getZ() + z);
+    }
+
 }
