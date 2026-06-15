@@ -51,34 +51,43 @@ public final class MoveToTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Travel to the given world coordinates — full terrain-traversing "
-                + "navigation, not just walking. En route it automatically mines "
-                + "through obstructions, digs straight down or up, bridges gaps and "
-                + "pillars upward with cobblestone/dirt from inventory, and jumps "
-                + "small gaps. To descend to a mining depth, just move_to(x, "
-                + "targetY, z) — no need to auto_mine your way down. Digging is "
-                + "gated by your HELD tool: it only tunnels through blocks your "
-                + "main-hand item can harvest (stone/deepslate need a pickaxe IN "
-                + "HAND — equip_item it before descending; dirt/sand/wood are fine "
-                + "bare-handed). Travelling with a sword held makes all stone an "
-                + "impassable wall. Consumes "
-                + "scaffold blocks and tool durability en route; carry cobblestone "
-                + "or dirt for terrain that needs bridging. The timeout scales with "
-                + "distance; if it still times out it reports the progress made "
-                + "(blocks dug/placed, final position) — call move_to again with "
-                + "the same target to resume from where it stopped. Returns success "
-                + "when within roughly 2 blocks of the target.";
+        return "Travel somewhere — full terrain-traversing navigation, not just "
+                + "walking. Pick ONE of three intents by which coordinates you "
+                + "fill (leave the others null):\n"
+                + "• Go to a LOCATION: give x and z, leave y null. The companion "
+                + "walks to that spot and stands on whatever ground is there — Y is "
+                + "auto-resolved to the surface. THIS IS THE DEFAULT for 'go over "
+                + "there' / following / exploring; never guess a Y for a location.\n"
+                + "• Go to an EXACT cell: give x, y and z. Only for a specific cell "
+                + "you know is reachable (e.g. a block you scanned). If that cell is "
+                + "mid-air or walled in it will report it couldn't reach it.\n"
+                + "• Change ELEVATION: give y only (x and z null) to climb to the "
+                + "surface or descend to a mining depth at your current column.\n"
+                + "En route it mines through obstructions, digs down/up, bridges "
+                + "gaps and pillars up with cobblestone/dirt from inventory. Digging "
+                + "is gated by your HELD tool: stone/deepslate need a pickaxe IN "
+                + "HAND (equip_item first); a sword held makes stone an impassable "
+                + "wall. Consumes scaffold blocks and tool durability; carry "
+                + "cobblestone/dirt for gaps. Timeout scales with distance; the "
+                + "result reports the actual position reached (and the real ground "
+                + "height) — call again with the same target to resume.";
     }
 
     @Override
     public Map<String, Object> parameterSchema() {
+        // x/y/z are nullable (type union with "null") rather than absent: strict
+        // structured-output mode requires every property to appear in `required`,
+        // so "omitted" is expressed as an explicit null. The combination of which
+        // are non-null selects the goal (location / exact cell / elevation).
         Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("x", Map.of("type", "number",
-                "description", "Target world X coordinate."));
-        properties.put("y", Map.of("type", "number",
-                "description", "Target world Y coordinate (block height)."));
-        properties.put("z", Map.of("type", "number",
-                "description", "Target world Z coordinate."));
+        properties.put("x", Map.of("type", List.of("number", "null"),
+                "description", "Target X. Null for an elevation-only move (y alone)."));
+        properties.put("y", Map.of("type", List.of("number", "null"),
+                "description", "Target Y (block height). LEAVE NULL to go to a "
+                        + "location (x+z) — Y is auto-resolved to the surface. Only "
+                        + "set it for an exact cell (x+y+z) or an elevation move (y alone)."));
+        properties.put("z", Map.of("type", List.of("number", "null"),
+                "description", "Target Z. Null for an elevation-only move (y alone)."));
         properties.put("speed", Map.of("type", "number",
                 "description", "Speed multiplier in [0.1, 2.0]. 1.0 is normal walking speed.",
                 "minimum", MIN_SPEED,
@@ -99,14 +108,29 @@ public final class MoveToTool implements AnimusTool {
 
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        double x = requireDouble(args, "x");
-        double y = requireDouble(args, "y");
-        double z = requireDouble(args, "z");
+        Double x = optionalDouble(args, "x");
+        Double y = optionalDouble(args, "y");
+        Double z = optionalDouble(args, "z");
         double speed = requireDouble(args, "speed");
         if (speed < MIN_SPEED) speed = MIN_SPEED;
         if (speed > MAX_SPEED) speed = MAX_SPEED;
         long deadline = currentGameTime + DEFAULT_TIMEOUT_TICKS;
+        // MoveToTaskRecord validates the x/y/z combination and throws a teaching
+        // error for an ambiguous one (e.g. only x given).
         return new MoveToTaskRecord(toolCallId, deadline, x, y, z, speed);
+    }
+
+    /** A nullable numeric arg: {@code null} when absent or JSON null. */
+    private static Double optionalDouble(JsonObject args, String key) {
+        if (!args.has(key) || args.get(key).isJsonNull()) {
+            return null;
+        }
+        try {
+            return args.get(key).getAsDouble();
+        } catch (RuntimeException ex) {
+            throw new IllegalArgumentException(
+                    "argument '" + key + "' must be a number or null: " + ex.getMessage());
+        }
     }
 
     private static double requireDouble(JsonObject args, String key) {

@@ -1,7 +1,7 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusPlayer;
-import com.dwinovo.animus.pathing.exec.InputDriver;
+import com.dwinovo.animus.pathing.exec.Interaction;
 import com.dwinovo.animus.pathing.exec.PlayerNav;
 import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.TaskResult;
@@ -13,9 +13,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * {@code break_block} on the player body: walk within reach of one exact cell
- * and break it with the player's survival break. Player-body twin of
- * BreakBlockTaskGoal (construction surgery — clear a frame cell, undo a misplace).
+ * {@code break_block} on the player body: walk within reach of one exact cell and
+ * break it as a left-click ({@link Interaction#attackBlock}) — the same native
+ * timed break the pathfinder/auto-mine use (creative insta, survival by real
+ * hardness, best tool auto-selected). Player-body twin of BreakBlockTaskGoal
+ * (construction surgery — clear a frame cell, undo a misplace).
  */
 public final class BreakBlockCompanionTask implements CompanionTask {
 
@@ -25,6 +27,7 @@ public final class BreakBlockCompanionTask implements CompanionTask {
     private final AnimusPlayer player;
     private final BreakBlockTaskRecord r;
     private PlayerNav nav;
+    private Interaction breaking;
     private String brokenBlock = "?";
     private String doneReason = "done";
 
@@ -54,17 +57,22 @@ public final class BreakBlockCompanionTask implements CompanionTask {
     @Override
     public TaskState tick() {
         if (withinReach()) {
-            InputDriver.lookAt(player, Vec3.atCenterOf(r.target));
             if (player.level().getBlockState(r.target).isAir()) {
                 doneReason = "the block at " + posLabel() + " is already gone";
                 return TaskState.SUCCESS;
             }
-            player.gameMode.destroyBlock(r.target);
-            if (player.level().getBlockState(r.target).isAir()) {
-                doneReason = "broke " + brokenBlock + " at " + posLabel();
-                return TaskState.SUCCESS;
-            }
-            return TaskState.RUNNING;   // mid-break or needs another swing
+            if (breaking == null) breaking = Interaction.attackBlock(player, r.target);
+            return switch (breaking.tick()) {
+                case DONE -> {
+                    doneReason = "broke " + brokenBlock + " at " + posLabel();
+                    yield TaskState.SUCCESS;
+                }
+                case FAILED -> {
+                    doneReason = "couldn't break " + posLabel() + ": " + breaking.failReason();
+                    yield TaskState.FAILED;
+                }
+                case RUNNING -> TaskState.RUNNING;   // mid-break (survival hardness timing)
+            };
         }
         if (nav == null) return TaskState.FAILED;
         return switch (nav.tick()) {
@@ -89,6 +97,7 @@ public final class BreakBlockCompanionTask implements CompanionTask {
     @Override
     public TaskResult buildResult(TaskState finalState) {
         if (nav != null) nav.stop();
+        if (breaking != null) breaking.stop();
         Map<String, Object> data = new HashMap<>();
         data.put("x", r.target.getX());
         data.put("y", r.target.getY());

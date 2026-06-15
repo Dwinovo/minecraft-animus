@@ -59,6 +59,8 @@ public final class CompanionTaskFactory {
         if (record instanceof com.dwinovo.animus.task.tasks.CollectItemsTaskRecord r)
             return new com.dwinovo.animus.task.tasks.CollectItemsTaskGoal(player, r);
         if (record instanceof PlaceBlockTaskRecord r) return new PlaceBlockCompanionTask(player, r);
+        if (record instanceof com.dwinovo.animus.task.tasks.InteractTaskRecord r)
+            return new com.dwinovo.animus.task.tasks.InteractCompanionTask(player, r);
         if (record instanceof UseItemTaskRecord r) return new UseItemCompanionTask(player, r);
         if (record instanceof com.dwinovo.animus.task.tasks.LocateStructureTaskRecord r)
             return new com.dwinovo.animus.task.tasks.LocateStructureTaskGoal(player, r);

@@ -2,6 +2,8 @@ package com.dwinovo.animus.pathing.exec;
 
 import com.dwinovo.animus.entity.AnimusPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.level.Level;
@@ -9,34 +11,40 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Progressive block breaking that replicates the VANILLA CLIENT mining loop
- * ({@code MultiPlayerGameMode.continueDestroyBlock}) for a server fake player —
- * because a fake player has no client to run it and the server's
- * {@code ServerPlayerGameMode} does NOT self-complete a survival break (it waits
- * for the client's {@code STOP_DESTROY_BLOCK} packet, which never arrives). So we
- * BE the client:
+ * Progressive block breaking that drives the SAME native server entry point a
+ * real client's packets hit — a faithful port of Carpet's
+ * {@code EntityPlayerActionPack} ATTACK-on-block. A fake player has no client to
+ * run the mining loop, so we BE the client:
  * <ul>
- *   <li><b>creative</b> ({@code abilities.instabuild}) → break instantly;</li>
- *   <li><b>survival</b> → accumulate the block's real per-tick destroy fraction
- *       {@link BlockState#getDestroyProgress} (which folds in the held tool /
- *       enchants / haste / hardness / on-ground+in-water) until it reaches 1.0,
- *       broadcasting the crack overlay as it goes.</li>
+ *   <li>begin: {@code handleBlockBreakAction(START_DESTROY_BLOCK)} + the block's
+ *       left-click {@code attack} (note blocks, redstone-ore glow, …); creative
+ *       breaks instantly on START; an insta-mineable block breaks on START too;</li>
+ *   <li>each tick: accumulate the block's real {@link BlockState#getDestroyProgress}
+ *       and broadcast the crack overlay (breaker id {@code -1}, like Carpet — the
+ *       server does NOT self-complete a survival break for a fake player);</li>
+ *   <li>finish: {@code handleBlockBreakAction(STOP_DESTROY_BLOCK)} → the SERVER
+ *       destroys the block (drops / durability / events). We do NOT clear the
+ *       crack — the block vanishing removes it, so there's no "intact for one
+ *       frame" flicker — and we set a {@code blockHitDelay} so the next dig waits
+ *       for the destroy to land instead of re-starting the same block;</li>
+ *   <li>interrupted: {@code ABORT_DESTROY_BLOCK} + clear the crack.</li>
  * </ul>
- * The actual break is the NATIVE {@code gameMode.destroyBlock} (drops, durability,
- * break events). This is exactly the timing a real survival player gets — and how
- * Baritone mines too: it just holds left-click and the vanilla client accumulates
- * {@code getDestroyProgress}; it never hand-rolls a tick count.
- *
- * <p>Shared by path-obstruction clearing ({@code PlayerPathExecutor}) and
- * auto-mine ({@code MineCompanionTask}).
+ * Shared by path-obstruction clearing ({@code PlayerPathExecutor}), auto-mine
+ * ({@code MineCompanionTask}), and {@link Interaction} (break_block / interact).
  */
 public final class BlockDigger {
 
+    /** Carpet broadcasts the crack under breaker id -1 (not the player's entity id),
+     *  so the server's own per-player crack clearing on STOP can't wipe it early. */
+    private static final int CRACK_ID = -1;
+    /** Ticks to wait after a break before starting another (Carpet blockHitDelay). */
+    private static final int BLOCK_HIT_DELAY = 5;
+
     private final AnimusPlayer player;
     private BlockPos pos;
-    private float progress;       // accumulated 0..1, like MultiPlayerGameMode.destroyProgress
-    private int swingCd;
-    private int lastStage = -1;
+    private float progress;       // accumulated 0..1 (Carpet curBlockDamageMP)
+    private boolean started;      // START_DESTROY_BLOCK has been sent for `pos`
+    private int blockHitDelay;    // post-break cooldown (survives reset())
 
     public BlockDigger(AnimusPlayer player) {
         this.player = player;
@@ -49,56 +57,67 @@ public final class BlockDigger {
 
     /**
      * Advance the dig of {@code target} by one tick (restarting cleanly if the
-     * target changed): face it, swing, accumulate destroy progress, break on time.
+     * target changed): face it, drive the native break action, swing.
      *
-     * @return {@code true} on the tick the block breaks.
+     * @return {@code true} on the tick the block's break is committed (STOP sent).
      */
     public boolean dig(BlockPos target) {
         Level level = player.level();
+        if (blockHitDelay > 0) {                    // let the previous break land first
+            blockHitDelay--;
+            InputDriver.halt(player);
+            return false;
+        }
         if (pos == null || !pos.equals(target)) {
             start(target);
         }
         InputDriver.halt(player);
         InputDriver.lookAt(player, Vec3.atCenterOf(pos));
-        if (swingCd-- <= 0) {
-            player.swing(InteractionHand.MAIN_HAND);
-            swingCd = 5;                          // vanilla swings ~every 6 ticks while mining
-        }
-
-        // Creative: instant break (the vanilla client special-cases this — it does NOT
-        // wait out getDestroyProgress in creative).
-        if (player.getAbilities().instabuild) {
-            return finish(level);
-        }
-
-        // Survival: accumulate the real per-tick destroy fraction.
+        Direction side = faceToward(player.getEyePosition(), pos);
         BlockState state = level.getBlockState(pos);
+
+        if (!started) {
+            started = true;
+            player.gameMode.handleBlockBreakAction(pos,
+                    ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, side, level.getMaxY(), -1);
+            player.swing(InteractionHand.MAIN_HAND);
+            if (player.getAbilities().instabuild) {
+                blockHitDelay = BLOCK_HIT_DELAY;
+                reset();
+                return true;                         // creative: START broke it
+            }
+            if (!state.isAir()) {
+                state.attack(level, pos, player);    // left-click punch
+                if (state.getDestroyProgress(player, level, pos) >= 1.0f) {
+                    reset();                         // instamine: START broke it (no STOP — Carpet)
+                    return true;
+                }
+            }
+            return false;                            // begin accumulating next tick
+        }
+
+        // Survival: accumulate the real per-tick destroy fraction; broadcast the crack.
         progress += state.getDestroyProgress(player, level, pos);
         int stage = Math.min(9, (int) (progress * 10.0f));
-        if (stage != lastStage) {                 // re-broadcast the crack only on stage change
-            level.destroyBlockProgress(player.getId(), pos, stage);
-            lastStage = stage;
-        }
+        level.destroyBlockProgress(CRACK_ID, pos, stage);
+        player.swing(InteractionHand.MAIN_HAND);
         if (progress >= 1.0f) {
-            return finish(level);
+            // STOP → server destroys. Do NOT clear the crack: the block vanishing
+            // removes it (no intact-for-a-frame flicker). Carpet-exact.
+            player.gameMode.handleBlockBreakAction(pos,
+                    ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, side, level.getMaxY(), -1);
+            blockHitDelay = BLOCK_HIT_DELAY;
+            reset();
+            return true;
         }
         return false;
-    }
-
-    /** Native break + clear our dig state. */
-    private boolean finish(Level level) {
-        BlockPos done = pos;
-        cancel();                                 // clears the crack overlay, resets state
-        player.gameMode.destroyBlock(done);       // native: drops / durability / break events
-        return level.getBlockState(done).isAir();
     }
 
     private void start(BlockPos target) {
         cancel();
         pos = target.immutable();
         progress = 0.0f;
-        swingCd = 0;
-        lastStage = -1;
+        started = false;
         // Hold the best tool BEFORE timing the dig — getDestroyProgress reads the held
         // item, and the pathing cost model prices every break with the best hotbar tool
         // (Baritone switchToBestToolFor).
@@ -121,13 +140,37 @@ public final class BlockDigger {
         inv.setSelectedSlot(best);
     }
 
-    /** Abandon any in-progress dig and clear its crack overlay. */
+    /** Abandon an IN-PROGRESS dig: ABORT it server-side and clear the crack (Carpet
+     *  inactiveTick). A completed break never comes through here — its crack is left
+     *  for the block-break to remove. */
     public void cancel() {
         if (pos != null) {
-            player.level().destroyBlockProgress(player.getId(), pos, -1);
-            pos = null;
+            if (started) {
+                player.gameMode.handleBlockBreakAction(pos,
+                        ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK,
+                        Direction.DOWN, player.level().getMaxY(), -1);
+            }
+            player.level().destroyBlockProgress(CRACK_ID, pos, -1);   // clear the crack
         }
+        reset();
+    }
+
+    /** Clear dig state. Deliberately does NOT touch {@link #blockHitDelay} (a
+     *  post-break cooldown that must outlive the break) or the crack overlay. */
+    private void reset() {
+        pos = null;
         progress = 0.0f;
-        lastStage = -1;
+        started = false;
+    }
+
+    /** The block face nearest the eye — the side a real raycast would have hit. */
+    private static Direction faceToward(Vec3 from, BlockPos pos) {
+        double dx = from.x - (pos.getX() + 0.5);
+        double dy = from.y - (pos.getY() + 0.5);
+        double dz = from.z - (pos.getZ() + 0.5);
+        double ax = Math.abs(dx), ay = Math.abs(dy), az = Math.abs(dz);
+        if (ax >= ay && ax >= az) return dx > 0 ? Direction.EAST : Direction.WEST;
+        if (az >= ax && az >= ay) return dz > 0 ? Direction.SOUTH : Direction.NORTH;
+        return dy > 0 ? Direction.UP : Direction.DOWN;
     }
 }

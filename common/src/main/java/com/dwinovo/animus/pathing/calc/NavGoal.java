@@ -70,6 +70,53 @@ public interface NavGoal {
         };
     }
 
+    /**
+     * Reach the {@code (x, z)} column at ANY height — a 1:1 port of Baritone
+     * {@code GoalXZ} ({@code goto x z}). The heuristic is the pure horizontal
+     * octile term (no vertical), so the search heads for the column and stops at
+     * whatever ground exists there. This is the "go to a location" goal: the
+     * caller's Y is irrelevant, so a wrong/guessed Y can never make it unreachable.
+     */
+    static NavGoal column(int x, int z) {
+        return new NavGoal() {
+            @Override public boolean isAt(BlockPos feet) {
+                return feet.getX() == x && feet.getZ() == z;
+            }
+            @Override public double heuristic(BlockPos from) {
+                double dx = Math.abs(x - from.getX());
+                double dz = Math.abs(z - from.getZ());
+                return (Math.min(dx, dz) * ActionCosts.SQRT_2 + Math.abs(dx - dz))
+                        * PathSettings.COST_HEURISTIC;
+            }
+            @Override public BlockPos center() {
+                return new BlockPos(x, 0, z);   // y irrelevant — goal is XZ-only
+            }
+        };
+    }
+
+    /**
+     * Reach a Y level at ANY X/Z — a 1:1 port of Baritone {@code GoalYLevel}
+     * ({@code goto y}): "change elevation to this height" (climb to the surface,
+     * descend to a mining depth). Heuristic is the pure vertical term — up costs
+     * {@link ActionCosts#JUMP_ONE_BLOCK} per block, down {@link ActionCosts#DESCEND_ONE_BLOCK}.
+     */
+    static NavGoal yLevel(int level) {
+        return new NavGoal() {
+            @Override public boolean isAt(BlockPos feet) {
+                return feet.getY() == level;
+            }
+            @Override public double heuristic(BlockPos from) {
+                int cy = from.getY();
+                if (cy > level) return ActionCosts.DESCEND_ONE_BLOCK * (cy - level);
+                if (cy < level) return (level - cy) * ActionCosts.JUMP_ONE_BLOCK;
+                return 0.0;
+            }
+            @Override public BlockPos center() {
+                return new BlockPos(0, level, 0);   // x/z irrelevant — goal is Y-only
+            }
+        };
+    }
+
     /** Any feet cell within {@code radius} (Euclidean, blocks) of {@code pos}. */
     static NavGoal near(BlockPos pos, double radius) {
         BlockPos goal = pos.immutable();

@@ -26,9 +26,10 @@ import net.minecraft.world.phys.Vec3;
  * per-movement EXECUTION is input-driving ({@link InputDriver}) + the player's
  * own survival break/place, not the Mob's velocity drives.
  *
- * <p>Each movement runs as: clear its {@code toBreak} obstructions
- * ({@code gameMode.destroyBlock} — survival break, drops fall and the player
- * picks them up natively), place its {@code toPlace} scaffold, then step toward
+ * <p>Each movement runs as: clear its {@code toBreak} obstructions (the native
+ * {@link BlockDigger} — {@code handleBlockBreakAction} START/STOP, survival
+ * timed, drops fall and the player picks them up natively), place its
+ * {@code toPlace} scaffold, then step toward
  * {@code dest} (face it, push forward; hop for ascend/pillar/parkour) until the
  * feet reach it. This is a first cut tuned for compilation + wiring; movement
  * feel gets refined against in-game runs.
@@ -53,6 +54,8 @@ public final class PlayerPathExecutor {
     private int ticksOnCurrent = 0;
     private int ticksAway = 0;
     private boolean placedThisMove = false;
+    /** The live edge-sneak scaffold placement for the current move (null when idle). */
+    private PlaceManeuver placeManeuver;
     /** Progressive break of path obstructions (shared model with auto-mine). */
     private final BlockDigger digger;
     /** The index whose original cost estimate we cached (Baritone costEstimateIndex). */
@@ -80,8 +83,11 @@ public final class PlayerPathExecutor {
 
         Movement mv = path.movements.get(index);
 
-        // Land move stuck underwater = off-plan; replan (the fresh search swims out).
-        if (player.isUnderWater() && mv.kind != Movement.Kind.SWIM) {
+        // Submerged = off-plan: the route only ever runs the water SURFACE plane
+        // (Baritone canWalkThrough = surface water only), so being underwater means
+        // we were knocked under. Replan from a valid surface cell (buoyancy floats
+        // us up); Baritone likewise treats underwater as off-path.
+        if (player.isUnderWater()) {
             return Status.NEEDS_REPLAN;
         }
 
@@ -103,26 +109,48 @@ public final class PlayerPathExecutor {
         //    it doesn't pop the block instantly.
         BlockPos obstruction = nextObstruction(mv);
         if (obstruction != null) {
-            digger.dig(obstruction);
-            return Status.RUNNING;
-        }
-
-        // 2) Place the scaffold floor under dest, if this move needs one.
-        if (mv.toPlace != null && !placedThisMove) {
-            InputDriver.halt(player);
-            PlaceOutcome po = tryPlaceScaffold(mv.toPlace);
-            if (po == PlaceOutcome.PLACED || po == PlaceOutcome.ALREADY) {
-                placedThisMove = true;
-            } else if (po == PlaceOutcome.OUT_OF_BLOCKS) {
-                return Status.NEEDS_REPLAN;   // ran dry → replan with hasScaffold=false
+            digger.dig(obstruction);   // faces + breaks the block (halts the body)
+            // Baritone walkWhileBreaking (TRAVERSE only): keep approaching + sprint while
+            // the front block breaks — but only if neither break cell (dest feet + head) is
+            // something to avoid walking into, and we aren't already pressed against the
+            // block (Chebyshev dist >= 0.83).
+            if (mv.kind == Movement.Kind.TRAVERSE
+                    && !BlockHelper.avoidWalkingInto(player.level(), mv.dest)
+                    && !BlockHelper.avoidWalkingInto(player.level(), mv.dest.above())
+                    && chebyshevDistTo(mv.dest) >= 0.83) {
+                player.zza = 1.0f;
+                player.setSprinting(speed >= 1.0);
             }
             return Status.RUNNING;
         }
 
+        // 2) Place the scaffold floor under dest, if this move needs one — the live
+        //    "edge sneak" maneuver (Baritone bridge feel): hold sneak, edge to the
+        //    rim, look at the support face, place. Drives the body forward toward the
+        //    placement itself, so the bridge is laid as it leans out, not teleport-popped.
+        if (mv.toPlace != null && !placedThisMove) {
+            if (placeManeuver == null) {
+                placeManeuver = new PlaceManeuver(player, mv.toPlace, this::scaffoldSlot,
+                        () -> BlockHelper.canWalkOn(player.level(), mv.toPlace));
+            }
+            switch (placeManeuver.tick()) {
+                case DONE -> {
+                    placedThisMove = true;
+                    placeManeuver = null;
+                }
+                case FAILED -> {
+                    placeManeuver = null;
+                    return Status.NEEDS_REPLAN;   // out of blocks / no angle → replan
+                }
+                case RUNNING -> {
+                    return Status.RUNNING;
+                }
+            }
+        }
+
         // 3) Drive toward dest by movement kind — per-Movement updateState,
         //    mirroring Baritone's input-forcing timing.
-        BlockPos feet = player.blockPosition();
-        if (feet.equals(mv.dest)) {
+        if (arrived(mv)) {
             advance();
             return Status.RUNNING;
         }
@@ -143,6 +171,13 @@ public final class PlayerPathExecutor {
         return Math.sqrt(dx * dx + dz * dz);
     }
 
+    /** Chebyshev (max-axis) horizontal distance to a cell centre — Baritone's
+     *  walk-while-break "pressed against the block" gate uses this, not Euclidean. */
+    private double chebyshevDistTo(BlockPos cell) {
+        return Math.max(Math.abs((cell.getX() + 0.5) - player.getX()),
+                        Math.abs((cell.getZ() + 0.5) - player.getZ()));
+    }
+
     /**
      * Per-movement execution. Each kind forces the inputs Baritone's
      * {@code updateState} would: walk/diagonal aim + forward (+sprint); ascend
@@ -154,9 +189,20 @@ public final class PlayerPathExecutor {
         player.setShiftKeyDown(false);   // default; pillar re-enables per tick
         openDoorsForMove(mv);            // a shut wooden door/gate ahead → open it, don't break it
         Vec3 dest = Vec3.atBottomCenterOf(mv.dest);
+        // Baritone never sprints in water, nor when about to run into a hazard just
+        // past the destination (it could carry us into lava/cactus/etc).
+        boolean sprintBase = speed >= 1.0 && !player.isInWater() && !hazardJustPast(mv);
         switch (mv.kind) {
-            case TRAVERSE -> InputDriver.stepToward(player, dest, speed >= 1.0);
-            case DIAGONAL -> InputDriver.stepToward(player, dest, speed >= 1.0);
+            case TRAVERSE -> {
+                // Don't sprint across a floor we just placed (Baritone wasTheBridgeBlockAlwaysThere).
+                InputDriver.stepToward(player, dest, sprintBase && mv.toPlace == null);
+                // Climb back up if we've sunk below the walking lane (Baritone feet.y<dest.y → JUMP).
+                if (player.blockPosition().getY() < mv.dest.getY()) {
+                    InputDriver.jump(player);
+                }
+            }
+            // Only sprint a diagonal when both cut corners are clear (Baritone sprint() corner check).
+            case DIAGONAL -> InputDriver.stepToward(player, dest, sprintBase && diagonalCornersClear(mv));
             case ASCEND -> driveAscend(mv);
             case PARKOUR -> {
                 int gap = Math.max(Math.abs(mv.dest.getX() - mv.src.getX()),
@@ -169,33 +215,127 @@ public final class PlayerPathExecutor {
                 }
             }
             case PILLAR -> drivePillar(mv);
-            case DESCEND, FALL -> {
-                // Baritone MovementDescend: aim one block past dest (fakeDest) for the
-                // first ~20 ticks WHILE still near the start (fromStart<1.25), to carry
-                // momentum off the ledge; then aim at dest. Stop pushing once we're
-                // horizontally on dest (ab<=0.25) so gravity settles us cleanly
-                // instead of overshooting the landing.
-                double ab = horizontalDistTo(mv.dest);
-                if (!player.blockPosition().equals(mv.dest) || ab > 0.25) {
-                    Vec3 aim = (ticksOnCurrent < 20 && horizontalDistTo(mv.src) < 1.25)
-                            ? Vec3.atBottomCenterOf(new BlockPos(
-                                    2 * mv.dest.getX() - mv.src.getX(),
-                                    mv.dest.getY(),
-                                    2 * mv.dest.getZ() - mv.src.getZ()))
-                            : dest;
-                    InputDriver.stepToward(player, aim, false);
+            case DESCEND -> driveDescend(mv);
+            case FALL -> driveFall(mv);
+            case DIG_DOWN -> {
+                // Phase 1 breaks the floor; here we just keep centred over the column so
+                // gravity drops us straight onto the dug cell (Baritone MovementDownward
+                // recentres / moveTowards the break cell rather than free-drifting).
+                if (horizontalDistTo(mv.dest) > 0.2) {
+                    InputDriver.stepToward(player, Vec3.atBottomCenterOf(mv.dest), false);
                 } else {
                     InputDriver.halt(player);
                 }
             }
-            case DIG_DOWN -> InputDriver.halt(player);   // phase 1 breaks the floor; gravity drops us
-            case SWIM -> {
-                InputDriver.stepToward(player, dest, false);
-                if (mv.dest.getY() > player.blockPosition().getY()) {
-                    InputDriver.jump(player);   // swim up toward the surface
-                }
+        }
+    }
+
+    /**
+     * Step down one block (Baritone MovementDescend.updateState): aim one block past
+     * dest (fakeDest) for the first ~20 ticks WHILE still near the start
+     * (fromStart&lt;1.25), to carry momentum off the ledge; then aim at dest. Stop
+     * pushing once horizontally on dest so gravity settles us cleanly.
+     */
+    private void driveDescend(Movement mv) {
+        if (descendSafeMode(mv)) {
+            // Baritone safeMode: a slowed, straight-in approach to a 0.17/0.83 weighted
+            // point with NO fakeDest momentum — avoids overshooting into a wall / hazard
+            // and the skip-to-ascend glitch.
+            double dx = (mv.src.getX() + 0.5) * 0.17 + (mv.dest.getX() + 0.5) * 0.83;
+            double dz = (mv.src.getZ() + 0.5) * 0.17 + (mv.dest.getZ() + 0.5) * 0.83;
+            InputDriver.stepToward(player, new Vec3(dx, mv.dest.getY(), dz), false);
+            return;
+        }
+        double ab = horizontalDistTo(mv.dest);
+        if (!player.blockPosition().equals(mv.dest) || ab > 0.25) {
+            Vec3 aim = (ticksOnCurrent < 20 && horizontalDistTo(mv.src) < 1.25)
+                    ? Vec3.atBottomCenterOf(new BlockPos(
+                            2 * mv.dest.getX() - mv.src.getX(),
+                            mv.dest.getY(),
+                            2 * mv.dest.getZ() - mv.src.getZ()))
+                    : Vec3.atBottomCenterOf(mv.dest);
+            InputDriver.stepToward(player, aim, false);
+        } else {
+            InputDriver.halt(player);
+        }
+    }
+
+    /** Baritone MovementDescend.safeMode: a hazard just past dest (sprint-overshoot risk)
+     *  OR the skip-to-ascend overshoot-glitch geometry (a wall at foot level with air above). */
+    private boolean descendSafeMode(Movement mv) {
+        if (hazardJustPast(mv)) return true;
+        int dx = mv.dest.getX() - mv.src.getX();
+        int dz = mv.dest.getZ() - mv.src.getZ();
+        if (dx == 0 && dz == 0) return false;
+        BlockPos into = mv.dest.offset(dx, 0, dz);
+        return !BlockHelper.canWalkThrough(player.level(), into)
+                && BlockHelper.canWalkThrough(player.level(), into.above())
+                && BlockHelper.canWalkThrough(player.level(), into.above(2));
+    }
+
+    /** Something to avoid in the cell(s) one step PAST the destination — the block we'd
+     *  carry into if we over-committed. Baritone's descend safeMode + sprint-suppression
+     *  use {@code avoidWalkingInto} (any fluid + the hazard block set) for exactly this. */
+    private boolean hazardJustPast(Movement mv) {
+        int dx = Integer.signum(mv.dest.getX() - mv.src.getX());
+        int dz = Integer.signum(mv.dest.getZ() - mv.src.getZ());
+        if (dx == 0 && dz == 0) return false;
+        BlockPos into = mv.dest.offset(dx, 0, dz);
+        for (int y = 0; y <= 2; y++) {
+            if (BlockHelper.avoidWalkingInto(player.level(), into.above(y))) return true;
+        }
+        return false;
+    }
+
+    /** Both diagonal cut-corners clear (Baritone MovementDiagonal.sprint corner check). */
+    private boolean diagonalCornersClear(Movement mv) {
+        BlockPos cornerA = new BlockPos(mv.src.getX(), mv.src.getY(), mv.dest.getZ());
+        BlockPos cornerB = new BlockPos(mv.dest.getX(), mv.src.getY(), mv.src.getZ());
+        return BlockHelper.canWalkThrough(player.level(), cornerA)
+                && BlockHelper.canWalkThrough(player.level(), cornerA.above())
+                && BlockHelper.canWalkThrough(player.level(), cornerB)
+                && BlockHelper.canWalkThrough(player.level(), cornerB.above());
+    }
+
+    /**
+     * Multi-block fall (Baritone MovementFall.updateState, minus the water-bucket
+     * MLG which needs a bucket in hand): unlike a descend it does NOT carry momentum
+     * — it RECENTRES on the landing cell so it doesn't clip a wall, sneaking while
+     * fast-falling ({@code |Δy|>0.4}) to kill horizontal drift and land cleanly.
+     */
+    private void driveFall(Movement mv) {
+        var v = player.getDeltaMovement();
+        double cx = mv.dest.getX() + 0.5;
+        double cz = mv.dest.getZ() + 0.5;
+        // Look ahead by one tick of velocity, like Baritone, to anticipate the drift.
+        boolean offCentre = Math.abs(player.getX() + v.x - cx) > 0.1
+                || Math.abs(player.getZ() + v.z - cz) > 0.1;
+        if (offCentre) {
+            // Sneak while fast-falling to brake the horizontal drift toward centre.
+            player.setShiftKeyDown(!player.onGround() && Math.abs(v.y) > 0.4);
+            InputDriver.lookAt(player, fallAim(mv));   // landing cell, biased off an adjacent ladder
+            player.zza = 1.0f;
+            player.xxa = 0.0f;
+            player.setSprinting(false);
+        } else {
+            player.setShiftKeyDown(false);
+            InputDriver.halt(player);
+        }
+    }
+
+    /** Aim at the landing cell, nudged 0.125 away from an adjacent ladder/vine so the
+     *  fall doesn't grab it mid-drop (Baritone MovementFall.avoid). */
+    private Vec3 fallAim(Movement mv) {
+        Vec3 c = Vec3.atCenterOf(mv.dest);
+        for (Direction d : new Direction[]{
+                Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
+            var s = player.level().getBlockState(mv.dest.relative(d));
+            if (s.is(net.minecraft.world.level.block.Blocks.LADDER)
+                    || s.is(net.minecraft.world.level.block.Blocks.VINE)) {
+                return c.add(-d.getStepX() * 0.125, 0.0, -d.getStepZ() * 0.125);
             }
         }
+        return c;
     }
 
     /**
@@ -252,21 +392,41 @@ public final class PlayerPathExecutor {
      * the cell we just left so we land one higher.
      */
     private void drivePillar(Movement mv) {
-        player.setShiftKeyDown(true);
+        player.setShiftKeyDown(true);   // sneak: never step off the column
         // Recentre on the column rather than walking off it.
         if (horizontalDistTo(mv.src) > 0.17) {
             InputDriver.stepToward(player, Vec3.atBottomCenterOf(mv.src), false);
         } else {
             InputDriver.halt(player);
+            // Baritone MovementPillar: jump only when nearly still AND still BELOW the
+            // destination — stop jumping once we've reached the top (`y < dest.y`).
+            if (player.onGround() && horizontalSpeedSqr() < 0.0025
+                    && player.getY() < mv.dest.getY()) {
+                InputDriver.jump(player);
+            }
         }
-        // Baritone MovementPillar: only jump when nearly horizontally still (so we
-        // don't slide off the column), and only place once risen ABOVE the target
-        // foot height (dest.y + 0.1 — the apex, after the src cell is vacated).
-        if (player.onGround() && horizontalSpeedSqr() < 0.0025) {
-            InputDriver.jump(player);
-        } else if (player.getY() > mv.dest.getY() + 0.1) {
-            tryPlaceScaffold(mv.src);
+        // Once risen above the target foot height (the apex), place the block under
+        // our feet against the block below — looking down at it, like a real player
+        // (Baritone: CLICK_RIGHT when crouching + looking at the block below + y > dest.y+0.1).
+        if (player.getY() > mv.dest.getY() + 0.1) {
+            placeUnderfoot(mv.src);
         }
+    }
+
+    /** Place a scaffold block at {@code cell} against the solid block directly below it
+     *  — the pillar apex place, performed natively (look down + useItemOn on the up-face). */
+    private void placeUnderfoot(BlockPos cell) {
+        int slot = scaffoldSlot();
+        if (slot < 0) return;
+        if (!Placement.canPlaceAgainst(player.level(), cell.below())) return;
+        InputDriver.lookAt(player, Vec3.atBottomCenterOf(cell));   // look straight down at the support's top
+        // Baritone crouch-confirm: only place once actually crouching — the sneak takes
+        // effect the tick AFTER we request it, and isCrouching() is that "took effect" signal.
+        if (!player.isCrouching()) return;
+        BlockHitResult hit = Placement.resolve(player, cell, true);  // honest raycast only — no fabricated hit
+        if (hit == null) return;
+        player.setItemInHand(InteractionHand.MAIN_HAND, player.getInventory().getItem(slot));
+        Interaction.useBlock(player, hit, InteractionHand.MAIN_HAND).tick();
     }
 
     /**
@@ -313,11 +473,11 @@ public final class PlayerPathExecutor {
             return null;
         }
         // Movements whose OWN execution mutates the world — pillar places a block
-        // underfoot, dig-down breaks the floor, swim dips below the surface — would
-        // self-trigger COST_INF the instant they act (regeneration no longer emits
-        // them). Skip live re-costing for those; the movement timeout still guards
-        // a genuine stall. Movements that only consume the world (break an
-        // obstruction) get cheaper, never INF, so they're safe to verify.
+        // underfoot, dig-down breaks the floor — would self-trigger COST_INF the
+        // instant they act (regeneration no longer emits them). Skip live re-costing
+        // for those; the movement timeout still guards a genuine stall. Movements
+        // that only consume the world (break an obstruction) get cheaper, never
+        // INF, so they're safe to verify.
         if (!selfMutating(cur.kind)) {
             double liveCur = recost(fresh, cur);
             if (liveCur >= ActionCosts.COST_INF) {
@@ -352,7 +512,7 @@ public final class PlayerPathExecutor {
      *   <li>PARKOUR — only on the takeoff (0th) tick, no momentum knowledge after;</li>
      *   <li>ASCEND — not while a step block was just placed;</li>
      *   <li>TRAVERSE — a sneak-bridge over air can't be abandoned until its floor exists;</li>
-     *   <li>others (DIAGONAL/DESCEND/PILLAR/DIG_DOWN/SWIM) — base {@code true}.</li>
+     *   <li>others (DIAGONAL/DESCEND/PILLAR/DIG_DOWN) — base {@code true}.</li>
      * </ul>
      */
     private boolean safeToCancel(Movement mv) {
@@ -372,11 +532,10 @@ public final class PlayerPathExecutor {
     }
 
     /** Kinds whose execution changes the world such that regenerating them mid-move
-     *  would spuriously report them gone (place-under / break-floor / swim-dip). */
+     *  would spuriously report them gone (place-under / break-floor). */
     private static boolean selfMutating(Movement.Kind kind) {
         return kind == Movement.Kind.PILLAR
-                || kind == Movement.Kind.DIG_DOWN
-                || kind == Movement.Kind.SWIM;
+                || kind == Movement.Kind.DIG_DOWN;
     }
 
     /**
@@ -394,6 +553,53 @@ public final class PlayerPathExecutor {
         return ActionCosts.COST_INF;
     }
 
+    /**
+     * Has the move completed? Feet at dest, or — for a walk — overshot 1–2 cells past
+     * it at the same height (Baritone {@code overshootTraverse}: a sprint can carry the
+     * body a cell or two beyond the target, which still counts as arrived).
+     */
+    private boolean arrived(Movement mv) {
+        BlockPos feet = player.blockPosition();
+        if (mv.kind == Movement.Kind.PILLAR) {
+            // Baritone MovementPillar success = feet at dest AND blockIsThere (the placed
+            // block exists, canWalkOn(src)). WITHOUT the block check, the jump APEX — feet
+            // momentarily at dest.y mid-air, before placeUnderfoot has placed anything —
+            // false-arrives, advances the index, then the body falls back with nothing
+            // placed and churns forever. The block check holds arrival until we've placed.
+            return feet.equals(mv.dest) && BlockHelper.canWalkOn(player.level(), mv.src);
+        }
+        if (mv.kind == Movement.Kind.DESCEND) {
+            // Baritone MovementDescend success: feet at dest OR the overshoot fakeDest, AND
+            // settled within 0.5 of dest.y (or dest is liquid) — don't advance while still
+            // falling through the destination cell.
+            BlockPos fakeDest = new BlockPos(
+                    2 * mv.dest.getX() - mv.src.getX(), mv.dest.getY(), 2 * mv.dest.getZ() - mv.src.getZ());
+            if (!feet.equals(mv.dest) && !feet.equals(fakeDest)) return false;
+            return !player.level().getBlockState(mv.dest).getFluidState().isEmpty()
+                    || player.getY() - mv.dest.getY() < 0.5;
+        }
+        if (mv.kind == Movement.Kind.FALL) {
+            // Baritone MovementFall success: feet at dest AND settled within 0.094 of dest.y
+            // (lilypad tolerance); or landed in water and no longer sinking (no water-bucket
+            // clutch at default settings).
+            if (!feet.equals(mv.dest)) return false;
+            if (!player.level().getBlockState(mv.dest).getFluidState().isEmpty()) {
+                return player.getDeltaMovement().y >= 0.0;
+            }
+            return player.getY() - mv.dest.getY() < 0.094;
+        }
+        if (feet.equals(mv.dest)) return true;
+        if (mv.kind == Movement.Kind.TRAVERSE || mv.kind == Movement.Kind.DIAGONAL) {
+            int dx = Integer.signum(mv.dest.getX() - mv.src.getX());
+            int dz = Integer.signum(mv.dest.getZ() - mv.src.getZ());
+            if (dx != 0 || dz != 0) {
+                BlockPos one = mv.dest.offset(dx, 0, dz);
+                if (feet.equals(one) || feet.equals(one.offset(dx, 0, dz))) return true;
+            }
+        }
+        return false;
+    }
+
     /** The next still-solid block this move must break, or null when its path is clear. */
     private BlockPos nextObstruction(Movement mv) {
         for (BlockPos pos : mv.toBreak) {
@@ -404,59 +610,13 @@ public final class PlayerPathExecutor {
         return null;
     }
 
-    // ---- scaffold placement (player survival place) ----
-
-    private enum PlaceOutcome { PLACED, ALREADY, NO_SUPPORT, OUT_OF_BLOCKS }
-
-    private PlaceOutcome tryPlaceScaffold(BlockPos cell) {
-        if (!player.level().getBlockState(cell).isAir()
-                && !player.level().getBlockState(cell).canBeReplaced()) {
-            return PlaceOutcome.ALREADY;   // something already fills it
-        }
-        int slot = scaffoldSlot();
-        if (slot < 0) return PlaceOutcome.OUT_OF_BLOCKS;
-        BlockHitResult hit = supportClick(cell);
-        if (hit == null) return PlaceOutcome.NO_SUPPORT;
-
-        var inv = player.getInventory();
-        ItemStack scaffold = inv.getItem(slot);
-        player.setItemInHand(InteractionHand.MAIN_HAND, scaffold);   // hold it; vanilla consumes from here
-        InputDriver.lookAt(player, hit.getLocation());
-        player.setShiftKeyDown(true);
-        try {
-            player.gameMode.useItemOn(player, player.level(),
-                    player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, hit);
-        } finally {
-            player.setShiftKeyDown(false);
-        }
-        boolean placed = !player.level().getBlockState(cell).isAir();
-        return placed ? PlaceOutcome.PLACED : PlaceOutcome.NO_SUPPORT;
-    }
-
+    /** The inventory slot of a scaffold block (cobble/dirt/…), or -1 if none. */
     private int scaffoldSlot() {
         var inv = player.getInventory();
         for (int i = 0; i < inv.getContainerSize(); i++) {
             if (NavContext.isScaffold(inv.getItem(i))) return i;
         }
         return -1;
-    }
-
-    /** A clickable solid neighbour face that places into {@code cell} (below first). */
-    private BlockHitResult supportClick(BlockPos cell) {
-        Direction[] order = {Direction.DOWN, Direction.NORTH, Direction.SOUTH,
-                Direction.EAST, Direction.WEST, Direction.UP};
-        for (Direction d : order) {
-            BlockPos neighbour = cell.relative(d);
-            if (player.level().getBlockState(neighbour).getCollisionShape(
-                    player.level(), neighbour).isEmpty()) {
-                continue;
-            }
-            Direction face = d.getOpposite();
-            Vec3 hit = Vec3.atCenterOf(neighbour)
-                    .add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
-            return new BlockHitResult(hit, face, neighbour, false);
-        }
-        return null;
     }
 
     // ---- re-localization (mirrors PathExecutor) ----
@@ -522,6 +682,10 @@ public final class PlayerPathExecutor {
         ticksOnCurrent = 0;
         digger.cancel();          // a partial dig belongs to the move we just left
         placedThisMove = false;
+        if (placeManeuver != null) {
+            placeManeuver.stop();
+            placeManeuver = null;
+        }
     }
 
     public boolean isPartial() {
@@ -547,6 +711,14 @@ public final class PlayerPathExecutor {
 
     public void stop() {
         digger.cancel();
+        if (placeManeuver != null) {
+            placeManeuver.stop();
+            placeManeuver = null;
+        }
         InputDriver.halt(player);
+        // Release sneak too — pillar/place hold it every tick; without this it lingers
+        // through a mid-path replan's planning ticks (the next path's drive() clears it,
+        // but only once it starts). Mirrors PlayerNav.stop().
+        player.setShiftKeyDown(false);
     }
 }

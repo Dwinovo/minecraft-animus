@@ -262,6 +262,10 @@ public final class PlayerNav {
         discardPrecompute();
         search = null;
         InputDriver.halt(player);
+        // Release sneak too — a pillar holds it every tick, and unlike Baritone (which
+        // resets all inputs per tick) nothing clears it when the path ends, so the body
+        // would stay crouched after arriving.
+        player.setShiftKeyDown(false);
         PathVizPublisher.clear(player);
     }
 }

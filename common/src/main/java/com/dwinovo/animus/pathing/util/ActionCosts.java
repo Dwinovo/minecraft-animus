@@ -25,10 +25,10 @@ public final class ActionCosts {
 
     /** Walk one block: 20 / 4.317. ≈ 4.633 */
     public static final double WALK_ONE_BLOCK = 20.0 / 4.317;
-    /** Walk one block in water: 20 / 2.2. ≈ 9.091 (Baritone WALK_ONE_IN_WATER_COST). */
+    /** Walk one block in water: 20 / 2.2. ≈ 9.091 (Baritone WALK_ONE_IN_WATER_COST).
+     *  Baritone's {@code waterWalkSpeed} interpolates this toward WALK by Depth
+     *  Strider level; we don't model the enchant, so it's the plain no-strider value. */
     public static final double WALK_ONE_IN_WATER = 20.0 / 2.2;
-    /** Alias kept for the SWIM movement edges. */
-    public static final double SWIM_ONE_BLOCK = WALK_ONE_IN_WATER;
     /** Walk one block over soul sand: 2× walk. ≈ 9.266 */
     public static final double WALK_ONE_OVER_SOUL_SAND = WALK_ONE_BLOCK * 2;
     /** Sprint one block: 20 / 5.612. ≈ 3.564 */

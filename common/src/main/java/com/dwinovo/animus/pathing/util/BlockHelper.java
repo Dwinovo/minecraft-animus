@@ -4,13 +4,29 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.AbstractSkullBlock;
+import net.minecraft.world.level.block.AmethystClusterBlock;
+import net.minecraft.world.level.block.AzaleaBlock;
+import net.minecraft.world.level.block.BambooStalkBlock;
+import net.minecraft.world.level.block.BaseFireBlock;
 import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.CarpetBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
+import net.minecraft.world.level.block.PointedDripstoneBlock;
+import net.minecraft.world.level.block.ScaffoldingBlock;
+import net.minecraft.world.level.block.ShulkerBoxBlock;
+import net.minecraft.world.level.block.SlabBlock;
+import net.minecraft.world.level.block.StainedGlassBlock;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.piston.MovingPistonBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -33,15 +49,47 @@ public final class BlockHelper {
 
     private BlockHelper() {}
 
+    private static final Direction[] HORIZONTAL = {
+            Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
+
     /**
      * Can the entity's body occupy this cell (no collision, not a fluid we
      * refuse to enter)? True for air, grass, flowers, etc.
+     *
+     * <p>Water is Baritone's, not a bolt-on swim move: a port of
+     * {@code MovementHelper.canWalkThrough}'s fluid branch (jesus off). Flowing
+     * water is refused (the current shoves us off-path); still water is passable
+     * ONLY as the SURFACE cell — i.e. nothing fluid directly above it — so the
+     * move graph contains the water surface plane but never a submerged corridor.
+     * Lava is never passable. This is what lets the generic traverse/ascend/
+     * descend route across water exactly as Baritone does, with no swim edge.
      */
     public static boolean canWalkThrough(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        if (!state.getFluidState().isEmpty()) {
-            // Treat any fluid cell as non-pass-through for the MVP — we don't
-            // swim or wade. (Water support can be added later via a flag.)
+        Block block = state.getBlock();
+        FluidState fluid = state.getFluidState();
+        if (!fluid.isEmpty()) {
+            if (!fluid.is(FluidTags.WATER)) return false;       // lava etc. — never
+            if (isFlowingWater(level, pos)) return false;        // current shoves us
+            // Surface only: a fluid (or a lily pad) directly above means we'd be
+            // submerged / capped here, not at a free surface (Baritone).
+            BlockState up = level.getBlockState(pos.above());
+            if (!up.getFluidState().isEmpty()) return false;
+            return !up.is(Blocks.LILY_PAD);
+        }
+        // Baritone canWalkThroughBlockState NO list: blocks we must never path through.
+        // Many have an EMPTY/partial collision shape (fire, cobweb, sweet-berry, powder
+        // snow, open trapdoor, big dripleaf…) so the raw shape test below would wrongly
+        // pass them; the explicit list is what stops the body walking into them.
+        if (block instanceof BaseFireBlock
+                || state.is(Blocks.COBWEB) || state.is(Blocks.END_PORTAL)
+                || state.is(Blocks.COCOA) || block instanceof AbstractSkullBlock
+                || state.is(Blocks.BUBBLE_COLUMN) || block instanceof ShulkerBoxBlock
+                || block instanceof SlabBlock || block instanceof TrapDoorBlock
+                || state.is(Blocks.HONEY_BLOCK) || state.is(Blocks.END_ROD)
+                || state.is(Blocks.SWEET_BERRY_BUSH) || state.is(Blocks.POINTED_DRIPSTONE)
+                || block instanceof AmethystClusterBlock || block instanceof AzaleaBlock
+                || state.is(Blocks.BIG_DRIPLEAF) || state.is(Blocks.POWDER_SNOW)) {
             return false;
         }
         // Wooden doors / fence gates are passable even when shut — the path
@@ -49,6 +97,10 @@ public final class BlockHelper {
         // obstruction: no redstone, can't open. So they fall through to the
         // collision test below and read as solid.
         if (isOpenableDoor(state)) {
+            return true;
+        }
+        // Carpet: a thin floor cover, always walkable over (Baritone MAYBE → shallow).
+        if (block instanceof CarpetBlock) {
             return true;
         }
         VoxelShape shape = state.getCollisionShape(level, pos, CollisionContext.empty());
@@ -74,33 +126,84 @@ public final class BlockHelper {
                 && state.getValue(BlockStateProperties.OPEN);
     }
 
-    /** Is this cell water (source or flowing)? The one fluid we swim. */
+    /** Is this cell water (source or flowing)? */
     public static boolean isWater(BlockGetter level, BlockPos pos) {
         return level.getBlockState(pos).getFluidState()
                 .is(net.minecraft.tags.FluidTags.WATER);
     }
 
     /**
-     * Can the entity's body occupy this cell while swimming — passable air
-     * or water (never lava)? The swim-move generator's clearance check.
+     * Baritone {@code MovementHelper.mustBeSolidToWalkOn}: "if a move makes us stand
+     * on this cell, will it have a top to walk on?" Returns {@code true} for AIR and
+     * solid blocks alike — crucially OPTIMISTIC about air, because when bridging the
+     * block you stand on was placed by the bridge itself and isn't in the static world
+     * snapshot yet. {@code false} only for ladders/vines (you climb, not stand) and
+     * submerged water (liquid above). This is what lets a void bridge CHAIN: each
+     * sneak-backplace is allowed against the (about-to-be-placed) block below.
      */
-    public static boolean canOccupyInWater(BlockGetter level, BlockPos pos) {
-        return canWalkThrough(level, pos) || isWater(level, pos);
+    public static boolean mustBeSolidToWalkOn(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (state.is(Blocks.LADDER) || state.is(Blocks.VINE)) return false;
+        if (!state.getFluidState().isEmpty()) {
+            // standing on water counts only at the surface (nothing fluid above), jesus off
+            return level.getBlockState(pos.above()).getFluidState().isEmpty();
+        }
+        return true;   // air or solid → optimistically a valid floor to backplace from
+    }
+
+    /**
+     * Is this a FLOWING water cell — Baritone {@code MovementHelper.isFlowing}?
+     * A non-source level is flowing; a source block is "flowing" too when it
+     * feeds a horizontal neighbour (edge of a pool), which Baritone treats as
+     * unsafe to walk because the current there pushes you. Used to keep the
+     * route on still water only.
+     */
+    public static boolean isFlowingWater(BlockGetter level, BlockPos pos) {
+        FluidState fluid = level.getBlockState(pos).getFluidState();
+        if (!fluid.is(FluidTags.WATER)) return false;
+        if (!fluid.isSource()) return true;                 // amount < 8 → flowing
+        for (Direction d : HORIZONTAL) {
+            FluidState n = level.getBlockState(pos.relative(d)).getFluidState();
+            if (n.is(FluidTags.WATER) && !n.isSource()) return true;
+        }
+        return false;
     }
 
     /**
      * Can the entity stand on TOP of this block (i.e. is it a solid floor)?
-     * Requires a full-ish top face and no fluid.
+     *
+     * <p>Water mirrors Baritone {@code canWalkOnPosition} (jesus off): a water
+     * cell is "walkable on" iff there is water directly ABOVE it — i.e. you
+     * float at the surface, treading on the submerged column, never on the very
+     * top (air-headed) cell. Combined with {@link #canWalkThrough}'s surface
+     * rule, this pins the body to the water surface plane just like Baritone.
      */
     public static boolean canWalkOn(BlockGetter level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
-        if (!state.getFluidState().isEmpty()) return false;
+        FluidState fluid = state.getFluidState();
+        if (!fluid.isEmpty()) {
+            if (!fluid.is(FluidTags.WATER)) return false;   // lava (assumeWalkOnLava off)
+            // Walk on water only where water is above (submerged → float here).
+            return isWater(level, pos.above());
+        }
         if (state.isAir()) return false;
-        VoxelShape shape = state.getCollisionShape(level, pos, CollisionContext.empty());
-        if (shape.isEmpty()) return false;
-        // Top face must reach y=1 (full-height collision) so the entity doesn't
-        // sink into slabs/fences. max(Y) of the shape's bounds == 1.0.
-        return shape.max(net.minecraft.core.Direction.Axis.Y) >= 1.0;
+        // Baritone canWalkOnBlockState allow-list: blocks that are NOT full collision
+        // cubes but are still safe to stand on. The generic full-cube test below would
+        // miss these (farmland/path are 15/16 tall, chests/ladders/azalea aren't cubes).
+        if (state.is(Blocks.FARMLAND) || state.is(Blocks.DIRT_PATH) || state.is(Blocks.SOUL_SAND)) return true;
+        if (state.is(Blocks.CHEST) || state.is(Blocks.TRAPPED_CHEST) || state.is(Blocks.ENDER_CHEST)) return true;
+        if (state.is(Blocks.GLASS) || state.getBlock() instanceof StainedGlassBlock) return true;
+        if (state.is(Blocks.LADDER)) return true;
+        if (state.getBlock() instanceof AzaleaBlock) return true;
+        if (state.getBlock() instanceof StairBlock) return true;
+        if (state.getBlock() instanceof SlabBlock) {
+            // allowWalkOnBottomSlab=false: only top/double slabs are a floor.
+            return state.getValue(SlabBlock.TYPE) != SlabType.BOTTOM;
+        }
+        // Magma / honey are full cubes but Baritone refuses them (damage / stickiness).
+        if (state.is(Blocks.MAGMA_BLOCK) || state.is(Blocks.HONEY_BLOCK)) return false;
+        // Everything else: a normal full collision cube (Baritone isBlockNormalCube).
+        return state.isCollisionShapeFullBlock(level, pos);
     }
 
     /**
@@ -125,7 +228,59 @@ public final class BlockHelper {
             // but it isn't a damage hazard.
             return fluid.getType().getBucket() == net.minecraft.world.item.Items.LAVA_BUCKET;
         }
-        return false;
+        // The non-fluid members of Baritone's avoidWalkingInto — blocks we must never
+        // path into (magma is avoided at default allowWalkOnMagmaBlocks=false).
+        return state.is(Blocks.MAGMA_BLOCK)
+                || state.is(Blocks.CACTUS)
+                || state.is(Blocks.SWEET_BERRY_BUSH)
+                || state.getBlock() instanceof BaseFireBlock
+                || state.is(Blocks.END_PORTAL)
+                || state.is(Blocks.COBWEB)
+                || state.is(Blocks.BUBBLE_COLUMN);
+    }
+
+    /**
+     * Baritone {@code MovementHelper.avoidWalkingInto}: a cell we shouldn't walk/sprint
+     * INTO — ANY fluid (incl. water, unlike {@link #isHazard}) plus the same block set.
+     * Used for "is it safe to keep moving into the cell ahead" checks (walk-while-break
+     * suppressor, descend safeMode), where even water counts (the current shoves us).
+     */
+    public static boolean avoidWalkingInto(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (!state.getFluidState().isEmpty()) return true;
+        return state.is(Blocks.MAGMA_BLOCK)
+                || state.is(Blocks.CACTUS)
+                || state.is(Blocks.SWEET_BERRY_BUSH)
+                || state.getBlock() instanceof BaseFireBlock
+                || state.is(Blocks.END_PORTAL)
+                || state.is(Blocks.COBWEB)
+                || state.is(Blocks.BUBBLE_COLUMN);
+    }
+
+    /**
+     * Baritone {@code isBlockNormalCube}: a full-collision cube, EXCLUDING the handful of
+     * full-shape blocks you can't reliably look-at-and-place-against (bamboo, a moving
+     * piston, scaffolding, shulker boxes, pointed dripstone, amethyst clusters).
+     */
+    public static boolean isBlockNormalCube(BlockGetter level, BlockPos pos, BlockState state) {
+        Block b = state.getBlock();
+        if (b instanceof BambooStalkBlock || b instanceof MovingPistonBlock
+                || b instanceof ScaffoldingBlock || b instanceof ShulkerBoxBlock
+                || b instanceof PointedDripstoneBlock || b instanceof AmethystClusterBlock) {
+            return false;
+        }
+        return state.isCollisionShapeFullBlock(level, pos);
+    }
+
+    /**
+     * Baritone {@code canPlaceAgainst}: can we look at the centre of a side face of this
+     * block and likely place against it — a normal cube, plain glass, or stained glass
+     * (NOT every full-collision block: carpets, shulkers, scaffolding etc. are refused).
+     */
+    public static boolean canPlaceAgainst(BlockGetter level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        return isBlockNormalCube(level, pos, state)
+                || state.is(Blocks.GLASS) || state.getBlock() instanceof StainedGlassBlock;
     }
 
     /**

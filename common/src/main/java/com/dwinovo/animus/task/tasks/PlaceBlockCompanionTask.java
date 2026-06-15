@@ -1,28 +1,24 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusPlayer;
-import com.dwinovo.animus.pathing.exec.InputDriver;
+import com.dwinovo.animus.pathing.exec.PlaceManeuver;
+import com.dwinovo.animus.pathing.exec.Placement;
 import com.dwinovo.animus.pathing.exec.PlayerNav;
 import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.PlayerInv;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * {@code place_block} on the player body: walk within reach of a target cell and
- * place the requested block there with the player's own survival placement
- * ({@code gameMode.useItemOn} against a support face — vanilla BlockItem.place
- * derives orientation, consumes the item). Player-body twin of PlaceBlockTaskGoal.
+ * {@code place_block} on the player body: walk within reach (full pathfinding —
+ * digs / bridges / climbs to get there), then place like a real player with the
+ * shared {@link PlaceManeuver} "edge sneak" — hold sneak, edge to the block's rim
+ * so the support face comes into view, look at it, and place natively.
  */
 public final class PlaceBlockCompanionTask implements CompanionTask {
 
@@ -32,6 +28,7 @@ public final class PlaceBlockCompanionTask implements CompanionTask {
     private final AnimusPlayer player;
     private final PlaceBlockTaskRecord r;
     private PlayerNav nav;
+    private PlaceManeuver maneuver;
     private String doneReason = "done";
 
     public PlaceBlockCompanionTask(AnimusPlayer player, PlaceBlockTaskRecord record) {
@@ -50,7 +47,7 @@ public final class PlaceBlockCompanionTask implements CompanionTask {
             fail("target " + coords() + " is already occupied");
             return;
         }
-        if (supportClick(r.pos) == null) {
+        if (!Placement.hasAnySupport(level, r.pos)) {
             fail("can't place a floating " + r.label + " at " + coords() + " — nothing adjacent to place against");
             return;
         }
@@ -59,17 +56,27 @@ public final class PlaceBlockCompanionTask implements CompanionTask {
 
     @Override
     public TaskState tick() {
+        if (player.level().getBlockState(r.pos).is(r.block)) {
+            doneReason = "placed " + r.label + " at " + coords();
+            return TaskState.SUCCESS;
+        }
         if (withinReach()) {
-            if (player.level().getBlockState(r.pos).is(r.block)) {
-                doneReason = "placed " + r.label + " at " + coords();
-                return TaskState.SUCCESS;
+            if (maneuver == null) {
+                maneuver = new PlaceManeuver(player, r.pos,
+                        () -> PlayerInv.findSlot(player.getInventory(), r.item),
+                        () -> player.level().getBlockState(r.pos).is(r.block));
             }
-            place();
-            if (player.level().getBlockState(r.pos).is(r.block)) {
-                doneReason = "placed " + r.label + " at " + coords();
-                return TaskState.SUCCESS;
-            }
-            return TaskState.RUNNING;
+            return switch (maneuver.tick()) {
+                case DONE -> {
+                    doneReason = "placed " + r.label + " at " + coords();
+                    yield TaskState.SUCCESS;
+                }
+                case FAILED -> {
+                    doneReason = maneuver.failReason();
+                    yield TaskState.FAILED;
+                }
+                case RUNNING -> TaskState.RUNNING;
+            };
         }
         if (nav == null) return TaskState.FAILED;
         return switch (nav.tick()) {
@@ -79,40 +86,6 @@ public final class PlaceBlockCompanionTask implements CompanionTask {
                 yield TaskState.FAILED;
             }
         };
-    }
-
-    private void place() {
-        int slot = PlayerInv.findSlot(player.getInventory(), r.item);
-        if (slot < 0) return;
-        BlockHitResult hit = supportClick(r.pos);
-        if (hit == null) return;
-        ItemStack stack = player.getInventory().getItem(slot);
-        player.setItemInHand(InteractionHand.MAIN_HAND, stack);
-        InputDriver.lookAt(player, hit.getLocation());
-        player.setShiftKeyDown(true);
-        try {
-            player.gameMode.useItemOn(player, player.level(),
-                    player.getItemInHand(InteractionHand.MAIN_HAND), InteractionHand.MAIN_HAND, hit);
-        } finally {
-            player.setShiftKeyDown(false);
-        }
-    }
-
-    private BlockHitResult supportClick(BlockPos cell) {
-        Direction[] order = {Direction.DOWN, Direction.NORTH, Direction.SOUTH,
-                Direction.EAST, Direction.WEST, Direction.UP};
-        for (Direction d : order) {
-            BlockPos neighbour = cell.relative(d);
-            if (player.level().getBlockState(neighbour)
-                    .getCollisionShape(player.level(), neighbour).isEmpty()) {
-                continue;
-            }
-            Direction face = d.getOpposite();
-            Vec3 hit = Vec3.atCenterOf(neighbour)
-                    .add(face.getStepX() * 0.5, face.getStepY() * 0.5, face.getStepZ() * 0.5);
-            return new BlockHitResult(hit, face, neighbour, false);
-        }
-        return null;
     }
 
     private boolean withinReach() {
@@ -131,6 +104,7 @@ public final class PlaceBlockCompanionTask implements CompanionTask {
     @Override
     public TaskResult buildResult(TaskState finalState) {
         if (nav != null) nav.stop();
+        if (maneuver != null) maneuver.stop();
         Map<String, Object> data = new HashMap<>();
         data.put("block", r.label);
         data.put("x", r.pos.getX());
