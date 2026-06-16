@@ -93,16 +93,14 @@ public final class NavContext {
 
     private BestTool scanBestTool(BlockState state) {
         float bestSpeed = 1.0f;                                   // bare hand baseline
-        boolean canHarvest = !state.requiresCorrectToolForDrops();
         int hotbar = Math.min(9, inventory.getContainerSize());   // quick-switchable slots
         for (int i = 0; i < hotbar; i++) {
             ItemStack s = inventory.getItem(i);
             if (s.isEmpty()) continue;
             float spd = s.getDestroySpeed(state);
             if (spd > bestSpeed) bestSpeed = spd;
-            if (!canHarvest && s.isCorrectToolForDrops(state)) canHarvest = true;
         }
-        return new BestTool(bestSpeed, canHarvest);
+        return new BestTool(bestSpeed, BlockHelper.canHarvest(inventory, state));
     }
 
     private static boolean hasAnyScaffold(Container inv) {

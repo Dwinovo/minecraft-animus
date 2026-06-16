@@ -3,6 +3,7 @@ package com.dwinovo.animus.task.tasks;
 import com.dwinovo.animus.entity.AnimusPlayer;
 import com.dwinovo.animus.pathing.exec.Interaction;
 import com.dwinovo.animus.pathing.exec.PlayerNav;
+import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
@@ -48,6 +49,17 @@ public final class BreakBlockCompanionTask implements CompanionTask {
         String hazard = BlockMiningProgress.fluidBreakHazard(player.level(), r.target);
         if (hazard != null) {
             doneReason = hazard;
+            r.setState(TaskState.FAILED);
+            return;
+        }
+        // Fail fast instead of grinding a block the current tools can't HARVEST: breaking a
+        // requiresCorrectToolForDrops block (stone, ore, …) bare-handed destroys it for no drop
+        // (or, for hard blocks, just times out). Same gate the pathfinder/auto-mine cost model
+        // uses (COST_INF) — teach the model to equip a tool rather than waste the block.
+        if (!BlockHelper.canHarvest(player.getInventory(), state)) {
+            doneReason = "can't usefully break " + brokenBlock + " at " + posLabel()
+                    + " — the hotbar has no tool that harvests it, so breaking it would destroy it"
+                    + " without any drop. Equip the right tool (e.g. a pickaxe) to the hotbar first.";
             r.setState(TaskState.FAILED);
             return;
         }

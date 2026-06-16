@@ -3,6 +3,7 @@ package com.dwinovo.animus.pathing.util;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.Container;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.AbstractSkullBlock;
 import net.minecraft.world.level.block.AmethystClusterBlock;
@@ -399,6 +400,26 @@ public final class BlockHelper {
      */
     private static BlockGetter asBlockGetterLevel(BlockGetter level) {
         return level;
+    }
+
+    /**
+     * Can {@code inv}'s tools actually HARVEST {@code state}'s drops — i.e. break it and get the
+     * item, not just destroy it? True when the block drops without a tool, or some hotbar slot
+     * (0-8, the quick-switchable set Baritone's ToolSet uses) holds the correct tool. Mining a
+     * {@code requiresCorrectToolForDrops} block with the wrong tool removes it for nothing, so
+     * the cost model vetoes it and the break/mine tools refuse it. Single source of truth.
+     */
+    public static boolean canHarvest(Container inv, BlockState state) {
+        if (!state.requiresCorrectToolForDrops()) {
+            return true;
+        }
+        int hotbar = Math.min(9, inv.getContainerSize());
+        for (int i = 0; i < hotbar; i++) {
+            if (inv.getItem(i).isCorrectToolForDrops(state)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Convenience: full-block solid we are happy to place scaffolding against. */
