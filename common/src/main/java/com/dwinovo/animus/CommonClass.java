@@ -22,7 +22,6 @@ import com.dwinovo.animus.agent.tool.tools.LoadFurnaceTool;
 import com.dwinovo.animus.agent.tool.tools.CheckFurnaceTool;
 import com.dwinovo.animus.agent.tool.tools.CollectFurnaceTool;
 import com.dwinovo.animus.agent.tool.tools.PlaceBlockTool;
-import com.dwinovo.animus.agent.tool.tools.UseItemTool;
 import com.dwinovo.animus.agent.tool.tools.EatItemTool;
 import com.dwinovo.animus.agent.tool.tools.MoveToTool;
 import com.dwinovo.animus.agent.tool.tools.ScanBlocksTool;
@@ -81,7 +80,6 @@ public class CommonClass {
         ToolRegistry.register(new BreakBlockTool());
         ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.InteractAtTool());
         ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.InteractEntityTool());
-        ToolRegistry.register(new UseItemTool());
         ToolRegistry.register(new EatItemTool());
         ToolRegistry.register(new WaitTool());
         ToolRegistry.register(new DropItemsTool());

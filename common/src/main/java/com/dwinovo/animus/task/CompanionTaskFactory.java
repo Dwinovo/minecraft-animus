@@ -18,8 +18,6 @@ import com.dwinovo.animus.task.tasks.MineCompanionTask;
 import com.dwinovo.animus.task.tasks.MoveToCompanionTask;
 import com.dwinovo.animus.task.tasks.MoveToTaskRecord;
 import com.dwinovo.animus.task.tasks.PlaceBlockCompanionTask;
-import com.dwinovo.animus.task.tasks.UseItemCompanionTask;
-import com.dwinovo.animus.task.tasks.UseItemTaskRecord;
 import com.dwinovo.animus.task.tasks.PlaceBlockTaskRecord;
 import com.dwinovo.animus.task.tasks.WaitCompanionTask;
 import com.dwinovo.animus.task.tasks.WaitTaskRecord;
@@ -63,7 +61,6 @@ public final class CompanionTaskFactory {
             return new com.dwinovo.animus.task.tasks.InteractAtCompanionTask(player, r);
         if (record instanceof com.dwinovo.animus.task.tasks.InteractEntityTaskRecord r)
             return new com.dwinovo.animus.task.tasks.InteractEntityCompanionTask(player, r);
-        if (record instanceof UseItemTaskRecord r) return new UseItemCompanionTask(player, r);
         if (record instanceof com.dwinovo.animus.task.tasks.LocateStructureTaskRecord r)
             return new com.dwinovo.animus.task.tasks.LocateStructureTaskGoal(player, r);
         if (record instanceof com.dwinovo.animus.task.tasks.LocateBiomeTaskRecord r)

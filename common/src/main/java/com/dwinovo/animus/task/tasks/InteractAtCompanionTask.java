@@ -5,8 +5,10 @@ import com.dwinovo.animus.pathing.exec.InputDriver;
 import com.dwinovo.animus.pathing.exec.Interaction;
 import com.dwinovo.animus.pathing.exec.PlayerNav;
 import com.dwinovo.animus.task.CompanionTask;
+import com.dwinovo.animus.task.PlayerInv;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -42,8 +44,14 @@ public final class InteractAtCompanionTask implements CompanionTask {
 
     @Override
     public void start() {
+        // If an item to use was named, fail fast unless we actually carry it.
+        if (r.item != null && PlayerInv.count(player.getInventory(), r.item) <= 0) {
+            doneReason = "don't have " + BuiltInRegistries.ITEM.getKey(r.item).getPath() + " to use";
+            r.setState(TaskState.FAILED);
+            return;
+        }
         // An aim point → walk within arm's reach of it first. No aim → act from where we stand,
-        // facing forward (in-air use, e.g. eating / throwing straight ahead).
+        // facing forward (in-air use, e.g. throwing straight ahead).
         if (r.aim != null) {
             nav = new PlayerNav(player, r.aim, WALK_SPEED, this::withinReach);
         }
@@ -65,10 +73,22 @@ public final class InteractAtCompanionTask implements CompanionTask {
 
         // 2) Resolve the crosshair once we're in position, then drive the action.
         if (interaction == null) {
+            if (r.item != null) {
+                player.holdInHand(PlayerInv.findSlot(player.getInventory(), r.item));
+            }
             if (r.aim != null) {
                 InputDriver.lookAt(player, Vec3.atCenterOf(r.aim));
             }
             HitResult hit = Interaction.nativeRaytrace(player, REACH);
+            // A consumable / ender pearl used in the AIR is body-bound (would feed or teleport the
+            // fake player) — refuse even when it's just whatever happened to be in hand.
+            if (button() == Interaction.Button.USE && hit.getType() == HitResult.Type.MISS) {
+                String reason = InteractAtTaskRecord.bodyBoundReason(player.getMainHandItem().getItem());
+                if (reason != null) {
+                    doneReason = reason;
+                    return TaskState.FAILED;
+                }
+            }
             interaction = Interaction.forHit(player, hit, button(), r.holdTicks);
             if (interaction == null) {       // left-click on air — a swing, nothing to do
                 doneReason = "nothing under the aim (left-click in the air)";

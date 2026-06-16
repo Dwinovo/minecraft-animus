@@ -2,6 +2,10 @@ package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.task.TaskRecord;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 
 /**
  * Typed descriptor for {@code interact_at} — the point-aimed half of the native
@@ -29,18 +33,41 @@ public final class InteractAtTaskRecord extends TaskRecord {
     public final Button button;
     public final BlockPos aim;     // null → current facing (in-air use)
     public final int holdTicks;
+    public final Item item;        // null → use whatever is already in hand; else equip this first
 
     public InteractAtTaskRecord(String toolCallId, long deadlineGameTime,
-                                Button button, BlockPos aim, int holdTicks) {
+                                Button button, BlockPos aim, int holdTicks, Item item) {
         super(TOOL_NAME, toolCallId, deadlineGameTime);
         this.button = button;
         this.aim = aim != null ? aim.immutable() : null;
         this.holdTicks = holdTicks;
+        this.item = item;
+    }
+
+    /**
+     * Why {@code item} must not be used through the fake-player body, or {@code null} if it's fine.
+     * The companion is a WORLD actuator: a consumable would feed the fake player (no heal, wasted),
+     * and an ender pearl's landing teleports its OWNER — body-bound and undefined for a fake player.
+     */
+    public static String bodyBoundReason(Item item) {
+        if (item == null) {
+            return null;
+        }
+        if (item.components().has(DataComponents.CONSUMABLE)) {
+            return BuiltInRegistries.ITEM.getKey(item).getPath()
+                    + " is a consumable — use eat_item (using it through the world body wouldn't heal you).";
+        }
+        if (item == Items.ENDER_PEARL) {
+            return "ender_pearl teleportation is body-bound and not supported — to travel use move_to, "
+                    + "to find a stronghold use locate_structure(\"minecraft:stronghold\").";
+        }
+        return null;
     }
 
     @Override
     public String describe() {
         return TOOL_NAME + " " + (button == Button.LEFT ? "left" : "right")
+                + (item != null ? " " + BuiltInRegistries.ITEM.getKey(item).getPath() : "")
                 + (aim != null ? " @" + aim.getX() + "," + aim.getY() + "," + aim.getZ() : " (forward)")
                 + (holdTicks != 0 ? " hold=" + holdTicks : "");
     }

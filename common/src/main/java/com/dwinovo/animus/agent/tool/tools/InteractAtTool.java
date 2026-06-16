@@ -5,6 +5,10 @@ import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.tasks.InteractAtTaskRecord;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,20 +31,23 @@ public final class InteractAtTool implements AnimusTool {
     @Override
     public String description() {
         return "Aim at a world point and press one mouse button — the native crosshair "
-                + "interaction for BLOCKS and the AIR (entities use interact_entity). Auto-paths "
-                + "to within reach like move_to, then a raytrace resolves what's under the aim.\n"
-                + "• button=right (use): activate the block at x,y,z (lever/button/door/bed/"
-                + "crafting table/modded machine GUI) with whatever is in hand. If x,y,z point at "
-                + "CLEAR AIR (or are omitted), the held item is used in that direction instead — "
-                + "throw an ender_pearl/snowball toward x,y,z, or eat/drink (omit x,y,z). Equip "
-                + "the item first.\n"
-                + "• button=left (attack): break the block at x,y,z (native timed; the right tool "
-                + "must be in inventory). Left-click on air does nothing.\n"
+                + "interaction for BLOCKS and the AIR (moving entities use interact_entity). "
+                + "Auto-paths within reach like move_to, then a raytrace resolves what's under the aim.\n"
+                + "• button=right (use): activate the block at x,y,z (lever/button/door/bed/crafting "
+                + "table/modded machine GUI), or USE an item ON it — e.g. bonemeal a crop, an "
+                + "ender_eye on an end_portal_frame to fill it. LIGHT A NETHER PORTAL: flint_and_steel "
+                + "aimed at an EMPTY AIR cell INSIDE the obsidian frame (not the obsidian). BUCKETS: "
+                + "an empty bucket on a SOURCE water/lava cell fills it; a full bucket on the cell to "
+                + "pour into empties it. Omit x,y,z (or aim at clear air) to use the held item in the "
+                + "air — e.g. throw an ender_eye to locate a stronghold, lob a snowball.\n"
+                + "• button=left (attack): break the block at x,y,z (native timed; the right tool must "
+                + "be in inventory). Left-click on air does nothing.\n"
+                + "item_id: optionally the item to use — it is equipped to the hand first, so you "
+                + "don't need a separate equip_item. Omit to use whatever is already in hand.\n"
                 + "hold_ticks: 0 = a single press; >0 = HOLD that many ticks (a modded machine that "
-                + "needs continuous right-click, or a bow draw); -1 = hold until it finishes or the "
-                + "task times out. Throwing/aiming a pearl: aim a little ABOVE the destination "
-                + "(thrown items arc). For breaking/placing routine blocks prefer break_block/"
-                + "place_block.";
+                + "needs continuous right-click, or a bow draw — 20 fully charges a bow); -1 = hold "
+                + "until it finishes or the task times out. For routine breaking/placing prefer "
+                + "break_block/place_block; eating/drinking is eat_item (not this).";
     }
 
     @Override
@@ -56,11 +63,13 @@ public final class InteractAtTool implements AnimusTool {
                 "description", "Aim Z. Null when aiming forward."));
         properties.put("hold_ticks", Map.of("type", List.of("integer", "null"),
                 "description", "0/null = single press; >0 = hold that many ticks; -1 = hold until done/timeout."));
+        properties.put("item_id", Map.of("type", List.of("string", "null"),
+                "description", "Optional namespaced item to equip-and-use, e.g. minecraft:bonemeal. Null = use what's in hand."));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
         schema.put("properties", properties);
-        schema.put("required", List.of("button", "x", "y", "z", "hold_ticks"));
+        schema.put("required", List.of("button", "x", "y", "z", "hold_ticks", "item_id"));
         schema.put("additionalProperties", false);
         return schema;
     }
@@ -86,7 +95,28 @@ public final class InteractAtTool implements AnimusTool {
             }
             aim = new BlockPos(x, y, z);
         }
-        return new InteractAtTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS, button, aim, holdTicks);
+        Item item = readItem(args);
+        String bodyBound = InteractAtTaskRecord.bodyBoundReason(item);
+        if (bodyBound != null) {
+            throw new IllegalArgumentException(bodyBound);
+        }
+        return new InteractAtTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS, button, aim, holdTicks, item);
+    }
+
+    /** Parse the optional item_id, or null when omitted. */
+    private static Item readItem(JsonObject args) {
+        if (!args.has("item_id") || args.get("item_id").isJsonNull()) {
+            return null;
+        }
+        Identifier id = Identifier.tryParse(args.get("item_id").getAsString());
+        if (id == null) {
+            throw new IllegalArgumentException("item_id is not a valid id: " + args.get("item_id"));
+        }
+        Item item = BuiltInRegistries.ITEM.getValue(id);
+        if (item == null || item == Items.AIR) {
+            throw new IllegalArgumentException("unknown item: " + id);
+        }
+        return item;
     }
 
     private static InteractAtTaskRecord.Button readButton(JsonObject args) {
