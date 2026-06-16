@@ -63,8 +63,13 @@ public final class PathCaches {
     private static final int SEED_RADIUS_CHUNKS = 8;
     /** Prune cadence — pruning scans every cached section, so do it occasionally, not every tick. */
     private static final int PRUNE_INTERVAL_TICKS = 200;
+    /** Keep a companion-less level's cache this long before freeing it, so a brief roster gap (a dormant
+     *  re-summon, a one-tick teleport blip) doesn't drop and then fully re-seed ~hundreds of chunks. */
+    private static final int CACHE_IDLE_GRACE_TICKS = 600;
 
     private static int tickCounter;
+    /** Consecutive ticks each cached level has had no companion (main-thread only). */
+    private static final Map<ResourceKey<Level>, Integer> idleTicks = new HashMap<>();
 
     /**
      * Once per server tick: group companions by level, seed a level's cache the first time a companion
@@ -84,7 +89,16 @@ public final class PathCaches {
         for (ServerLevel sl : byLevel.keySet()) {
             active.add(sl.dimension());
         }
-        CACHES.keySet().removeIf(k -> !active.contains(k));   // free companion-less levels
+        // Free caches for levels with no companion — but only after a grace period, so a transient
+        // roster gap doesn't trigger a drop + full re-seed.
+        for (ResourceKey<Level> key : new ArrayList<>(CACHES.keySet())) {
+            if (active.contains(key)) {
+                idleTicks.remove(key);
+            } else if (idleTicks.merge(key, 1, Integer::sum) > CACHE_IDLE_GRACE_TICKS) {
+                CACHES.remove(key);
+                idleTicks.remove(key);
+            }
+        }
 
         boolean doPrune = (++tickCounter % PRUNE_INTERVAL_TICKS) == 0;
         for (Map.Entry<ServerLevel, List<BlockPos>> e : byLevel.entrySet()) {

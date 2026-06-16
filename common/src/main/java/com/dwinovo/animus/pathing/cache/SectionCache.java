@@ -28,8 +28,9 @@ public final class SectionCache {
     public static final double PRUNE_DISTANCE = 1024.0;
 
     private final ConcurrentHashMap<Long, CompactSection> sections = new ConcurrentHashMap<>();
-    /** Section keys whose live contents changed and need re-encoding on the main thread (P-B2). */
-    private final Set<Long> dirty = ConcurrentHashMap.newKeySet();
+    /** Section keys whose live contents changed and need re-encoding on the main thread (P-B2).
+     *  Swapped out wholesale by {@link #drainDirty} so a mark landing mid-drain can't be lost. */
+    private volatile Set<Long> dirty = ConcurrentHashMap.newKeySet();
 
     /** Block state at world {@code (x,y,z)}, or AIR if that section isn't cached (Baritone's
      *  miss → AIR). Race-free for off-thread readers. */
@@ -60,16 +61,16 @@ public final class SectionCache {
         dirty.add(sectionKey(x, y, z));
     }
 
-    /** Take and clear the pending dirty section keys, for the main thread to re-encode. */
+    /** Take the pending dirty section keys (for the main thread to re-encode), clearing them. Atomic
+     *  swap rather than snapshot-then-remove: a {@link #markDirty} arriving mid-drain lands in the fresh
+     *  set and is handled next round, never silently dropped. */
     public long[] drainDirty() {
-        if (dirty.isEmpty()) {
+        Set<Long> snapshot = dirty;
+        if (snapshot.isEmpty()) {
             return EMPTY;
         }
-        long[] out = dirty.stream().mapToLong(Long::longValue).toArray();
-        for (long k : out) {
-            dirty.remove(k);
-        }
-        return out;
+        dirty = ConcurrentHashMap.newKeySet();
+        return snapshot.stream().mapToLong(Long::longValue).toArray();
     }
 
     // ---- pruning (Baritone CachedWorld.prune) ----

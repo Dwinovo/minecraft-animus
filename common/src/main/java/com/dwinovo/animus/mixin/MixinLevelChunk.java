@@ -16,6 +16,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * section dirty; the actual re-encode happens on the main thread end-of-tick ({@link
  * PathCaches#flushDirty}). {@link PathCaches#onBlockChanged} is a no-op unless this level has a cache
  * (a companion is operating here), so an idle server pays a single map lookup per block change.
+ *
+ * <p><b>Coverage:</b> every {@code Level.setBlock} (player edits, the companion's own mining/building,
+ * redstone, pistons, fluids) funnels through here, so companion-relevant changes are caught. A few
+ * engine-internal paths write a loaded section directly (post-load worldgen / structures into an
+ * already-loaded neighbour, bulk section swaps) and are NOT tracked — the cache can lag live there.
+ * That's the same eventual-consistency Baritone accepts; the executor re-costs against the LIVE world
+ * and replans on divergence, so a stale search cell self-corrects rather than misleads.
  */
 @Mixin(LevelChunk.class)
 public class MixinLevelChunk {
