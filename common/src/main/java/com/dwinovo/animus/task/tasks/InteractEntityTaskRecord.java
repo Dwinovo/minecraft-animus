@@ -1,6 +1,8 @@
 package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.task.TaskRecord;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.Item;
 
 /**
  * Typed descriptor for {@code interact_entity} — the entity-aimed half of the native
@@ -26,18 +28,21 @@ public final class InteractEntityTaskRecord extends TaskRecord {
     public final Button button;
     public final int entityId;
     public final int holdTicks;
+    public final Item item;        // null → use whatever is in hand; else equip this first (food / shears / weapon)
 
     public InteractEntityTaskRecord(String toolCallId, long deadlineGameTime,
-                                    Button button, int entityId, int holdTicks) {
+                                    Button button, int entityId, int holdTicks, Item item) {
         super(TOOL_NAME, toolCallId, deadlineGameTime);
         this.button = button;
         this.entityId = entityId;
         this.holdTicks = holdTicks;
+        this.item = item;
     }
 
     @Override
     public String describe() {
         return TOOL_NAME + " " + (button == Button.LEFT ? "left" : "right")
+                + (item != null ? " " + BuiltInRegistries.ITEM.getKey(item).getPath() : "")
                 + " entity#" + entityId + (holdTicks != 0 ? " hold=" + holdTicks : "");
     }
 }

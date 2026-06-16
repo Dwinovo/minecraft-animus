@@ -5,8 +5,10 @@ import com.dwinovo.animus.pathing.exec.InputDriver;
 import com.dwinovo.animus.pathing.exec.Interaction;
 import com.dwinovo.animus.pathing.exec.PlayerNav;
 import com.dwinovo.animus.task.CompanionTask;
+import com.dwinovo.animus.task.PlayerInv;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.EntityHitResult;
@@ -49,6 +51,11 @@ public final class InteractEntityCompanionTask implements CompanionTask {
         entity = ((ServerLevel) player.level()).getEntity(r.entityId);
         if (entity == null || !entity.isAlive()) {
             doneReason = "no entity with id " + r.entityId + " nearby (it may have despawned or moved out of range)";
+            r.setState(TaskState.FAILED);
+            return;
+        }
+        if (r.item != null && PlayerInv.count(player.getInventory(), r.item) <= 0) {
+            doneReason = "don't have " + BuiltInRegistries.ITEM.getKey(r.item).getPath() + " to use on it";
             r.setState(TaskState.FAILED);
             return;
         }
@@ -99,6 +106,9 @@ public final class InteractEntityCompanionTask implements CompanionTask {
         }
 
         if (interaction == null) {
+            if (r.item != null) {
+                player.holdInHand(PlayerInv.findSlot(player.getInventory(), r.item));
+            }
             interaction = Interaction.forHit(player, hit, button(), r.holdTicks);
             if (r.holdTicks > 0) {
                 holdUntil = player.level().getGameTime() + r.holdTicks;

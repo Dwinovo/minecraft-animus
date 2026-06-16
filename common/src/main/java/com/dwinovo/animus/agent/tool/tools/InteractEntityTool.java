@@ -4,6 +4,10 @@ import com.dwinovo.animus.agent.tool.AnimusTool;
 import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.tasks.InteractEntityTaskRecord;
 import com.google.gson.JsonObject;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,9 +35,11 @@ public final class InteractEntityTool implements AnimusTool {
                 + "through).\n"
                 + "• button=left (attack): hit it. hold_ticks=-1 keeps hitting until it dies "
                 + "(killing a mob); 0 = a single hit.\n"
-                + "• button=right (use): interact with the held item — trade a villager, breed/feed, "
-                + "mount, shear, name. hold_ticks>0 for a modded entity needing continuous "
-                + "right-click. Equip the needed item first.\n"
+                + "• button=right (use): interact with the held item — trade a villager, breed/feed "
+                + "(wheat/seeds/carrots), shear a sheep, name with a name_tag, saddle. hold_ticks>0 "
+                + "for a modded entity needing continuous right-click.\n"
+                + "item_id: optionally the item to equip-and-use first (the food / shears / weapon), "
+                + "so you don't need a separate equip_item. Omit to use what's in hand.\n"
                 + "hold_ticks: 0 = one press; >0 = hold that many ticks; -1 = hold until done "
                 + "(dead / finished) or timeout. Use interact_at for blocks and thrown items.";
     }
@@ -47,11 +53,13 @@ public final class InteractEntityTool implements AnimusTool {
                 "description", "Target entity id (from scan_nearby_entities)."));
         properties.put("hold_ticks", Map.of("type", List.of("integer", "null"),
                 "description", "0/null = single press; >0 = hold that many ticks; -1 = hold until done/timeout (e.g. attack until dead)."));
+        properties.put("item_id", Map.of("type", List.of("string", "null"),
+                "description", "Optional namespaced item to equip-and-use, e.g. minecraft:wheat. Null = use what's in hand."));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
         schema.put("properties", properties);
-        schema.put("required", List.of("button", "entity_id", "hold_ticks"));
+        schema.put("required", List.of("button", "entity_id", "hold_ticks", "item_id"));
         schema.put("additionalProperties", false);
         return schema;
     }
@@ -81,7 +89,23 @@ public final class InteractEntityTool implements AnimusTool {
                 throw new IllegalArgumentException("hold_ticks must be an integer or null: " + ex.getMessage());
             }
         }
-        return new InteractEntityTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS, button, entityId, holdTicks);
+        return new InteractEntityTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS, button, entityId, holdTicks, readItem(args));
+    }
+
+    /** Parse the optional item_id, or null when omitted. (Used ON the entity, so no body-bound veto.) */
+    private static Item readItem(JsonObject args) {
+        if (!args.has("item_id") || args.get("item_id").isJsonNull()) {
+            return null;
+        }
+        Identifier id = Identifier.tryParse(args.get("item_id").getAsString());
+        if (id == null) {
+            throw new IllegalArgumentException("item_id is not a valid id: " + args.get("item_id"));
+        }
+        Item item = BuiltInRegistries.ITEM.getValue(id);
+        if (item == null || item == Items.AIR) {
+            throw new IllegalArgumentException("unknown item: " + id);
+        }
+        return item;
     }
 
     private static InteractEntityTaskRecord.Button readButton(JsonObject args) {

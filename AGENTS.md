@@ -42,7 +42,7 @@
 | `collect_furnace` | `x, y, z` | 寻路到熔炉→把产物槽掏进背包→返回取走数 + 剩余状态(还在烧几个、背包满了剩多少在炉里)。坐标来自 `load_furnace`。没烧好会如实回报"还没好"。 |
 | `place_block` | `block_id, x, y, z` | 在绝对坐标放一个方块:寻路到目标**相邻可站位**(搭桥/挖障同 move_to)→**经 FakePlayer `useItemOn` 对参照方块放置**(走真实 `BlockItem.place`,**朝向正确**:楼梯/原木/箱子/门/床/含水)。吸收 Voyager 的**支撑检查**:目标必须有相邻实体方块,**拒绝浮空放置**;目标格须空/可替换;不持有/非方块/无支撑/无可达站位都给指导性失败。用于火把照明、墙体掩体、封洞、按需摆工作台/熔炉/箱子。 |
 | `interact_at` | `button, x?, y?, z?, hold_ticks?, item_id?` | **原生准心交互(方块+空气列)**:寻路到 aim 点 → `Interaction.nativeRaytrace`(原版准心,真视线)→ 按命中分发。`button=right`=激活方块/对方块用物品(打火石点门=瞄框内空气格、末影之眼填框架、骨粉、桶)或对空用(投掷)。`button=left`=破坏方块。`item_id`=先 equip 再用(替代单独 equip_item)。`hold_ticks`:0 单击/ >0 按住 N(模组机连续右键、弓蓄力 20)/ -1 按到完成。消耗品/末影珍珠 `bodyBoundReason` 拒绝(eat_item / move_to)。**取代旧 `use_item` + `interact`**。 |
-| `interact_entity` | `button, entity_id, hold_ticks?` | **原生准心交互(实体列)**:按 id 自动寻路**跟随活体** → 真视线命中目标才动手(隔墙绕过去不砸墙)。`left`=攻击(`hold=-1` 打到死=旧 hunt)、`right`=交互(交易/繁殖/骑乘/剪)。共用 `Interaction.forHit`。 |
+| `interact_entity` | `button, entity_id, hold_ticks?, item_id?` | **原生准心交互(实体列)**:按 id 自动寻路**跟随活体** → 真视线命中目标才动手(隔墙绕过去不砸墙)。`left`=攻击(`hold=-1` 打到死=旧 hunt)、`right`=交互(交易/繁殖喂食/骑乘/剪)。`item_id`=先 equip 再用(食物/剪刀/武器)。共用 `Interaction.forHit`。 |
 | `eat_item` | `item_id` | **吃东西直接回血**(直接作用于 Animus,不走 FakePlayer;饥饿系统已删除)。过程式:按食物 `consumeSeconds` 持续若干 tick(碎屑粒子+音效),吃满才结算回血+食物效果,中途打断不消耗。结果回报 `HP x/20 (+y)`。战斗中低血量由 `AutoEater` 反射自动触发,不等 LLM。 |
 
 **自我 / 库存感知（读自身）**
