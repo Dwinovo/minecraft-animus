@@ -60,6 +60,10 @@ public final class PlayerPathExecutor {
     /** Set when we sprint-carried into this descend (Baritone canSprintFromDescendInto) —
      *  the descend drives at sprint speed instead of a controlled walk-down. */
     private boolean sprintDescend = false;
+    /** When a fall can overshoot forward over the same-direction traverses below it
+     *  (Baritone overrideFall), this is the extended aim point: driveFall sprints at it
+     *  instead of braking straight down. Recomputed each tick; null = no override. */
+    private Vec3 fallOverrideAim = null;
     /** The live edge-sneak scaffold placement for the current move (null when idle). */
     private PlaceManeuver placeManeuver;
     /** Progressive break of path obstructions (shared model with auto-mine). */
@@ -91,6 +95,14 @@ public final class PlayerPathExecutor {
         // junction (sprint up the stairs) instead of arriving at the traverse first. May
         // advance the index BEFORE we resolve the move to drive.
         trySprintSkip();
+        // Baritone overrideFall: a fall that lines up with the corridor below it overshoots
+        // forward (sprint off the ledge) and splices those traverses. May advance the index.
+        tryFallOverride();
+        // A splice/skip can land us at the path end (the overshoot ran to the last move) —
+        // re-check arrival before resolving a move, or movements.get(index) would overrun.
+        if (index >= path.movements.size()) {
+            return path.partial ? Status.NEEDS_REPLAN : Status.ARRIVED;
+        }
 
         Movement mv = path.movements.get(index);
 
@@ -350,6 +362,16 @@ public final class PlayerPathExecutor {
      * fast-falling ({@code |Δy|>0.4}) to kill horizontal drift and land cleanly.
      */
     private void driveFall(Movement mv) {
+        if (fallOverrideAim != null) {
+            // Overshoot: sprint forward at the extended aim so we clear the ledge and ride the
+            // fall over the corridor below, instead of braking straight down (Baritone overrideFall).
+            player.setShiftKeyDown(false);
+            InputDriver.lookAt(player, fallOverrideAim);
+            player.zza = 1.0f;
+            player.xxa = 0.0f;
+            player.setSprinting(true);
+            return;
+        }
         var v = player.getDeltaMovement();
         double cx = mv.dest.getX() + 0.5;
         double cz = mv.dest.getZ() + 0.5;
@@ -382,6 +404,60 @@ public final class PlayerPathExecutor {
             }
         }
         return c;
+    }
+
+    /** Carry/aim of an overshooting fall. */
+    private record FallOverride(Vec3 aim, BlockPos fallDest, int spliceIndex) {}
+
+    /** Baritone PathExecutor overrideFall handling: if the current FALL lines up with the
+     *  corridor below it, either splice past it (once we've landed at the extended dest) or
+     *  set the forward aim so driveFall sprints off the ledge. Recomputed each tick. */
+    private void tryFallOverride() {
+        fallOverrideAim = null;
+        if (index >= path.movements.size()) return;
+        Movement cur = path.movements.get(index);
+        if (cur.kind != Movement.Kind.FALL) return;
+        FallOverride fo = overrideFall(cur);
+        if (fo == null) return;
+        if (feet().equals(fo.fallDest)) {
+            jumpToIndex(fo.spliceIndex);   // landed at the overshoot dest — continue past the spliced traverses
+            return;
+        }
+        fallOverrideAim = fo.aim;
+    }
+
+    /** Baritone PathExecutor.overrideFall: a fall of ≤3 that isn't breaking and is followed by
+     *  up to two same-flat-direction traverses, each with a clear column up to the fall's head
+     *  and a solid floor, can overshoot forward — the body rides the fall out over the corridor
+     *  and lands at the last such traverse's dest. Returns null when no extension is valid. */
+    private FallOverride overrideFall(Movement mv) {
+        BlockPos dir = dirOf(mv);
+        if (dir.getY() < -3) return null;          // too deep to overshoot safely
+        if (!mv.toBreak.isEmpty()) return null;    // it's breaking
+        BlockPos flatDir = new BlockPos(dir.getX(), 0, dir.getZ());
+        int i;
+        // Baritone bound is i < path.length()-1; length()==movements+1, so == movements.size().
+        for (i = index + 1; i < path.movements.size() && i < index + 3; i++) {
+            Movement next = path.movements.get(i);
+            if (next.kind != Movement.Kind.TRAVERSE) break;
+            if (!flatDir.equals(dirOf(next))) break;
+            boolean columnBlocked = false;
+            for (int y = next.dest.getY(); y <= mv.src.getY() + 1; y++) {
+                BlockPos chk = new BlockPos(next.dest.getX(), y, next.dest.getZ());
+                if (!BlockHelper.canWalkThrough(player.level(), chk)) { columnBlocked = true; break; }
+            }
+            if (columnBlocked) break;
+            if (!BlockHelper.canWalkOn(player.level(), next.dest.below())) break;
+        }
+        i--;
+        if (i == index) return null;   // no valid extension exists
+        double len = i - index - 0.4;
+        int steps = i - index;
+        Vec3 aim = new Vec3(flatDir.getX() * len + mv.dest.getX() + 0.5,
+                mv.dest.getY(),
+                flatDir.getZ() * len + mv.dest.getZ() + 0.5);
+        BlockPos fallDest = mv.dest.offset(flatDir.getX() * steps, 0, flatDir.getZ() * steps);
+        return new FallOverride(aim, fallDest, i + 1);
     }
 
     /**
