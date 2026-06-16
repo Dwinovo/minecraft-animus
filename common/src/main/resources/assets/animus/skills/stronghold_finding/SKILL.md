@@ -1,6 +1,6 @@
 ---
 name: stronghold_finding
-description: Craft eyes of ender, find the stronghold with the locate_structure tool (no eye-throwing needed), reach the portal room, and fill the 12 frames via inspect_block + use_item.
+description: Craft eyes of ender, find the stronghold with the locate_structure tool (no eye-throwing needed), reach the portal room, and fill the 12 frames via inspect_block + interact_at.
 ---
 
 # Skill: stronghold_finding
@@ -37,7 +37,7 @@ The room has a lava pool under the frame and a **silverfish spawner** on the sta
 
 1. The 12 `end_portal_frame` blocks ring a 3×3 opening. `scan_blocks(end_portal_frame)` lists all 12 positions.
 2. `inspect_block` each frame — the `has_eye` property tells you which are pre-filled.
-3. `use_item(ender_eye, x, y, z)` on each empty frame. **Eyes cannot be taken back out.**
+3. `interact_at(button=right, x, y, z, item_id=minecraft:ender_eye)` on each empty frame. **Eyes cannot be taken back out.**
 4. The 12th eye activates the portal; the opening fills with the starfield surface.
 
 ## Before dropping in

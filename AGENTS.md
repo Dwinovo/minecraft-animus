@@ -18,7 +18,7 @@
 
 ## ToolCall 清单（LLM 能力面）
 
-> 这是 LLM 通过 tool_call 能做的全部事情。注册于 [`CommonClass.registerTools()`](common/src/main/java/com/dwinovo/animus/CommonClass.java)，实现在 `common/.../agent/tool/tools/`。每个工具 = 一份 LLM 看到的 schema + 一个把它翻译成世界行为的 Task。**共 28 个**，分三类（见 `AnimusTool` 注释）：世界行动（走任务队列）、查询（服务端同步答复，不占身体）、本地（todowrite / load_skill，纯客户端）。
+> 这是 LLM 通过 tool_call 能做的全部事情。注册于 [`CommonClass.registerTools()`](common/src/main/java/com/dwinovo/animus/CommonClass.java)，实现在 `common/.../agent/tool/tools/`。每个工具 = 一份 LLM 看到的 schema + 一个把它翻译成世界行为的 Task。**共 29 个**，分三类（见 `AnimusTool` 注释）：世界行动（走任务队列）、查询（服务端同步答复，不占身体）、本地（todowrite / load_skill，纯客户端）。
 
 **行动类（改变世界 / 实体状态）**
 
@@ -31,7 +31,7 @@
 | `equip_item` | `item_id, slot?` | 把背包里的物品**装到身上**才真正生效:工具/武器进主手(加速 `auto_mine`、提升近战),护甲进对应槽。省略 slot 按物品类型自动归位;原槽位物品换回背包。这是 `craft` 的价值落点(合出来的镐不装等于没用)。 |
 | `hunt` | `entity_ids[], count, radius?` | **意图级战斗**(`auto_mine` 的怪物同构体)：给怪物类型和数量,实体自己扫描→**自研地形寻路**追击(搭桥/挖墙/跳过去)→近战击杀→吸取掉落→重复,直到够数或刷空。不需要坐标/id。够不到部分如实回报实际击杀数。低血量时 `AutoEater` 反射自动进食,结果里回报。 |
 | `shoot` | `entity_ids[], count, radius?` | **意图级远程战斗**(`hunt` 的远程版)：给类型和数量,实体自己扫描→寻路靠到弓程+视线内→**拉弓射箭**直到打掉→重复。目标**可含非生命体**(末影水晶 `end_crystal` 必须远程炸;烈焰人远程怪)。**前置门槛**:主手须持弓且背包有箭,缺一上来就指导性失败。 |
-| `locate_structure` | `structure` | **定位最近结构**(id 或 `#tag`:fortress/stronghold/village/ancient_city…)。Explorer's Compass 式跨 tick 切片搜索(放置数学出候选+预算化区块加载验证,全局 `SearchBudget` 限每 tick 开销),不卡服务端。半径语义=香草 `/locate`(100 个放置 region 环)。要塞→末地门:`move_to` 过去→`scan_blocks` 找 `end_portal_frame`→空框架逐个 `use_item` 末影之眼。 |
+| `locate_structure` | `structure` | **定位最近结构**(id 或 `#tag`:fortress/stronghold/village/ancient_city…)。Explorer's Compass 式跨 tick 切片搜索(放置数学出候选+预算化区块加载验证,全局 `SearchBudget` 限每 tick 开销),不卡服务端。半径语义=香草 `/locate`(100 个放置 region 环)。要塞→末地门:`move_to` 过去→`scan_blocks` 找 `end_portal_frame`→空框架逐个 `interact_at`(right, item_id=末影之眼)填。 |
 | `locate_biome` | `biome` | **定位最近生物群系**(id 或 `#tag`:warped_forest 刷末影人/desert…)。Nature's Compass 式纯气候噪声采样(零区块加载),64 格网格螺旋+多 Y 层探测(下界群系是 3D),半径 6400 格=香草。与 locate_structure 互相交叉重定向(拿错类别的 id 会在失败消息里给出修正调用)。 |
 | `wait` | `seconds` | 干等(≤300s,按 game time)。熔炉烧着/等天亮时闲不下来就用它。 |
 | `drop_items` | `item_id, count` | 朝面前扔出物品(40 tick 拾取保护)。给主人递东西/腾背包。 |
@@ -41,7 +41,8 @@
 | `check_furnace` | `x, y, z` | **远程只读**查熔炉工作状态:是否点燃、输入/燃料/产物槽内容、待烧数、约 ETA。不寻路、不在场也能查——用它判断 `load_furnace` 起的烧制好了没,再决定要不要走回去收。未来可推广到别的工作方块。 |
 | `collect_furnace` | `x, y, z` | 寻路到熔炉→把产物槽掏进背包→返回取走数 + 剩余状态(还在烧几个、背包满了剩多少在炉里)。坐标来自 `load_furnace`。没烧好会如实回报"还没好"。 |
 | `place_block` | `block_id, x, y, z` | 在绝对坐标放一个方块:寻路到目标**相邻可站位**(搭桥/挖障同 move_to)→**经 FakePlayer `useItemOn` 对参照方块放置**(走真实 `BlockItem.place`,**朝向正确**:楼梯/原木/箱子/门/床/含水)。吸收 Voyager 的**支撑检查**:目标必须有相邻实体方块,**拒绝浮空放置**;目标格须空/可替换;不持有/非方块/无支撑/无可达站位都给指导性失败。用于火把照明、墙体掩体、封洞、按需摆工作台/熔炉/箱子。 |
-| `use_item` | `item_id, x?, y?, z?, hold_ticks?` | **右键用物品**(经 FakePlayer 走真实 vanilla 物品逻辑,**视线优先**:先注视命中点+真实射线验证视线,被挡=诚实失败,不隔墙点击)。给 x/y/z = **用在该方块上**(先寻路到可达):打火石点燃下界门、末影之眼填末地框架、骨粉、桶。省略坐标=对空使用。`hold_ticks`=**按住 N tick 再松开**(弓满蓄力 20),走跨 tick 租约。消耗品/末影珍珠**代码级拒绝**并重定向(eat_item / move_to+locate_structure)。 |
+| `interact_at` | `button, x?, y?, z?, hold_ticks?, item_id?` | **原生准心交互(方块+空气列)**:寻路到 aim 点 → `Interaction.nativeRaytrace`(原版准心,真视线)→ 按命中分发。`button=right`=激活方块/对方块用物品(打火石点门=瞄框内空气格、末影之眼填框架、骨粉、桶)或对空用(投掷)。`button=left`=破坏方块。`item_id`=先 equip 再用(替代单独 equip_item)。`hold_ticks`:0 单击/ >0 按住 N(模组机连续右键、弓蓄力 20)/ -1 按到完成。消耗品/末影珍珠 `bodyBoundReason` 拒绝(eat_item / move_to)。**取代旧 `use_item` + `interact`**。 |
+| `interact_entity` | `button, entity_id, hold_ticks?` | **原生准心交互(实体列)**:按 id 自动寻路**跟随活体** → 真视线命中目标才动手(隔墙绕过去不砸墙)。`left`=攻击(`hold=-1` 打到死=旧 hunt)、`right`=交互(交易/繁殖/骑乘/剪)。共用 `Interaction.forHit`。 |
 | `eat_item` | `item_id` | **吃东西直接回血**(直接作用于 Animus,不走 FakePlayer;饥饿系统已删除)。过程式:按食物 `consumeSeconds` 持续若干 tick(碎屑粒子+音效),吃满才结算回血+食物效果,中途打断不消耗。结果回报 `HP x/20 (+y)`。战斗中低血量由 `AutoEater` 反射自动触发,不等 LLM。 |
 
 **自我 / 库存感知（读自身）**
@@ -88,7 +89,7 @@
 - **战斗也已切自研寻路**：`hunt`（按类型批量击杀）经共享 `Navigator`（动态目标=移动实体，能搭桥/挖墙/跳过去够目标）+ `MeleeEngine`（到位后的挥砍/冷却/`doHurtTarget`）。**故意不 `setTarget`**,避免常驻 vanilla `MeleeAttackGoal` 抢 MoveControl。原 `attack_target`（精确单体）已删,统一到 `hunt(count=1)`。已无任务用 vanilla `PathNavigation` 做移动。
 - **维度穿越(含独立穿越)已打通**:一切按稳定 `entity.getUUID()` 索引——agent loop 注册表、全部网包、聊天记录文件(`conversations/<uuid>.jsonl`)、工作方块记忆(`<uuid>.blocks.json`)、最后位置索引(`AnimusLastSeen`)。跨维度对非玩家实体是**销毁+克隆**(同 UUID、新 int id、新对象,NBT 字段保留、transient 字段丢失):`remove(CHANGED_DIMENSION)` 会用教学消息取消在途任务("you crossed into another dimension — get_self_status…"),`teleport()` 重载给克隆体接力 engagement 戳+区块票据。**伙伴可以自己走进传送门独立穿越**(vanilla `canUsePortal` 默认放行);owner 换维度时(NeoForge `PlayerChangedDimensionEvent` / Fabric `ServerTickEvents` 轮询)闲置伙伴跟随 `teleportTo` 落点、**engaged 伙伴留守干活**。大脑刻意留客户端(每个玩家烧自己的 API key),工具按 UUID 走网包、服务端全维度解析,伙伴在不在 owner 维度无所谓。
 - **远程保活三件套**:注册的 `animus:task` 票据(`LOADING|SIMULATION|KEEP_DIMENSION_ACTIVE`,200 tick 超时,engaged 期间每 60 tick 续,余温 2400 tick——26.x 无玩家维度 300 tick 后停 tick 实体,KEEP_DIMENSION_ACTIVE 是关键位);`AnimusLastSeen`(overworld SavedData 持久化最后位置);`AnimusRevival`(findByUuid 未命中→按最后位置补票据→5 秒内重试派发,覆盖闲置卸载/重启/单人重进)。
-- **朝龙的门/要塞机制已打通**:下界门=`place_block` 摆黑曜石框架 + `use_item` 打火石点燃(目标传**框架内空气格**,vanilla `BaseFireBlock.onPlace` 自动成门);要塞=`locate_structure("minecraft:stronghold")` 定位 + `use_item` 末影之眼填 12 框架(第 12 颗 vanilla 自动激活末地门);`inspect_block` 回报 BlockState 属性(可读框架 `has_eye`)。进末地可由伙伴自己踩门(独立穿越,见上条)。
+- **朝龙的门/要塞机制已打通**:下界门=`place_block` 摆黑曜石框架 + `interact_at`(right, item_id=打火石)点燃(目标传**框架内空气格**,vanilla `BaseFireBlock.onPlace` 自动成门);要塞=`locate_structure("minecraft:stronghold")` 定位 + `interact_at`(right, item_id=末影之眼)填 12 框架(第 12 颗 vanilla 自动激活末地门);`inspect_block` 回报 BlockState 属性(可读框架 `has_eye`)。进末地可由伙伴自己踩门(独立穿越,见上条)。
 - 还没有：周期 Sensor/Perception 快照、复合任务链编排(Skill 仅 markdown,执行层未做,用户明确后置)、parkour 跨缝、LLM 瞬时网络错误自动重试（下一阶段候选）。
 
 下一步候选：① Perception 层（周期把附近玩家/方块/伤害事件喂给 LLM，目前靠 scan_* 工具按需拉取）；② 复合任务链（Skill 内部按序编排原子 task；**用户已明确这是他后面自做的优化,先搁置**）；③ LLM EOF/SSL 等瞬时错误自动重试；④ 死亡墓碑（遗物箱 + AnimusLastSeen 登记阵亡点,替代原地撒装备）。工作方块记忆已落地(`WorkBlockMemory` → 系统提示词 `<known_blocks>`)。
