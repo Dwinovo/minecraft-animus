@@ -404,17 +404,19 @@ public final class BlockHelper {
 
     /**
      * Can {@code inv}'s tools actually HARVEST {@code state}'s drops — i.e. break it and get the
-     * item, not just destroy it? True when the block drops without a tool, or some hotbar slot
-     * (0-8, the quick-switchable set Baritone's ToolSet uses) holds the correct tool. Mining a
-     * {@code requiresCorrectToolForDrops} block with the wrong tool removes it for nothing, so
-     * the cost model vetoes it and the break/mine tools refuse it. Single source of truth.
+     * item, not just destroy it? True when the block drops without a tool, or ANY inventory slot
+     * holds the correct tool. Mining a {@code requiresCorrectToolForDrops} block with the wrong
+     * tool removes it for nothing, so the cost model vetoes it and the break/mine tools refuse it.
+     * Single source of truth — paired with {@code switchToBestTool}, which can swap a backpack
+     * tool into the hand. DELIBERATE DIVERGENCE from Baritone, whose ToolSet only scans the
+     * hotbar (a real player's quick-switch set); a companion can dig into its own pack, so the
+     * gate + cost + execution all scan the whole inventory together.
      */
     public static boolean canHarvest(Container inv, BlockState state) {
         if (!state.requiresCorrectToolForDrops()) {
             return true;
         }
-        int hotbar = Math.min(9, inv.getContainerSize());
-        for (int i = 0; i < hotbar; i++) {
+        for (int i = 0; i < inv.getContainerSize(); i++) {
             if (inv.getItem(i).isCorrectToolForDrops(state)) {
                 return true;
             }

@@ -93,8 +93,10 @@ public final class NavContext {
 
     private BestTool scanBestTool(BlockState state) {
         float bestSpeed = 1.0f;                                   // bare hand baseline
-        int hotbar = Math.min(9, inventory.getContainerSize());   // quick-switchable slots
-        for (int i = 0; i < hotbar; i++) {
+        // Whole inventory, NOT just the hotbar: execution (switchToBestTool) can swap a
+        // backpack tool into the hand, so the cost model prices breaks with that same tool —
+        // a deliberate divergence from Baritone's hotbar-only ToolSet, kept consistent here.
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
             ItemStack s = inventory.getItem(i);
             if (s.isEmpty()) continue;
             float spd = s.getDestroySpeed(state);

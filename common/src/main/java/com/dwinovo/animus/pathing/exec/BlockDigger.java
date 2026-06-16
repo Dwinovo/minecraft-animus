@@ -137,20 +137,23 @@ public final class BlockDigger {
         switchToBestTool(player.level().getBlockState(pos));
     }
 
-    /** Select the hotbar slot whose item mines {@code state} fastest
-     *  (Baritone ToolSet.getBestSlot / switchToBestToolFor). */
+    /** Hold the item that mines {@code state} fastest in the main hand. Scans the WHOLE
+     *  inventory (not just the hotbar) and swaps a backpack tool into the hand via
+     *  {@link AnimusPlayer#holdInHand} — a deliberate divergence from Baritone's hotbar-only
+     *  ToolSet, kept consistent with the cost model (NavContext.scanBestTool) so the planned
+     *  break cost still matches the tool actually used. */
     private void switchToBestTool(BlockState state) {
         Inventory inv = player.getInventory();
         int best = inv.getSelectedSlot();
         float bestSpeed = inv.getItem(best).getDestroySpeed(state);
-        for (int i = 0; i < Inventory.getSelectionSize(); i++) {
+        for (int i = 0; i < inv.getContainerSize(); i++) {
             float s = inv.getItem(i).getDestroySpeed(state);
             if (s > bestSpeed) {
                 bestSpeed = s;
                 best = i;
             }
         }
-        inv.setSelectedSlot(best);
+        player.holdInHand(best);
     }
 
     /** Abandon an IN-PROGRESS dig: ABORT it server-side and clear the crack (Carpet

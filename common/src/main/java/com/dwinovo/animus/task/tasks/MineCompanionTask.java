@@ -5,6 +5,7 @@ import com.dwinovo.animus.pathing.calc.NavGoal;
 import com.dwinovo.animus.pathing.exec.BlockDigger;
 import com.dwinovo.animus.pathing.exec.InputDriver;
 import com.dwinovo.animus.pathing.exec.PlayerNav;
+import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.pathing.util.BlockScanner;
 import com.dwinovo.animus.pathing.util.ScanExecutor;
 import com.dwinovo.animus.pathing.viz.PathVizPublisher;
@@ -107,6 +108,18 @@ public final class MineCompanionTask implements CompanionTask {
 
     @Override
     public void start() {
+        // Fail fast if NO requested target is harvestable with the current inventory — mining it
+        // would destroy the block for no drop. Same gate as break_block / the cost model
+        // (BlockHelper.canHarvest, whole-inventory). prune() then drops any individual unharvestable
+        // cell, so a mixed request (e.g. coal we can mine + diamond we can't) still works.
+        boolean anyHarvestable = r.targets.stream().anyMatch(
+                b -> BlockHelper.canHarvest(player.getInventory(), b.defaultBlockState()));
+        if (!anyHarvestable) {
+            doneReason = "can't harvest " + r.label + " with the current tools — mining it would"
+                    + " destroy it without any drop. Equip a suitable tool (e.g. a pickaxe) first.";
+            r.setState(TaskState.FAILED);
+            return;
+        }
         rescan();
     }
 
@@ -395,7 +408,8 @@ public final class MineCompanionTask implements CompanionTask {
                 level.getBlockState(p).isAir()
                         || !r.targets.contains(level.getBlockState(p).getBlock())
                         || blacklist.contains(p)
-                        || BlockMiningProgress.fluidBreakHazard(level, p) != null);
+                        || BlockMiningProgress.fluidBreakHazard(level, p) != null
+                        || !BlockHelper.canHarvest(player.getInventory(), level.getBlockState(p)));
         knownOres.sort(Comparator.comparingDouble(feet::distSqr));
         if (knownOres.size() > MAX_ORES) {
             knownOres.subList(MAX_ORES, knownOres.size()).clear();
