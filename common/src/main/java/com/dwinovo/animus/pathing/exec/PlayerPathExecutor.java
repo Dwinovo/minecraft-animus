@@ -316,7 +316,15 @@ public final class PlayerPathExecutor {
         if (!feet().equals(mv.dest) || ab > 0.25) {
             // Baritone numTicks++ < 20: post-increment inside the drive branch (counts only
             // ticks we actually drive), gating the fakeDest momentum carry.
-            Vec3 aim = (descendDriveTicks++ < 20 && horizontalDistTo(mv.src) < 1.25)
+            boolean earlyWindow = descendDriveTicks++ < 20 && horizontalDistTo(mv.src) < 1.25;
+            // Keep facing FORWARD (toward fakeDest) the whole time we're airborne, not just in the
+            // early window. Baritone switches to aiming dest once ~1.25 past src — but it rotates
+            // gently, while we hard-set yaw (InputDriver.face), so snapping ~180° backward to chase
+            // dest mid-fall reads as a jarring turn-around. The body lands on dest OR fakeDest (both
+            // count as arrived), so committing forward until it lands costs nothing and removes the
+            // flip; the dest nudge only matters back on the ground after a real >1-cell overshoot.
+            boolean commitForward = !player.onGround() || earlyWindow;
+            Vec3 aim = commitForward
                     ? Vec3.atBottomCenterOf(new BlockPos(
                             2 * mv.dest.getX() - mv.src.getX(),
                             mv.dest.getY(),
