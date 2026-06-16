@@ -131,9 +131,12 @@ public final class ShootCompanionTask implements CompanionTask {
             return;
         }
         switch (nav.tick()) {
-            case RUNNING -> { /* closing to firing position */ }
+            // Closing (or the target left the firing window mid-draw): abandon any half-draw so the
+            // bow isn't carried around held, and re-draw fresh once back in position.
+            case RUNNING -> releaseIfDrawing();
             case ARRIVED -> volley();
             case FAILED -> {
+                releaseIfDrawing();
                 skipped.add(target.getId());
                 target = null;
                 stopNav();
@@ -163,9 +166,13 @@ public final class ShootCompanionTask implements CompanionTask {
         return e.position().add(0.0, e.getBbHeight() * 0.5, 0.0);
     }
 
+    /** Abandon an in-progress draw WITHOUT firing (stopUsingItem, not release) — a half-draw is
+     *  cancelled rather than loosed as a wasted weak arrow along a non-ballistic look. */
     private void releaseIfDrawing() {
         if (fire != null) {
-            fire.stop();        // releases an in-progress draw
+            if (player.isUsingItem()) {
+                player.stopUsingItem();
+            }
             fire = null;
         }
     }
