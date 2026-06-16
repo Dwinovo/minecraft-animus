@@ -54,6 +54,9 @@ public final class PlayerPathExecutor {
     private int ticksOnCurrent = 0;
     private int ticksAway = 0;
     private boolean placedThisMove = false;
+    /** Set when we sprint-skipped a traverse straight into an ascend (Baritone
+     *  sprintableAscend) — the ascend then sprints up instead of jumping from a standstill. */
+    private boolean sprintAscend = false;
     /** The live edge-sneak scaffold placement for the current move (null when idle). */
     private PlaceManeuver placeManeuver;
     /** Progressive break of path obstructions (shared model with auto-mine). */
@@ -80,6 +83,11 @@ public final class PlayerPathExecutor {
         if (index >= path.movements.size()) {
             return path.partial ? Status.NEEDS_REPLAN : Status.ARRIVED;
         }
+
+        // Baritone sprint-to-next: flow straight through a traverse→sprintable-ascend
+        // junction (sprint up the stairs) instead of arriving at the traverse first. May
+        // advance the index BEFORE we resolve the move to drive.
+        trySprintSkip();
 
         Movement mv = path.movements.get(index);
 
@@ -373,7 +381,9 @@ public final class PlayerPathExecutor {
      * triggers the jump instead of stalling against the wall.
      */
     private void driveAscend(Movement mv) {
-        InputDriver.stepToward(player, Vec3.atBottomCenterOf(mv.dest), false);
+        // Sprint up only when we sprint-skipped into this ascend (Baritone sprintableAscend);
+        // a normal ascend jumps from a standstill.
+        InputDriver.stepToward(player, Vec3.atBottomCenterOf(mv.dest), sprintAscend);
         if (player.blockPosition().equals(mv.src.above())) {
             return;   // already airborne off the step
         }
@@ -411,6 +421,71 @@ public final class PlayerPathExecutor {
             }
         }
         return true;
+    }
+
+    /** Baritone PathExecutor.shouldSprintNextTick (traverse→ascend case): if the current
+     *  traverse leads straight into a sprintable ascend and we're centred enough to commit
+     *  (skipNow), skip the traverse's arrival and sprint up the step. Advances the index. */
+    private boolean trySprintSkip() {
+        if (index >= path.movements.size() - 2) return false;   // need cur + next + nextnext
+        Movement cur = path.movements.get(index);
+        Movement next = path.movements.get(index + 1);
+        Movement nextnext = path.movements.get(index + 2);
+        // Baritone decides the skip AFTER the current move's own update() has handled its
+        // break that tick; we run before the phases, so don't skip past a traverse whose
+        // own obstruction is still pending (it would cancel that dig).
+        if (nextObstruction(cur) != null) return false;
+        if (cur.kind == Movement.Kind.TRAVERSE && next.kind == Movement.Kind.ASCEND
+                && sprintableAscend(cur, next, nextnext) && skipNow(cur)) {
+            advance();              // skip straight into the ascend
+            sprintAscend = true;    // (advance() reset it; set after)
+            return true;
+        }
+        return false;
+    }
+
+    /** Baritone PathExecutor.sprintableAscend (default sprintAscends=true): the traverse and
+     *  the following ascend share a horizontal direction (as does the move after), both have
+     *  a solid floor, the ascend breaks nothing, the 2x3 column over the source is clear, and
+     *  neither the block above the head nor above the ascend's head is something to avoid. */
+    private boolean sprintableAscend(Movement cur, Movement next, Movement nextnext) {
+        net.minecraft.world.level.Level level = player.level();
+        BlockPos curDir = dirOf(cur);     // (dx,0,dz)
+        BlockPos nextDir = dirOf(next);   // (dx,1,dz)
+        if (curDir.getX() != nextDir.getX() || curDir.getZ() != nextDir.getZ()) return false;
+        BlockPos nnDir = dirOf(nextnext);
+        if (nnDir.getX() != nextDir.getX() || nnDir.getZ() != nextDir.getZ()) return false;
+        if (!BlockHelper.canWalkOn(level, cur.dest.below())) return false;
+        if (!BlockHelper.canWalkOn(level, next.dest.below())) return false;
+        if (!next.toBreak.isEmpty()) return false;   // it's breaking
+        for (int x = 0; x < 2; x++) {
+            for (int y = 0; y < 3; y++) {
+                BlockPos chk = cur.src.above(y);
+                if (x == 1) chk = chk.offset(curDir.getX(), 0, curDir.getZ());
+                if (!BlockHelper.canWalkThrough(level, chk)) return false;
+            }
+        }
+        if (BlockHelper.avoidWalkingInto(level, cur.src.above(3))) return false;
+        return !BlockHelper.avoidWalkingInto(level, next.dest.above(2));
+    }
+
+    /** Baritone PathExecutor.skipNow: centred on the move axis (off-axis < 0.1) AND either
+     *  the cell we'd head-bonk on is clear, or we've travelled far enough (flat dist > 0.8). */
+    private boolean skipNow(Movement cur) {
+        BlockPos dir = dirOf(cur);
+        double offTarget = Math.abs(dir.getX() * (cur.src.getZ() + 0.5 - player.getZ()))
+                + Math.abs(dir.getZ() * (cur.src.getX() + 0.5 - player.getX()));
+        if (offTarget > 0.1) return false;
+        BlockPos headBonk = cur.src.offset(-dir.getX(), 0, -dir.getZ()).above(2);
+        if (BlockHelper.canWalkThrough(player.level(), headBonk)) return true;
+        double flatDist = Math.abs(dir.getX() * (headBonk.getX() + 0.5 - player.getX()))
+                + Math.abs(dir.getZ() * (headBonk.getZ() + 0.5 - player.getZ()));
+        return flatDist > 0.8;
+    }
+
+    /** The net move vector (dest − src) — Baritone Movement.getDirection. */
+    private static BlockPos dirOf(Movement mv) {
+        return mv.dest.subtract(mv.src);
     }
 
     /**
@@ -787,6 +862,7 @@ public final class PlayerPathExecutor {
     private void resetMoveState() {
         ticksAway = 0;
         ticksOnCurrent = 0;
+        sprintAscend = false;
         digger.cancel();          // a partial dig belongs to the move we just left
         placedThisMove = false;
         if (placeManeuver != null) {
