@@ -75,6 +75,20 @@ public final class PlayerPathExecutor {
     /** The index whose original cost estimate we cached (Baritone costEstimateIndex). */
     private int costCheckIndex = -1;
 
+    // --- stuck diagnostics (independent of ticksOnCurrent, so index oscillation can't hide a stall) ---
+    /** Furthest movement index reached; net forward progress is measured against this. */
+    private int maxIndexReached = 0;
+    /** Ticks since {@link #maxIndexReached} last grew. Survives advance/snap/skip resets. */
+    private int ticksSinceProgress = 0;
+    /** One STUCK log per stall episode. */
+    private boolean stuckWarned = false;
+    /** Warn after this many ticks with no NET forward progress (≈3s) — catches a stall that the
+     *  per-movement timeout misses because the index keeps bouncing. */
+    private static final int STUCK_WARN_TICKS = 60;
+    /** Force a replan after this many ticks of no NET progress (≈6s) — the backstop for an index
+     *  thrash that keeps resetting the per-movement timeout so it never fires. */
+    private static final int STUCK_REPLAN_TICKS = 120;
+
     public PlayerPathExecutor(AnimusPlayer player, Path path, double speed,
                               java.util.function.Supplier<NavContext> ctxSupplier) {
         this.player = player;
@@ -109,6 +123,8 @@ public final class PlayerPathExecutor {
         }
 
         Movement mv = path.movements.get(index);
+        Status progress = trackProgress(mv);
+        if (progress != null) return progress;
 
         // Submerged = off-plan, EXCEPT when the current move is a swim-up: the surface
         // plane is where traverse/ascend live, so being underwater on one of those means
@@ -118,7 +134,7 @@ public final class PlayerPathExecutor {
         boolean swimmingUp = mv.kind == Movement.Kind.PILLAR
                 && BlockHelper.isWater(player.level(), mv.src);
         if (player.isUnderWater() && !swimmingUp) {
-            return Status.NEEDS_REPLAN;
+            return replan("underwater off-plan");
         }
 
         // Baritone cost re-verification: the world may have changed under a planned
@@ -131,7 +147,7 @@ public final class PlayerPathExecutor {
         ticksOnCurrent++;
         // Baritone: cancel a movement that overshoots its estimate by movementTimeoutTicks.
         if (ticksOnCurrent > mv.cost + PathSettings.MOVEMENT_TIMEOUT_TICKS) {
-            return Status.NEEDS_REPLAN;
+            return replan("movement timeout");
         }
 
         // 1) Clear obstructions for this move (one at a time), breaking each
@@ -174,7 +190,7 @@ public final class PlayerPathExecutor {
                 }
                 case FAILED -> {
                     placeManeuver = null;
-                    return Status.NEEDS_REPLAN;   // out of blocks / no angle → replan
+                    return replan("scaffold place failed");   // out of blocks / no angle → replan
                 }
                 case RUNNING -> {
                     return Status.RUNNING;
@@ -317,13 +333,13 @@ public final class PlayerPathExecutor {
             // Baritone numTicks++ < 20: post-increment inside the drive branch (counts only
             // ticks we actually drive), gating the fakeDest momentum carry.
             boolean earlyWindow = descendDriveTicks++ < 20 && horizontalDistTo(mv.src) < 1.25;
-            // Keep facing FORWARD (toward fakeDest) the whole time we're airborne, not just in the
-            // early window. Baritone switches to aiming dest once ~1.25 past src — but it rotates
-            // gently, while we hard-set yaw (InputDriver.face), so snapping ~180° backward to chase
-            // dest mid-fall reads as a jarring turn-around. The body lands on dest OR fakeDest (both
-            // count as arrived), so committing forward until it lands costs nothing and removes the
-            // flip; the dest nudge only matters back on the ground after a real >1-cell overshoot.
-            boolean commitForward = !player.onGround() || earlyWindow;
+            // Hold the forward (fakeDest) aim through the airborne phase to avoid the jarring ~180°
+            // yaw snap (we hard-set yaw; Baritone rotates gently) — but ONLY on a controlled,
+            // non-sprint descend, where overshoot is ≤1 cell (dest/fakeDest, both count as arrived).
+            // A sprint-carried descend (a stair chain, 2+ in a row) keeps Baritone's EXACT aim —
+            // switch to dest once past the early window — so its momentum is steered back onto the
+            // planned line instead of drifting off it.
+            boolean commitForward = (!player.onGround() && !sprintDescend) || earlyWindow;
             Vec3 aim = commitForward
                     ? Vec3.atBottomCenterOf(new BlockPos(
                             2 * mv.dest.getX() - mv.src.getX(),
@@ -757,10 +773,10 @@ public final class PlayerPathExecutor {
         if (!selfMutating(cur.kind)) {
             double liveCur = recost(fresh, cur);
             if (liveCur >= ActionCosts.COST_INF) {
-                return Status.NEEDS_REPLAN;
+                return replan("current move now impossible");
             }
             if (liveCur - cur.cost > PathSettings.MAX_COST_INCREASE) {
-                return Status.NEEDS_REPLAN;
+                return replan("current move got too expensive");
             }
         }
         if (costCheckIndex != index) {
@@ -772,7 +788,7 @@ public final class PlayerPathExecutor {
                 Movement ahead = path.movements.get(i);
                 if (!selfMutating(ahead.kind)
                         && recost(fresh, ahead) >= ActionCosts.COST_INF) {
-                    return Status.NEEDS_REPLAN;
+                    return replan("lookahead move +" + (i - index) + " now impossible");
                 }
             }
         }
@@ -985,13 +1001,13 @@ public final class PlayerPathExecutor {
         // Soft band first (matches Baritone's order), then the immediate hard band.
         if (possiblyOffPath(cur, bestSq, SOFT_DIST_SQR)) {
             if (++ticksAway > PathSettings.MAX_TICKS_AWAY) {
-                return Status.NEEDS_REPLAN;
+                return replan("off-path soft band " + PathSettings.MAX_TICKS_AWAY + " ticks");
             }
         } else {
             ticksAway = 0;
         }
         if (possiblyOffPath(cur, bestSq, HARD_DIST_SQR)) {
-            return Status.NEEDS_REPLAN;
+            return replan("off-path hard band (>3 blocks)");
         }
         return null;
     }
@@ -1007,6 +1023,59 @@ public final class PlayerPathExecutor {
             return (dx * dx + dz * dz) >= leniencySq;
         }
         return true;
+    }
+
+    /** Log a replan trigger with full context (rare event), then return the status. */
+    private Status replan(String why) {
+        Movement mv = index < path.movements.size() ? path.movements.get(index) : null;
+        Constants.LOG.info("[animus-path] REPLAN {} | {}", why, mv != null ? desc(mv) : "feet=" + feet().toShortString());
+        return Status.NEEDS_REPLAN;
+    }
+
+    /** One-line snapshot of the current move + body state for diagnostics. */
+    private String desc(Movement mv) {
+        return String.format(
+                "%s %s->%s feet=%s y=%.2f grnd=%b sprintDesc=%b t=%d/%.0f away=%d d2path=%.2f idx=%d/%d",
+                mv.kind, mv.src.toShortString(), mv.dest.toShortString(), feet().toShortString(),
+                player.getY(), player.onGround(), sprintDescend,
+                ticksOnCurrent, mv.cost + PathSettings.MOVEMENT_TIMEOUT_TICKS,
+                ticksAway, Math.sqrt(distToPathSq()), index, path.movements.size());
+    }
+
+    /** Squared distance from the body to the nearest valid cell of the WHOLE path (diagnostics). */
+    private double distToPathSq() {
+        double best = Double.MAX_VALUE;
+        for (Movement m : path.movements) {
+            for (BlockPos vp : m.validPositions()) {
+                double d = player.distanceToSqr(Vec3.atCenterOf(vp));
+                if (d < best) best = d;
+            }
+        }
+        return best;
+    }
+
+    /** Track NET forward progress (vs the furthest index reached) so an index that bounces between
+     *  snap-back and skip-forward can't mask a stall: warn once at ~3s, and force a replan at ~6s
+     *  IF the per-movement timeout is being defeated (low {@code ticksOnCurrent} = the move keeps
+     *  restarting). A legit long move has a high {@code ticksOnCurrent} climbing to its own timeout,
+     *  so this backstop leaves it alone. Returns a replan status, or null to continue. */
+    private Status trackProgress(Movement mv) {
+        if (index > maxIndexReached) {
+            maxIndexReached = index;
+            ticksSinceProgress = 0;
+            stuckWarned = false;
+            return null;
+        }
+        ticksSinceProgress++;
+        if (ticksSinceProgress >= STUCK_WARN_TICKS && !stuckWarned) {
+            stuckWarned = true;
+            Constants.LOG.warn("[animus-path] STUCK no forward progress {} ticks | {}",
+                    ticksSinceProgress, desc(mv));
+        }
+        if (ticksSinceProgress >= STUCK_REPLAN_TICKS && ticksOnCurrent < STUCK_WARN_TICKS) {
+            return replan("no net progress " + ticksSinceProgress + " ticks (index thrash)");
+        }
+        return null;
     }
 
     private void jumpToIndex(int i) {
