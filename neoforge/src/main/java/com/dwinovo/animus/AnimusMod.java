@@ -37,6 +37,9 @@ public class AnimusMod {
                 com.dwinovo.animus.entity.AnimusCommands.register(e.getDispatcher()));
         // When an owner logs in, bring their dormant companions back.
         NeoForge.EVENT_BUS.addListener(AnimusMod::onPlayerLoggedIn);
+        // Release pathfinding chunk-ref snapshots when the server stops (don't pin an old world).
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppedEvent e) ->
+                com.dwinovo.animus.pathing.cache.PathCaches.dropAll());
 
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on NeoForge.");

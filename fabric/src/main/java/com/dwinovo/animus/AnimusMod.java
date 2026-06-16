@@ -34,6 +34,9 @@ public class AnimusMod implements ModInitializer {
         // Snapshot loaded chunks near companions each tick, for the off-thread planner to read live.
         ServerTickEvents.END_SERVER_TICK.register(
                 com.dwinovo.animus.pathing.cache.PathCaches::serverTick);
+        // Release those chunk references when the server stops (don't pin an old world's chunks).
+        net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STOPPED.register(
+                server -> com.dwinovo.animus.pathing.cache.PathCaches.dropAll());
 
         CommonClass.init();
         Constants.LOG.info("Animus mod initialised on Fabric.");
