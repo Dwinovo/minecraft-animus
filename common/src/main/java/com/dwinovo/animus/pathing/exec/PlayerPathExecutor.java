@@ -88,6 +88,11 @@ public final class PlayerPathExecutor {
     /** Force a replan after this many ticks of no NET progress (≈6s) — the backstop for an index
      *  thrash that keeps resetting the per-movement timeout so it never fires. */
     private static final int STUCK_REPLAN_TICKS = 120;
+    /** Ticks submerged before treating it as off-plan. A short dunk (a fall clipping water) floats
+     *  back up via the universal liquid buoyancy within this window — only sustained submersion
+     *  replans, so we don't spam replans that each start underwater again. */
+    private static final int UNDERWATER_GRACE_TICKS = 20;
+    private int ticksUnderwater = 0;
 
     public PlayerPathExecutor(AnimusPlayer player, Path path, double speed,
                               java.util.function.Supplier<NavContext> ctxSupplier) {
@@ -134,7 +139,14 @@ public final class PlayerPathExecutor {
         boolean swimmingUp = mv.kind == Movement.Kind.PILLAR
                 && BlockHelper.isWater(player.level(), mv.src);
         if (player.isUnderWater() && !swimmingUp) {
-            return replan("underwater off-plan");
+            // Don't replan the instant we touch water — let the per-kind drive + buoyancy try to
+            // surface first; only a SUSTAINED dunk is genuinely off-plan. Otherwise a fall that
+            // clips water replans every tick, each new path again starting underwater.
+            if (++ticksUnderwater > UNDERWATER_GRACE_TICKS) {
+                return replan("underwater off-plan " + ticksUnderwater + " ticks");
+            }
+        } else {
+            ticksUnderwater = 0;
         }
 
         // Baritone cost re-verification: the world may have changed under a planned
@@ -773,7 +785,7 @@ public final class PlayerPathExecutor {
         if (!selfMutating(cur.kind)) {
             double liveCur = recost(fresh, cur);
             if (liveCur >= ActionCosts.COST_INF) {
-                return replan("current move now impossible");
+                return replan("current move now impossible (" + obstruct(fresh, cur) + ")");
             }
             if (liveCur - cur.cost > PathSettings.MAX_COST_INCREASE) {
                 return replan("current move got too expensive");
@@ -788,7 +800,9 @@ public final class PlayerPathExecutor {
                 Movement ahead = path.movements.get(i);
                 if (!selfMutating(ahead.kind)
                         && recost(fresh, ahead) >= ActionCosts.COST_INF) {
-                    return replan("lookahead move +" + (i - index) + " now impossible");
+                    return replan("lookahead +" + (i - index) + " impossible: " + ahead.kind + " "
+                            + ahead.src.toShortString() + "->" + ahead.dest.toShortString()
+                            + " (" + obstruct(fresh, ahead) + ")");
                 }
             }
         }
@@ -1023,6 +1037,13 @@ public final class PlayerPathExecutor {
             return (dx * dx + dz * dz) >= leniencySq;
         }
         return true;
+    }
+
+    /** Why a move re-costs to COST_INF, in words — the break-veto on its line, or a note that the
+     *  block obstruction is clean (so it failed for support/fall/geometry, e.g. the floor is gone). */
+    private String obstruct(NavContext fresh, Movement mv) {
+        String why = fresh.diagnoseObstruction(mv.src, mv.dest);
+        return why != null ? why : "no break-veto (support/fall/geometry)";
     }
 
     /** Log a replan trigger with full context (rare event), then return the status. */
