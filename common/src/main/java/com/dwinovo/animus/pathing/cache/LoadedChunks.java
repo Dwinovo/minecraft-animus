@@ -39,7 +39,10 @@ public final class LoadedChunks {
         return chunks.get(ChunkPos.pack(chunkX, chunkZ));
     }
 
-    /** Whether a block entity occupied {@code pos} when this snapshot was taken. */
+    /** Whether a block entity occupied {@code pos} when this snapshot was taken. Only meaningful for a
+     *  position inside a captured chunk — {@link #blockEntities} is populated in lockstep with
+     *  {@link #at}, and a cell outside the snapshot reads AIR (so the don't-grief check, which only
+     *  runs on a breakable block, is never consulted there). */
     public boolean hasBlockEntity(BlockPos pos) {
         return blockEntities.contains(pos.asLong());
     }

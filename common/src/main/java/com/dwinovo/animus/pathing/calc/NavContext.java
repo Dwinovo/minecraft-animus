@@ -115,10 +115,13 @@ public final class NavContext {
         // first search is still correct.
         com.dwinovo.animus.pathing.cache.LoadedChunks loaded =
                 com.dwinovo.animus.pathing.cache.PathCaches.peek(level);
+        // Thread-safe ONLY with the immutable CachedNavView. If there's no snapshot (the fallback
+        // NavSnapshot reads the live level), the context is NOT safe for a worker — flag it so the
+        // caller runs it on the main thread instead of racing off-thread.
         BlockGetter view = loaded != null
                 ? new com.dwinovo.animus.pathing.cache.CachedNavView(loaded, level)
                 : new NavSnapshot(level);
-        return new NavContext(level, view, snapshotInventory(liveInventory), true);
+        return new NavContext(level, view, snapshotInventory(liveInventory), loaded != null);
     }
 
     /** A point-in-time copy of {@code live} (same slot layout, copied stacks) — read-only fodder for

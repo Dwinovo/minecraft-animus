@@ -175,19 +175,30 @@ public final class PlayerNav {
         return NavContext.forSearch(player.level(), player.getInventory());
     }
 
+    /** Off-thread when the context is frozen (the normal case); on the main thread otherwise — a
+     *  context whose view is the live read-through ({@code safeForThreadedUse == false}) must NOT run
+     *  on a worker. The latter is a rare safety net (e.g. no chunk snapshot yet); it returns an
+     *  already-completed future so the polling code is identical. */
+    private java.util.concurrent.CompletableFuture<Path> dispatch(NavContext ctx, AStarSearch s) {
+        return ctx.safeForThreadedUse ? runAsync(s) : java.util.concurrent.CompletableFuture.completedFuture(runToCompletion(s));
+    }
+
     /** Run a search to completion on the planner pool (off the tick thread). The node cap inside the
-     *  search bounds it, so one {@code step} call runs the whole thing; a thrown planner bug yields no
-     *  path rather than wedging the companion. */
+     *  search bounds it, so one {@code step} call runs the whole thing. */
     private static java.util.concurrent.CompletableFuture<Path> runAsync(AStarSearch s) {
-        return com.dwinovo.animus.pathing.calc.PathPlannerPool.submit(() -> {
-            try {
-                s.step(Integer.MAX_VALUE);
-                return s.result();
-            } catch (Throwable t) {
-                com.dwinovo.animus.Constants.LOG.error("path search failed", t);
-                return null;
-            }
-        });
+        return com.dwinovo.animus.pathing.calc.PathPlannerPool.submit(() -> runToCompletion(s));
+    }
+
+    /** One {@code step} to the node cap; a thrown planner bug yields no path rather than wedging the
+     *  companion (or, off-thread, completing the future exceptionally). */
+    private static Path runToCompletion(AStarSearch s) {
+        try {
+            s.step(Integer.MAX_VALUE);
+            return s.result();
+        } catch (Throwable t) {
+            com.dwinovo.animus.Constants.LOG.error("path search failed", t);
+            return null;
+        }
     }
 
     /** Live context for EXECUTION re-costing (main thread; reads current world + inventory). */
@@ -203,11 +214,12 @@ public final class PlayerNav {
             searchObj = null;
             return;
         }
-        AStarSearch s = astar.newSearch(searchContext(),
+        NavContext ctx = searchContext();
+        AStarSearch s = astar.newSearch(ctx,
                 BlockHelper.playerFeet(player.level(), player.getX(), player.getY(), player.getZ()),
                 g, previousPathHashes);
         searchObj = s;
-        searchFuture = runAsync(s);
+        searchFuture = dispatch(ctx, s);
     }
 
     /** Cancel and forget the in-flight main search (so a stale worker stops and its result is ignored). */
@@ -274,9 +286,10 @@ public final class PlayerNav {
         NavGoal g = goalSupplier.get();
         if (g == null) return;
         plannedCenter = g.center();
-        AStarSearch s = astar.newSearch(searchContext(), current.pathEnd(), g, previousPathHashes);
+        NavContext ctx = searchContext();
+        AStarSearch s = astar.newSearch(ctx, current.pathEnd(), g, previousPathHashes);
         nextObj = s;
-        nextFuture = runAsync(s);
+        nextFuture = dispatch(ctx, s);
     }
 
     private void advancePrecompute() {
