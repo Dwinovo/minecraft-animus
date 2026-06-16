@@ -9,8 +9,10 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.Container;
+import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -37,11 +39,13 @@ public final class NavContext {
     public final Level level;
 
     /**
-     * Memoizing read-through view of {@link #level} for this search. All
-     * terrain queries (here and in {@link com.dwinovo.animus.pathing.movement.Moves})
-     * go through it so each cell is fetched once per search.
+     * World view for this search/execution. All terrain queries (here and in
+     * {@link com.dwinovo.animus.pathing.movement.Moves}) go through it. For EXECUTION it's a
+     * live read-through of {@link #level} ({@link NavSnapshot}); for a SEARCH it will become the
+     * {@code CompactSection}-backed off-thread view (P-B) — both implement {@link BlockGetter}, so
+     * {@link com.dwinovo.animus.pathing.util.BlockHelper} reads either unchanged.
      */
-    public final NavSnapshot view;
+    public final BlockGetter view;
 
     /** True if the entity holds at least one scaffolding block. */
     public final boolean hasScaffold;
@@ -51,6 +55,14 @@ public final class NavContext {
 
     /** Whether sprinting is allowed (Baritone {@code canSprint}); drives the sprint cost discount. */
     public final boolean canSprint;
+
+    /**
+     * Whether this context may be handed to a worker thread (Baritone's {@code safeForThreadedUse}).
+     * A search context ({@link #forSearch}) is frozen — snapshot inventory + (from P-B) an immutable
+     * world view — so the async planner can read it off the tick thread; an execution context
+     * ({@link #forExecution}) reads the live world/inventory and is main-thread only.
+     */
+    public final boolean safeForThreadedUse;
 
     /**
      * Frozen view of the body's hotbar, for best-tool-aware mining duration —
@@ -68,21 +80,47 @@ public final class NavContext {
     /** Best hotbar tool for a block: its destroy speed and whether it harvests drops. */
     private record BestTool(float speed, boolean canHarvest) {}
 
-    /**
-     * Snapshot the world + the body's capabilities for one A* search. The
-     * {@code inventory} is both the scaffolding gate and the tool source: the
-     * best tool in its hotbar prices every break (Baritone ToolSet).
-     */
-    public NavContext(Level level, Container inventory) {
+    private NavContext(Level level, BlockGetter view, Container inventory, boolean safeForThreadedUse) {
         this.level = level;
-        this.view = new NavSnapshot(level);
+        this.view = view;
         this.inventory = inventory;
+        this.safeForThreadedUse = safeForThreadedUse;
         this.hasScaffold = hasAnyScaffold(inventory);
 
         // Survivable fall: Baritone's maxFallHeightNoWater (3) — vanilla fall
         // damage starts at 3.5 blocks; cap conservatively so the bot never hurts itself.
         this.maxFallHeight = PathSettings.MAX_FALL_HEIGHT_NO_WATER;
         this.canSprint = PathSettings.ALLOW_SPRINT;
+    }
+
+    /**
+     * Live read-through context for EXECUTION (main thread). The executor re-costs the next move
+     * each tick against the CURRENT world + live inventory (scaffold depletion, terrain the body just
+     * changed), so this reads live and is NOT safe to hand to a worker thread.
+     */
+    public static NavContext forExecution(Level level, Container liveInventory) {
+        return new NavContext(level, new NavSnapshot(level), liveInventory, false);
+    }
+
+    /**
+     * Frozen context for one A* SEARCH. The inventory is snapshotted so tool/scaffold costs can't
+     * shift mid-search (the {@code toolCache} reads it lazily across the search), making the
+     * "doesn't see mid-search inventory mutation" contract actually true. In P-A the world view is
+     * still the live read-through and the search still runs on the main thread (time-sliced); P-B
+     * swaps in the {@code CompactSection}-backed off-thread view so the search can move to a worker.
+     */
+    public static NavContext forSearch(Level level, Container liveInventory) {
+        return new NavContext(level, new NavSnapshot(level), snapshotInventory(liveInventory), true);
+    }
+
+    /** A point-in-time copy of {@code live} (same slot layout, copied stacks) — read-only fodder for
+     *  the scaffold gate + tool cache, frozen for the search's lifetime. */
+    private static Container snapshotInventory(Container live) {
+        SimpleContainer copy = new SimpleContainer(live.getContainerSize());
+        for (int i = 0; i < live.getContainerSize(); i++) {
+            copy.setItem(i, live.getItem(i).copy());
+        }
+        return copy;
     }
 
     /** Best hotbar tool for the block (Baritone {@code ToolSet.getBestSlot}),

@@ -161,15 +161,21 @@ public final class PlayerNav {
         return Status.RUNNING;
     }
 
-    private NavContext freshContext() {
-        return new NavContext(player.level(), player.getInventory());
+    /** Frozen context for a SEARCH (snapshot inventory; off-thread-ready from P-B). */
+    private NavContext searchContext() {
+        return NavContext.forSearch(player.level(), player.getInventory());
+    }
+
+    /** Live context for EXECUTION re-costing (main thread; reads current world + inventory). */
+    private NavContext executionContext() {
+        return NavContext.forExecution(player.level(), player.getInventory());
     }
 
     private void startFreshSearch() {
         NavGoal g = goalSupplier.get();
         plannedCenter = (g == null) ? null : g.center();
         search = (g == null) ? null
-                : astar.newSearch(freshContext(),
+                : astar.newSearch(searchContext(),
                         BlockHelper.playerFeet(player.level(), player.getX(), player.getY(), player.getZ()),
                         g, previousPathHashes);
     }
@@ -199,7 +205,7 @@ public final class PlayerNav {
             return reached.getAsBoolean() ? Status.ARRIVED : Status.FAILED;
         }
         Path cut = path.staticCutoff();
-        current = new PlayerPathExecutor(player, cut, speed, this::freshContext);
+        current = new PlayerPathExecutor(player, cut, speed, this::executionContext);
         previousPathHashes = pathHashes(cut);   // favor this route on the next replan
         publishViz(cut);
         return Status.RUNNING;
@@ -227,7 +233,7 @@ public final class PlayerNav {
         NavGoal g = goalSupplier.get();
         if (g == null) return;
         plannedCenter = g.center();
-        nextSearch = astar.newSearch(freshContext(), current.pathEnd(), g, previousPathHashes);
+        nextSearch = astar.newSearch(searchContext(), current.pathEnd(), g, previousPathHashes);
     }
 
     private void advancePrecompute() {
@@ -237,7 +243,7 @@ public final class PlayerNav {
         nextSearch = null;
         if (np != null && !np.isEmpty()) {
             Path cut = np.staticCutoff();
-            pendingNext = new PlayerPathExecutor(player, cut, speed, this::freshContext);
+            pendingNext = new PlayerPathExecutor(player, cut, speed, this::executionContext);
             pendingPathForViz = cut;
             previousPathHashes = pathHashes(cut);   // the next segment becomes the favored route
         }
