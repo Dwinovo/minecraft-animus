@@ -169,7 +169,9 @@ public final class PlayerNav {
         NavGoal g = goalSupplier.get();
         plannedCenter = (g == null) ? null : g.center();
         search = (g == null) ? null
-                : astar.newSearch(freshContext(), player.blockPosition(), g, previousPathHashes);
+                : astar.newSearch(freshContext(),
+                        BlockHelper.playerFeet(player.level(), player.getX(), player.getY(), player.getZ()),
+                        g, previousPathHashes);
     }
 
     /** Packed positions (start + every movement dest) of a path — its Favoring set. */

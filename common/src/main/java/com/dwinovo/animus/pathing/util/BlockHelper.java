@@ -197,13 +197,39 @@ public final class BlockHelper {
         if (state.getBlock() instanceof AzaleaBlock) return true;
         if (state.getBlock() instanceof StairBlock) return true;
         if (state.getBlock() instanceof SlabBlock) {
-            // allowWalkOnBottomSlab=false: only top/double slabs are a floor.
-            return state.getValue(SlabBlock.TYPE) != SlabType.BOTTOM;
+            // Baritone default allowWalkOnBottomSlab=true → ALL slabs are a floor. Standing
+            // on a bottom slab is reconciled by playerFeet() returning the cell ABOVE it.
+            return true;
         }
         // Magma / honey are full cubes but Baritone refuses them (damage / stickiness).
         if (state.is(Blocks.MAGMA_BLOCK) || state.is(Blocks.HONEY_BLOCK)) return false;
         // Everything else: a normal full collision cube (Baritone isBlockNormalCube).
         return state.isCollisionShapeFullBlock(level, pos);
+    }
+
+    /**
+     * Baritone {@code IPlayerContext.playerFeet}: the body's feet cell for pathing — the
+     * position nudged up 0.1251 (so sinking on soul sand / farmland doesn't read a block
+     * low) and, when that cell is a SLAB, taken as the cell ABOVE it. The slab adjustment
+     * is what reconciles standing on a bottom slab (feet at slab.y+0.5) with the move graph,
+     * where a move onto a slab targets the cell ABOVE the slab.
+     */
+    public static BlockPos playerFeet(BlockGetter level, double x, double y, double z) {
+        BlockPos f = BlockPos.containing(x, y + 0.1251, z);
+        if (level.getBlockState(f).getBlock() instanceof SlabBlock) {
+            return f.above();
+        }
+        return f;
+    }
+
+    /** Baritone MovementHelper.isBottomSlab. */
+    public static boolean isBottomSlab(BlockState state) {
+        return state.getBlock() instanceof SlabBlock
+                && state.getValue(SlabBlock.TYPE) == SlabType.BOTTOM;
+    }
+
+    public static boolean isBottomSlab(BlockGetter level, BlockPos pos) {
+        return isBottomSlab(level.getBlockState(pos));
     }
 
     /**

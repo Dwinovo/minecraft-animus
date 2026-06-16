@@ -95,8 +95,14 @@ public final class MoveToCompanionTask implements CompanionTask {
      *  the jump APEX a tick before its support block is placed, so without the onGround
      *  gate we'd declare success mid-air, pre-empt the place, and fall back (the stray
      *  extra hop). onGround makes the body actually settle on the placed block. */
+    /** Slab-aware feet cell (Baritone playerFeet) — the pathing node, not raw blockPosition. */
+    private BlockPos feet() {
+        return com.dwinovo.animus.pathing.util.BlockHelper.playerFeet(
+                player.level(), player.getX(), player.getY(), player.getZ());
+    }
+
     private boolean reached() {
-        BlockPos feet = player.blockPosition();
+        BlockPos feet = feet();
         return switch (r.kind) {
             case BLOCK -> feet.equals(blockTarget);
             case COLUMN -> feet.getX() == bx && feet.getZ() == bz;
@@ -140,7 +146,7 @@ public final class MoveToCompanionTask implements CompanionTask {
     private boolean closeEnoughToSucceed() {
         return switch (r.kind) {
             case BLOCK, COLUMN -> horizontalDistSqr(bx, bz) <= NEAR_SUCCESS_RADIUS * NEAR_SUCCESS_RADIUS;
-            case YLEVEL -> Math.abs(player.blockPosition().getY() - by) <= 1;
+            case YLEVEL -> Math.abs(feet().getY() - by) <= 1;
         };
     }
 
@@ -184,7 +190,7 @@ public final class MoveToCompanionTask implements CompanionTask {
     private String arrivedMessage(int gy) {
         return switch (r.kind) {
             case BLOCK -> {
-                if (player.blockPosition().equals(blockTarget)) {
+                if (feet().equals(blockTarget)) {
                     yield "reached the exact cell " + bx + "," + by + "," + bz + ".";
                 }
                 // Got to the column but not the exact y (the usual "guessed Y was in

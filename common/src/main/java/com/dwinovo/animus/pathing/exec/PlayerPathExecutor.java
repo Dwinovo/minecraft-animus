@@ -171,7 +171,7 @@ public final class PlayerPathExecutor {
         // (→ jumpInLiquid buoyancy). This is the single framework-level mechanism that
         // keeps the body riding the water surface across ALL kinds — without it the body
         // sinks between per-move depth-corrections and porpoises.
-        if (!player.level().getBlockState(player.blockPosition()).getFluidState().isEmpty()
+        if (!player.level().getBlockState(feet()).getFluidState().isEmpty()
                 && player.getY() < mv.dest.getY() + 0.6) {
             InputDriver.jump(player);
         }
@@ -198,6 +198,14 @@ public final class PlayerPathExecutor {
                         Math.abs((cell.getZ() + 0.5) - player.getZ()));
     }
 
+    /** Baritone IPlayerContext.playerFeet: the feet cell, nudged up 0.1251 (so soul-sand /
+     *  farmland sink doesn't read us a block low), and — when that cell is a SLAB — taken
+     *  as the cell ABOVE it. That slab adjustment is what lets standing on a bottom slab
+     *  read as the move's dest (moves onto a slab target the cell above the slab). */
+    private BlockPos feet() {
+        return BlockHelper.playerFeet(player.level(), player.getX(), player.getY(), player.getZ());
+    }
+
     /**
      * Per-movement execution. Each kind forces the inputs Baritone's
      * {@code updateState} would: walk/diagonal aim + forward (+sprint); ascend
@@ -220,14 +228,14 @@ public final class PlayerPathExecutor {
                 // we're below it; if we've popped ABOVE it, do nothing and let it settle.
                 // Moving forward only happens once we're actually on the lane, which is
                 // what keeps a water-surface crossing stable instead of porpoising.
-                int feetY = player.blockPosition().getY();
+                int feetY = feet().getY();
                 if (feetY != mv.dest.getY()) {
                     InputDriver.halt(player);
                     // Below the lane → rise. On LAND that's a step-up hop; in LIQUID the
                     // universal liquid-float jump (in tick()) already does the rising, so
                     // don't add a second impulse here (our jump() isn't an idempotent flag).
                     if (feetY < mv.dest.getY()
-                            && player.level().getBlockState(player.blockPosition()).getFluidState().isEmpty()) {
+                            && player.level().getBlockState(feet()).getFluidState().isEmpty()) {
                         InputDriver.jump(player);
                     }
                 } else {
@@ -282,7 +290,7 @@ public final class PlayerPathExecutor {
             return;
         }
         double ab = horizontalDistTo(mv.dest);
-        if (!player.blockPosition().equals(mv.dest) || ab > 0.25) {
+        if (!feet().equals(mv.dest) || ab > 0.25) {
             Vec3 aim = (ticksOnCurrent < 20 && horizontalDistTo(mv.src) < 1.25)
                     ? Vec3.atBottomCenterOf(new BlockPos(
                             2 * mv.dest.getX() - mv.src.getX(),
@@ -384,7 +392,13 @@ public final class PlayerPathExecutor {
         // Sprint up only when we sprint-skipped into this ascend (Baritone sprintableAscend);
         // a normal ascend jumps from a standstill.
         InputDriver.stepToward(player, Vec3.atBottomCenterOf(mv.dest), sprintAscend);
-        if (player.blockPosition().equals(mv.src.above())) {
+        // Baritone: stepping onto a bottom slab from a non-slab is a 0.5 walk-up, NOT a jump
+        // — auto-step handles the half block, so don't press jump here.
+        if (BlockHelper.isBottomSlab(player.level(), mv.dest.below())
+                && !BlockHelper.isBottomSlab(player.level(), mv.src.below())) {
+            return;
+        }
+        if (feet().equals(mv.src.above())) {
             return;   // already airborne off the step
         }
         int xAxis = Math.abs(mv.src.getX() - mv.dest.getX()); // 0 or 1
@@ -636,7 +650,7 @@ public final class PlayerPathExecutor {
     private boolean safeToCancel(Movement mv) {
         switch (mv.kind) {
             case FALL:
-                return player.blockPosition().equals(mv.src);
+                return feet().equals(mv.src);
             case PARKOUR:
                 return ticksOnCurrent == 0;
             case ASCEND:
@@ -658,7 +672,7 @@ public final class PlayerPathExecutor {
      *  safe when a block actually supports us (one of the four 0.25 offsets below). */
     private boolean diagonalSafeToCancel(Movement mv) {
         net.minecraft.world.level.Level level = player.level();
-        BlockPos feet = player.blockPosition();
+        BlockPos feet = feet();
         if (feet.equals(mv.src)) return true;
         BlockPos floorA = new BlockPos(mv.src.getX(), mv.src.getY() - 1, mv.dest.getZ());
         BlockPos floorB = new BlockPos(mv.dest.getX(), mv.src.getY() - 1, mv.src.getZ());
@@ -706,7 +720,7 @@ public final class PlayerPathExecutor {
      * body a cell or two beyond the target, which still counts as arrived).
      */
     private boolean arrived(Movement mv) {
-        BlockPos feet = player.blockPosition();
+        BlockPos feet = feet();
         if (mv.kind == Movement.Kind.PILLAR) {
             // Water swim-up: Baritone's pillar water branch succeeds on feet==dest with NO
             // block check (you're swimming, nothing is placed).
@@ -789,7 +803,7 @@ public final class PlayerPathExecutor {
     // ---- re-localization (mirrors PathExecutor) ----
 
     private Status relocalize() {
-        BlockPos feet = player.blockPosition();
+        BlockPos feet = feet();
         Movement cur = path.movements.get(index);
         if (cur.validPositions().contains(feet)) {
             ticksAway = 0;

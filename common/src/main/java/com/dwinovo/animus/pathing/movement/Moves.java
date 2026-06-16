@@ -212,15 +212,30 @@ public final class Moves {
         // Can't jump-ascend off a ladder/vine (Baritone srcDown check).
         if (isLadderOrVine(level.getBlockState(from.below()))) return null;
 
-        // Baritone MovementAscend: max(JUMP, WALK) + jumpPenalty (the jump and the
-        // forward block overlap, so it's the larger of the two, not their sum) —
-        // EXCEPT stepping ONTO soul sand costs the soul-sand walk instead, matching
-        // how traverse/descend already price soul sand. (Bottom-slab ascend special
-        // cases are not modelled — slabs aren't modelled anywhere in our move set.)
-        double base = level.getBlockState(step).is(Blocks.SOUL_SAND)
-                ? ActionCosts.WALK_ONE_OVER_SOUL_SAND
-                : Math.max(ActionCosts.JUMP_ONE_BLOCK, ActionCosts.WALK_ONE_BLOCK);
-        double cost = base + PathSettings.JUMP_PENALTY;
+        // Baritone MovementAscend cost: max(JUMP, WALK) + jumpPenalty (the jump and the
+        // forward block overlap, so it's the larger of the two), with soul-sand / magma /
+        // bottom-slab special cases. You can jump FROM soul sand but NOT from a bottom slab
+        // (the only thing you can ascend onto from a bottom slab is another bottom slab —
+        // a 0.5 step you just walk into, no jump, no penalty).
+        boolean fromSlab = BlockHelper.isBottomSlab(level, from.below());
+        boolean toSlab = BlockHelper.isBottomSlab(level, step);
+        if (fromSlab && !toSlab) return null;
+        double cost;
+        if (toSlab) {
+            cost = fromSlab
+                    ? Math.max(ActionCosts.JUMP_ONE_BLOCK, ActionCosts.WALK_ONE_BLOCK) + PathSettings.JUMP_PENALTY
+                    : ActionCosts.WALK_ONE_BLOCK;   // step into the slab, no jump
+        } else {
+            double base;
+            if (level.getBlockState(step).is(Blocks.SOUL_SAND)) {
+                base = ActionCosts.WALK_ONE_OVER_SOUL_SAND;
+            } else if (level.getBlockState(step).is(Blocks.MAGMA_BLOCK)) {
+                base = ActionCosts.SNEAK_ONE_BLOCK;
+            } else {
+                base = Math.max(ActionCosts.JUMP_ONE_BLOCK, ActionCosts.WALK_ONE_BLOCK);
+            }
+            cost = base + PathSettings.JUMP_PENALTY;
+        }
         List<BlockPos> toBreak = new ArrayList<>(3);
 
         double jumpBreak = clearCost(ctx, jumpRoom, toBreak);
@@ -276,6 +291,8 @@ public final class Moves {
             // Single-block descend: solid floor right below the landing. Walk off the
             // edge (soul-sand-scaled) + max(fall(1), center-after-fall).
             if (isLadderOrVine(level.getBlockState(landing))) return null;
+            // (Baritone only vetoes a half-slab landing in the MULTI-block dynamicFall, not
+            // here — a single 1-block step-down onto a bottom slab is safe, so it's allowed.)
             if (BlockHelper.isHazard(level, landing) || BlockHelper.isHazard(level, belowLanding)) return null;
             double walk = ActionCosts.WALK_OFF_BLOCK;
             if (level.getBlockState(from.below()).is(Blocks.SOUL_SAND)) {
@@ -318,6 +335,7 @@ public final class Moves {
             if (BlockHelper.canWalkThrough(level, onto)) continue;   // still air — keep falling
             if (fallHeight > ctx.maxFallHeight + 1) return null;     // dry landing beyond safe height
             if (!BlockHelper.canWalkOn(level, onto)) return null;    // not standable — abort
+            if (BlockHelper.isBottomSlab(level, onto)) return null;  // glitchy fall onto a half slab
             BlockPos feet = onto.above();                            // (destX, y-fallHeight+1)
             if (BlockHelper.isHazard(level, onto) || BlockHelper.isHazard(level, feet)) return null;
             double total = ActionCosts.WALK_OFF_BLOCK + ActionCosts.fallCost(fallHeight) + frontBreak;
@@ -420,6 +438,8 @@ public final class Moves {
         // floating body never has — the move would just stall and churn replans. Rising
         // from the water SURFACE is "swim to shore first" by design.
         if (BlockHelper.isWater(level, from)) return null;
+        // Baritone MovementPillar: can't pillar up from a bottom slab onto a non-ladder.
+        if (BlockHelper.isBottomSlab(level, from.below())) return null;
         BlockPos dest = from.above();      // feet end one block up
         BlockPos newHead = from.above(2);  // head room while standing on the new block
 
