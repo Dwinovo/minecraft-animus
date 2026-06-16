@@ -52,7 +52,10 @@ public final class InteractEntityCompanionTask implements CompanionTask {
             r.setState(TaskState.FAILED);
             return;
         }
-        nav = new PlayerNav(player, () -> entity.blockPosition(), WALK_SPEED, this::withinReach);
+        // Arrival = within reach AND a clear line of sight: nav keeps walking (toward the entity)
+        // until BOTH hold, so a wall between us and the target is cleared by re-positioning rather
+        // than stood in front of forever.
+        nav = new PlayerNav(player, () -> entity.blockPosition(), WALK_SPEED, this::inReachAndLos);
     }
 
     @Override
@@ -66,8 +69,15 @@ public final class InteractEntityCompanionTask implements CompanionTask {
             return acted ? TaskState.SUCCESS : TaskState.FAILED;
         }
 
-        // Follow until within reach.
-        if (!withinReach()) {
+        // A fixed-duration hold completes on time even if the line of sight lapsed near the end.
+        if (interaction != null && holdUntil >= 0 && player.level().getGameTime() >= holdUntil) {
+            interaction.stop();
+            doneReason = describeDone();
+            return TaskState.SUCCESS;
+        }
+
+        // Follow + re-position until we're in reach with a clear line of sight.
+        if (!inReachAndLos()) {
             if (nav == null) return TaskState.FAILED;
             return switch (nav.tick()) {
                 case RUNNING, ARRIVED -> TaskState.RUNNING;
@@ -78,15 +88,14 @@ public final class InteractEntityCompanionTask implements CompanionTask {
             };
         }
 
-        // In reach: aim at the entity and confirm the crosshair actually reaches IT (no wall).
+        // In reach + LOS: aim at the entity and confirm the crosshair actually resolves to IT
+        // (e.g. not another entity wandered into the exact line) before pressing.
         InputDriver.lookAt(player, entity.getEyePosition());
         HitResult hit = Interaction.nativeRaytrace(player, REACH);
         boolean onTarget = hit.getType() == HitResult.Type.ENTITY
                 && ((EntityHitResult) hit).getEntity() == entity;
         if (!onTarget) {
-            // A wall (or another entity) is in the way — re-position rather than hit through it.
-            if (nav != null) nav.tick();
-            return TaskState.RUNNING;
+            return TaskState.RUNNING;   // settling / something briefly in the line — re-aim next tick
         }
 
         if (interaction == null) {
@@ -97,11 +106,6 @@ public final class InteractEntityCompanionTask implements CompanionTask {
         }
         acted = true;
 
-        if (holdUntil >= 0 && player.level().getGameTime() >= holdUntil) {
-            interaction.stop();
-            doneReason = describeDone();
-            return TaskState.SUCCESS;
-        }
         return switch (interaction.tick()) {
             case DONE -> {
                 doneReason = describeDone();
@@ -124,6 +128,12 @@ public final class InteractEntityCompanionTask implements CompanionTask {
         return player.onGround()
                 && entity != null
                 && player.distanceToSqr(entity.position()) <= REACH_SQR;
+    }
+
+    /** In arm's reach AND no block between our eyes and the entity (vanilla hasLineOfSight) —
+     *  the nav arrival gate, so the body walks around a wall instead of freezing in front of it. */
+    private boolean inReachAndLos() {
+        return withinReach() && player.hasLineOfSight(entity);
     }
 
     private String name() {
