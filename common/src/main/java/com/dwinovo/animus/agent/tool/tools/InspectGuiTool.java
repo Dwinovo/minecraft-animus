@@ -5,7 +5,9 @@ import com.dwinovo.animus.entity.AnimusPlayer;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.CraftingContainer;
 import net.minecraft.world.inventory.DataSlot;
+import net.minecraft.world.inventory.ResultSlot;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
@@ -30,10 +32,12 @@ public final class InspectGuiTool implements AnimusTool {
     public String description() {
         return "Look at the GUI you currently have open. After interact_at right-clicks a chest / "
                 + "furnace / machine it shows that container; with NO container open it shows YOUR own "
-                + "inventory menu — which includes the 2x2 crafting grid (slots 1-4, result slot 0), so "
-                + "you can craft small recipes without a table. Lists every slot — index, side, item + "
-                + "count, [output] mark — plus the cursor and any machine progress. Use it to choose "
-                + "click_slot indices and to verify a click. No arguments.";
+                + "inventory menu (which includes a 2x2 crafting grid), so you can craft small recipes "
+                + "without a table. Lists every slot — index, side, item + count, [output] mark — plus "
+                + "the cursor and any machine progress. If a crafting grid is open it draws the grid as a "
+                + "2D map of slot numbers, so you place a recipe by dropping its layout onto the same "
+                + "positions (no index math). Use it to choose click_slot indices and to verify a click. "
+                + "No arguments.";
     }
 
     @Override
@@ -67,10 +71,32 @@ public final class InspectGuiTool implements AnimusTool {
         boolean ownInventory = menu == entity.inventoryMenu;
         StringBuilder container = new StringBuilder();
         StringBuilder mine = new StringBuilder();
+        // Crafting grid (if any). Detect generically: a slot backed by a CraftingContainer IS a grid
+        // cell (vanilla 2x2/3x3 AND modded NxM), the ResultSlot IS the output. We lay the cells out in
+        // 2D with their click-able slot numbers so the model can drop the recipe ascii straight onto it
+        // — no "row-major + stride + gaps" arithmetic, which is exactly where it kept misplacing.
+        int gridW = 0, gridH = 0, resultIndex = -1;
+        Slot[] gridCells = null;   // indexed by position-in-container (row-major)
         for (int i = 0; i < menu.slots.size(); i++) {
             Slot slot = menu.slots.get(i);
             boolean playerSide = slot.container == entity.getInventory();
             ItemStack it = slot.getItem();
+            if (slot instanceof ResultSlot) {
+                resultIndex = slot.index;
+                continue;   // shown as part of the crafting-grid section, not the generic dump
+            }
+            if (slot.container instanceof CraftingContainer cc) {
+                if (gridCells == null) {
+                    gridW = cc.getWidth();
+                    gridH = cc.getHeight();
+                    gridCells = new Slot[gridW * gridH];
+                }
+                int pos = slot.getContainerSlot();
+                if (pos >= 0 && pos < gridCells.length) {
+                    gridCells[pos] = slot;
+                }
+                continue;
+            }
             // Output-only = a non-empty machine slot that won't take its own item back (result slot).
             boolean output = !playerSide && !it.isEmpty() && !slot.mayPlace(it);
             String line = "  " + i + ": " + describe(it) + (output ? " [output]" : "") + "\n";
@@ -98,11 +124,35 @@ public final class InspectGuiTool implements AnimusTool {
             dataLine = d.append("]\n").toString();
         }
 
+        // Render the crafting grid as a 2D map of click-able slot numbers, so the recipe ascii from
+        // lookup_recipe overlays cell-for-cell (a smaller recipe goes in the TOP-LEFT — same as here).
+        String gridSection = "";
+        if (gridCells != null) {
+            StringBuilder g = new StringBuilder("crafting grid " + gridW + "x" + gridH
+                    + " — put each recipe ingredient into the slot at the SAME position (a recipe "
+                    + "smaller than the grid goes in the top-left); take the result from slot "
+                    + resultIndex + ":\n");
+            for (int r = 0; r < gridH; r++) {
+                g.append("  ");
+                for (int c = 0; c < gridW; c++) {
+                    Slot cell = gridCells[r * gridW + c];
+                    ItemStack it = cell == null ? ItemStack.EMPTY : cell.getItem();
+                    int idx = cell == null ? -1 : cell.index;
+                    g.append("slot ").append(idx).append("=").append(describe(it));
+                    if (c < gridW - 1) {
+                        g.append("  |  ");
+                    }
+                }
+                g.append("\n");
+            }
+            gridSection = g.toString();
+        }
+
         String header = ownInventory
-                ? "GUI: InventoryMenu (YOUR own inventory — the 2x2 crafting grid is container slots 1-4, "
-                        + "result = slot 0; put ingredients in 1-4, take the result from 0)\n"
+                ? "GUI: InventoryMenu (YOUR own inventory — includes the 2x2 crafting grid below)\n"
                 : "GUI: " + menu.getClass().getSimpleName() + "\n";
         return header
+                + gridSection
                 + "container slots:\n" + (container.length() == 0 ? "  (none)\n" : container)
                 + "your inventory (non-empty):\n" + (mine.length() == 0 ? "  (empty)\n" : mine)
                 + "cursor: " + describe(menu.getCarried()) + "\n"

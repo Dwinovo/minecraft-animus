@@ -114,9 +114,10 @@ public final class LookupRecipeTool implements AnimusTool {
         }
         return "recipe(s) for " + name + ":\n\n" + String.join("\n\n", recipes) + "\n\n"
                 + "To craft: interact_at a crafting table (3x3; small recipes also fit your 2x2 inventory "
-                + "grid) → inspect_gui (the grid slots are row-major, slot 0 = result) → click_slot "
-                + "type=pickup each ingredient into its cell (a WxH recipe goes in the top-left) → "
-                + "click_slot type=quick_move the result slot to take the output.";
+                + "grid) → inspect_gui, which draws the grid as a 2D map of slot numbers → lay this recipe "
+                + "onto that map cell-for-cell (a smaller recipe goes in the top-left) and click_slot the "
+                + "slot number at each ingredient's position; fill EVERY cell shown → click_slot "
+                + "type=quick_move the result slot to take the output.";
     }
 
     private static String format(CraftingRecipe recipe, ItemStack result) {

@@ -48,11 +48,19 @@ So to check a furnace: `interact_at` it → `inspect_gui` → read the input cou
 Neither has a dedicated tool — you drive the GUI yourself, the same as any container.
 
 - **Crafting** — do the whole craft in essentially ONE `click_slot` call:
-  1. `lookup_recipe <item>` — get the recipe's ingredients + grid layout (reads the game's recipe data, so modded recipes work too, like JEI).
-  2. Open a grid (`inspect_gui` once to learn the slot indices + where your ingredients are):
-     - **≤2×2 recipe** (planks, sticks, torches, a crafting table itself): NO table needed — your own **2×2 grid is always available**. `inspect_gui` with nothing open shows your `InventoryMenu`: crafting grid = slots **1-4**, result = slot **0**.
-     - **3×3 recipe** (tools, etc.): `interact_at button=right` a crafting table, then `inspect_gui`. Grid = slots **1-9** (row-major), result = slot **0**.
-  3. **One batched call** lays the recipe out and takes the result. For each cell use `pickup button=0` to grab the source stack, `pickup button=1` to drop ONE into the cell, then `pickup button=0` back on the source to return the rest — then `quick_move` slot 0 for the output. Example, a pickaxe (3 planks across the top row 1-3, 2 sticks down the middle 5,8) — planks in your slot P, sticks in slot K:
+  1. `lookup_recipe <item>` — get the recipe's grid layout, drawn as an ascii grid (reads the game's recipe data, so modded recipes work too, like JEI).
+  2. Open a grid:
+     - **≤2×2 recipe** (planks, sticks, torches, a crafting table itself): NO table needed — your own **2×2 grid is always available**. Just `inspect_gui` with nothing open.
+     - **3×3 recipe** (tools, etc.): `interact_at button=right` a crafting table, then `inspect_gui`.
+  3. **Read the grid's slot numbers straight off `inspect_gui` — do NOT compute them.** `inspect_gui` draws the open crafting grid as a 2D map of slot numbers in the SAME shape as the recipe ascii, e.g. a 3×3 table:
+     ```
+     crafting grid 3x3 — ... take the result from slot 0:
+       slot 1=-  |  slot 2=-  |  slot 3=-
+       slot 4=-  |  slot 5=-  |  slot 6=-
+       slot 7=-  |  slot 8=-  |  slot 9=-
+     ```
+     Lay the recipe onto this map cell-for-cell (a recipe smaller than the grid goes in the **top-left**), and click the slot number printed at each ingredient's position. No row-major / stride math — just match positions.
+  4. **One batched call** lays the recipe out and takes the result. Per cell: `pickup button=0` to grab the source stack, `pickup button=1` to drop ONE into the cell, then `pickup button=0` back on the source to return the rest — then `quick_move` the result slot. Example, a pickaxe (planks across the top row, sticks down the middle) — read the grid map to learn the top row is slots 1/2/3 and the middle column is 5/8; planks in your slot P, sticks in slot K:
      ```
      click_slot clicks=[
        {slot:P,type:pickup,button:0}, {slot:1,type:pickup,button:1},
@@ -62,8 +70,9 @@ Neither has a dedicated tool — you drive the GUI yourself, the same as any con
        {slot:8,type:pickup,button:1}, {slot:K,type:pickup,button:0},
        {slot:0,type:quick_move}]                           # take the pickaxe
      ```
-  4. **Crafting a whole stack at once** (e.g. 64 planks → only need to fill once): put a FULL stack in each needed grid cell (use `pickup button=0` to dump the whole source stack into the cell), then a single `quick_move` on the result (slot 0) — shift-click auto-crafts repeatedly, consuming the grid until it empties. One `quick_move` ≈ a whole stack of output instead of one click per item.
-  5. For a table, `close_gui`. For your own 2×2 grid there's nothing to close; if you left items in slots 1-4, `click_slot` them back out (the same batched call can end by quick_move-ing leftover grid cells back to your inventory).
+     **Place EVERY cell the recipe shows.** A 2×2 table needs all four cells filled; fill only two and you'll craft the wrong thing (e.g. a button).
+  5. **Crafting a whole stack at once** (e.g. 64 planks → only fill once): put a FULL stack in each needed grid cell (`pickup button=0` dumps the whole source stack into the cell), then a single `quick_move` on the result slot — shift-click auto-crafts repeatedly, consuming the grid until it empties. One `quick_move` ≈ a whole stack of output.
+  6. For a table, `close_gui`. For your own 2×2 grid there's nothing to close; if you left items in the grid, `click_slot` them back out (the same batched call can end by quick_move-ing leftover grid cells back to your inventory).
 - **Smelting** — a furnace is just another container you drive with these primitives:
   1. `interact_at button=right` the furnace, then `inspect_gui` once for the slot indices.
   2. Load raw + fuel in one batch: `click_slot clicks=[{slot:<raw>,type:quick_move},{slot:<fuel>,type:quick_move}]` — the menu routes the smeltable to the input slot and the fuel to the fuel slot.
