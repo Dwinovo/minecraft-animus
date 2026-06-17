@@ -33,9 +33,9 @@ public final class ClickSlotTool implements AnimusTool {
     public String description() {
         return "Move items in the GUI you have open by clicking its slots (inspect_gui first for "
                 + "indices). Pass `clicks` as a LIST — they run in order, so do a whole operation "
-                + "(deposit several stacks, take an exact count) in ONE call. For crafting / smelting "
-                + "prefer place_recipe; reach for click_slot to move items, drive a custom modded "
-                + "machine, or fix things up.\n"
+                + "(deposit several stacks, take an exact count) in ONE call. For crafting use the craft "
+                + "tool instead; reach for click_slot to move items, load a furnace (input + fuel), drive "
+                + "a custom modded machine, or fix things up.\n"
                 + "Each click: {slot, type, button}.\n"
                 + "• type=quick_move: shift-click — sends the slot's whole stack to the other section, "
                 + "routed by the menu (deposit/take; a smeltable to a furnace input, etc.).\n"

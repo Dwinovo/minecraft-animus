@@ -52,9 +52,10 @@ public final class LookupRecipeTool implements AnimusTool {
         return "Look up how to make an item — like JEI. Returns every recipe whose output is this item, "
                 + "across all stations: crafting (with the grid layout), smelting / blasting / smoking, "
                 + "stonecutting, and smithing — each tagged [crafting] / [smelting] / [stonecutter] / "
-                + "[smithing] / …. Then make it: open the matching station and either place_recipe (for "
-                + "crafting tables & furnaces) or click_slot the inputs (stonecutter, smithing table). No "
-                + "recipe found = the item is mined or traded, not made.";
+                + "[smithing] / …. Then make it: [crafting] → the craft tool does it all; "
+                + "[smelting] → open the furnace and click_slot the input + fuel; [stonecutter] / "
+                + "[smithing] → open the station and click_slot the inputs. No recipe found = the item "
+                + "is mined or traded, not made.";
     }
 
     @Override
@@ -157,12 +158,13 @@ public final class LookupRecipeTool implements AnimusTool {
                     + "crafted or smelted.";
         }
         return "recipe(s) for " + name + ":\n\n" + String.join("\n\n", recipes) + "\n\n"
-                + "To make it: interact_at the matching station, then —\n"
-                + "• [crafting] / [smelting|blasting|smoking]: place_recipe " + name + " auto-fills it "
-                + "(crafting recipes also fit your own 2x2 grid; smelting: add fuel + wait), then "
-                + "click_slot type=quick_move the result slot.\n"
-                + "• [stonecutter] / [smithing]: place_recipe can't drive these — inspect_gui, then "
-                + "click_slot the input(s) into their slot(s) and take the output.";
+                + "To make it —\n"
+                + "• [crafting]: just `craft " + name + "` — it does the whole thing (2x2 on your own "
+                + "grid; a 3x3 recipe needs a crafting table open first via interact_at).\n"
+                + "• [smelting|blasting|smoking]: interact_at the furnace, click_slot the input into the "
+                + "top slot + fuel into the bottom, then wait and take the output.\n"
+                + "• [stonecutter] / [smithing]: interact_at the station, then inspect_gui and click_slot "
+                + "the input(s) into their slot(s) and take the output.";
     }
 
     private static String format(CraftingRecipe recipe, ItemStack result) {

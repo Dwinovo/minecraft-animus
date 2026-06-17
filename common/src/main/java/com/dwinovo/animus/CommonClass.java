@@ -76,7 +76,7 @@ public class CommonClass {
         // GUI primitives — interact_at opens a menu, then the model inspects + clicks it directly.
         ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.InspectGuiTool());
         ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.ClickSlotTool());
-        ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.PlaceRecipeTool());
+        ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.CraftTool());
         ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.CloseGuiTool());
         ToolRegistry.register(new GetSelfStatusTool());
         ToolRegistry.register(new GetOwnerStatusTool());
