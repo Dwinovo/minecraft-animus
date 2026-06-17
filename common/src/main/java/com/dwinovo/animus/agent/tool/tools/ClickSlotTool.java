@@ -54,9 +54,19 @@ public final class ClickSlotTool implements AnimusTool {
         click.put("properties", Map.of(
                 "slot", Map.of("type", "integer", "description", "Slot index from inspect_gui."),
                 "type", Map.of("type", "string", "enum", List.of("quick_move", "pickup", "swap", "throw"),
-                        "description", "Click kind."),
+                        "description", "What the click does. "
+                                + "quick_move = shift-click: send this slot's WHOLE stack to the other "
+                                + "section, routed by the menu (deposit/take); button ignored. "
+                                + "pickup = pick up onto / place from the cursor. "
+                                + "swap = exchange this slot with a hotbar slot. "
+                                + "throw = drop items out of this slot (only when the cursor is empty)."),
                 "button", Map.of("type", List.of("integer", "null"),
-                        "description", "0 = left (default), 1 = right; for swap = hotbar index 0-8.")));
+                        "description", "Meaning depends on `type` (default 0). "
+                                + "pickup: 0 = pick up / place the WHOLE stack (left click), "
+                                + "1 = grab half / place exactly ONE (right click). "
+                                + "swap: the hotbar slot index 0-8 to swap with. "
+                                + "throw: 0 = drop ONE, 1 = drop the whole stack. "
+                                + "quick_move: ignored.")));
         click.put("required", List.of("slot", "type", "button"));
         click.put("additionalProperties", false);
 
