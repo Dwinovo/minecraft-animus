@@ -1,7 +1,6 @@
 package com.dwinovo.animus.pathing.exec;
 
 import com.dwinovo.animus.entity.AnimusPlayer;
-import com.dwinovo.animus.pathing.util.BlockHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
@@ -74,25 +73,17 @@ public final class BlockDigger {
             InputDriver.halt(player);
             return false;
         }
-        // Aim a raycast-VERIFIED point on the target (Baritone RotationUtils.reachable) and break the
-        // face the ray actually hits — like a real player. If the target is OCCLUDED (leaves and other
-        // visually-porous-but-ray-opaque blocks sit between our eyes and it), clear the safe block in
-        // the way FIRST, instead of stalling forever on a shot we can never get.
-        BlockHitResult hit = reachableHit(target);
-        BlockPos effective = target;
-        if (hit == null) {
-            BlockPos occluder = clearableOccluder(target);
-            if (occluder != null) {
-                hit = reachableHit(occluder);
-                effective = occluder;
-            }
+        if (pos == null || !pos.equals(target)) {
+            start(target);
         }
         InputDriver.halt(player);
+        // Aim the crosshair at a raycast-VERIFIED point on the block (Baritone
+        // RotationUtils.reachable) and break the face the ray actually hits — like a real
+        // player. If nothing on the block is in line of sight, don't break this tick
+        // (Baritone: no reachable rotation → no CLICK_LEFT); hold for a clear angle.
+        BlockHitResult hit = reachableHit(pos);
         if (hit == null) {
-            return false;                            // no clear shot, nothing safe to clear — hold
-        }
-        if (pos == null || !pos.equals(effective)) {
-            start(effective);
+            return false;
         }
         InputDriver.lookAt(player, hit.getLocation());
         Direction side = hit.getDirection();
@@ -196,71 +187,15 @@ public final class BlockDigger {
      * face like a player would. {@code null} if nothing on the block is in line of sight.
      */
     private BlockHitResult reachableHit(BlockPos pos) {
+        Level level = player.level();
         Vec3 eye = player.getEyePosition();
         double reach = player.blockInteractionRange();
-        for (Vec3 aim : aims(pos)) {
-            Vec3 dir = aim.subtract(eye);
-            if (dir.lengthSqr() < 1.0e-8) continue;
-            Vec3 end = eye.add(dir.normalize().scale(reach));
-            BlockHitResult res = player.level().clip(new ClipContext(
-                    eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
-            if (res.getType() == HitResult.Type.BLOCK && res.getBlockPos().equals(pos)) {
-                return res;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * The nearest block sitting between our eyes and {@code target} that we'd be happy to mine to
-     * clear the line of sight — or {@code null} if the target is visible, or blocked only by something
-     * we won't clear. A leaf wall in front of a log is the canonical case: it's ray-opaque despite the
-     * visual gaps, so {@link #reachableHit} can never see the log; we break the leaf first instead of
-     * stalling. We only clear an occluder safe to mine anyway (see {@link #safeToClear}), so this never
-     * grinds through the player's chests/work stations or floods/buries us.
-     */
-    private BlockPos clearableOccluder(BlockPos target) {
-        Vec3 eye = player.getEyePosition();
-        double reach = player.blockInteractionRange();
-        for (Vec3 aim : aims(target)) {
-            Vec3 dir = aim.subtract(eye);
-            if (dir.lengthSqr() < 1.0e-8) continue;
-            Vec3 end = eye.add(dir.normalize().scale(reach));
-            BlockHitResult res = player.level().clip(new ClipContext(
-                    eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
-            if (res.getType() == HitResult.Type.BLOCK
-                    && !res.getBlockPos().equals(target)
-                    && safeToClear(res.getBlockPos())) {
-                return res.getBlockPos();
-            }
-        }
-        return null;
-    }
-
-    /** An occluder we'd mine anyway: breakable, harvestable with what we carry, not a protected /
-     *  functional block (do_not_break tag + block entities), and not a flood or falling-block hazard. */
-    private boolean safeToClear(BlockPos occ) {
-        Level level = player.level();
-        BlockState s = level.getBlockState(occ);
-        if (s.isAir()) {
-            return false;
-        }
-        return BlockHelper.isBreakable(level, occ)
-                && !BlockHelper.shouldAvoidBreaking(level, occ)
-                && !BlockHelper.isHazard(level, occ)
-                && !BlockHelper.breakWouldCreateFlow(level, occ)
-                && !BlockHelper.breakReleasesFallingBlock(level, occ)
-                && BlockHelper.canHarvest(player.getInventory(), s);
-    }
-
-    /** Baritone's reachable aim points: the block-shape centre, then its six face centres. */
-    private Vec3[] aims(BlockPos pos) {
-        Level level = player.level();
         VoxelShape shape = level.getBlockState(pos).getShape(level, pos);
         if (shape.isEmpty()) {
             shape = Shapes.block();
         }
-        return new Vec3[] {
+        // Shape centre, then Baritone's BLOCK_SIDE_MULTIPLIERS (the six face centres).
+        Vec3[] aims = {
                 offsetOn(pos, shape, 0.5, 0.5, 0.5),
                 offsetOn(pos, shape, 0.5, 0.0, 0.5),
                 offsetOn(pos, shape, 0.5, 1.0, 0.5),
@@ -269,6 +204,17 @@ public final class BlockDigger {
                 offsetOn(pos, shape, 0.0, 0.5, 0.5),
                 offsetOn(pos, shape, 1.0, 0.5, 0.5),
         };
+        for (Vec3 aim : aims) {
+            Vec3 dir = aim.subtract(eye);
+            if (dir.lengthSqr() < 1.0e-8) continue;
+            Vec3 end = eye.add(dir.normalize().scale(reach));
+            BlockHitResult res = level.clip(new ClipContext(
+                    eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
+            if (res.getType() == HitResult.Type.BLOCK && res.getBlockPos().equals(pos)) {
+                return res;
+            }
+        }
+        return null;
     }
 
     /** A point on the block's shape per Baritone's offset formula:
