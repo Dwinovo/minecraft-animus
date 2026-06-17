@@ -200,6 +200,7 @@ public final class LookupRecipeTool implements AnimusTool {
         RecipeType<?> type = recipe.getType();
         String station = type == RecipeType.BLASTING ? "blasting (blast furnace)"
                 : type == RecipeType.SMOKING ? "smoking (smoker)"
+                : type == RecipeType.CAMPFIRE_COOKING ? "campfire"
                 : "smelting (furnace)";
         return "[" + station + "] " + describeIngredient(recipe.input()) + " -> makes "
                 + result.getCount() + " (" + recipe.cookingTime() + " ticks)";
