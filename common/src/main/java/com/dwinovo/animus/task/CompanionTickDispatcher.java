@@ -28,11 +28,24 @@ public final class CompanionTickDispatcher {
     private CompanionTickDispatcher() {}
 
     public static void tick(MinecraftServer server) {
+        com.dwinovo.animus.entity.Companions.tickRespawns(server);   // timed death recoveries
         for (ServerPlayer p : server.getPlayerList().getPlayers()) {
             if (p instanceof AnimusPlayer ap) {
                 tickOne(ap);
             }
         }
+    }
+
+    /**
+     * Drop a companion's running task WITHOUT shipping a result — used on death, where the client's
+     * {@code AnimusDeathPayload} already resolves the in-flight tool call with the death cause (so a
+     * second result here would be a duplicate the client ignores). The follow-up {@code despawn} →
+     * {@link #onCompanionRemoved} then finds nothing to finalize.
+     */
+    public static void clearActiveTask(AnimusPlayer player) {
+        ACTIVE.remove(player.getUUID());
+        player.setActiveTask(null);
+        player.setDebugTask(null);
     }
 
     /**

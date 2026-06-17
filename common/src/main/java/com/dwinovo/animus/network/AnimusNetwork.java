@@ -44,10 +44,17 @@ public final class AnimusNetwork {
         Services.NETWORK.registerServerToClient(
                 TaskResultPayload.TYPE, TaskResultPayload.STREAM_CODEC, TaskResultPayload::handle);
 
-        // S→C: an Animus body died for good; hard-stop the owner's agent loop.
+        // S→C: an Animus body died; suspend the owner's agent loop (resolves the in-flight
+        // tool call with the death cause). Recoverable — see AnimusRespawnPayload.
         Services.NETWORK.registerServerToClient(
                 AnimusDeathPayload.TYPE, AnimusDeathPayload.STREAM_CODEC,
                 AnimusDeathPayload::handle);
+
+        // S→C: the dead companion has respawned at its owner; resume the suspended loop.
+        Services.NETWORK.registerServerToClient(
+                com.dwinovo.animus.network.payload.AnimusRespawnPayload.TYPE,
+                com.dwinovo.animus.network.payload.AnimusRespawnPayload.STREAM_CODEC,
+                com.dwinovo.animus.network.payload.AnimusRespawnPayload::handle);
 
         // S→C: the owner's companion roster (UUID + name), pushed on login + summon
         // so the client panel knows which fake players are its companions.

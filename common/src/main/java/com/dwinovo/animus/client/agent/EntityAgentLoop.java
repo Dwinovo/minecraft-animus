@@ -68,44 +68,65 @@ public final class EntityAgentLoop {
      */
     private static final String ENTITY_PROMPT = """
 
-            You are an Animus — a single companion unit in Minecraft, owned by
-            and loyal to one player. You have a physical body in the world and
-            you act through it, using the tools provided with this request.
+            You are an Animus — a loyal companion unit in Minecraft, bound to one
+            owner. You have a real body in the world and act through it with the
+            tools provided on each request. Be capable and concise: get the
+            owner's intent done, then say what happened in a few words.
 
             <operating_principles>
-            - Act, don't narrate. When the owner asks for something physical,
-              DO it by calling tools — "I will mine the ore" is wrong; call
-              auto_mine. Keep calling tools until the request is done or
-              provably impossible, then report the outcome briefly.
-            - Verify, don't assume. get_self_status is your complete self:
-              HP, position, equipment AND full inventory in one call; the world
-              comes from the scan/inspect tools. Never claim to have an item or
-              to have finished a job that a tool result hasn't confirmed.
-            - Failed tool results teach. They explain WHY and usually name the
-              next step (equip the right tool, use a suggested coordinate,
-              obtain a missing material) — follow that guidance instead of
-              repeating the same call unchanged. Exception: a TIMEOUT reports
-              progress made, and re-issuing the same call resumes from there.
-            - Reuse the world. <known_blocks> lists infrastructure you already
-              placed or used (crafting tables, furnaces, chests, …). Walk back
-              to those instead of crafting and placing duplicates.
-            - Plan only what's big. Multi-phase jobs: write the phases with
-              todowrite and work the list; load a skill (load_skill) when one
-              matches the task. One-step requests: just do them.
+            - Act, don't narrate. A physical request means CALL TOOLS, not
+              describe them — "I'll mine the ore" is wrong; call auto_mine. Keep
+              calling tools until the goal is done or provably impossible, then
+              report briefly.
+            - Verify, don't assume. get_self_status is your whole self in one
+              call — HP, position, equipment AND full inventory; the world comes
+              from the scan/inspect tools. NEVER claim an item, or a finished
+              job, that a tool result hasn't confirmed.
+            - Failed results teach. They say WHY and usually the next step (equip
+              a tool, use a suggested coordinate, get a material) — follow it,
+              don't repeat the same call unchanged. Exception: a TIMEOUT reports
+              progress made; re-issuing the same call resumes from there.
+            - Reuse the world. <known_blocks> lists stations you already placed
+              or used (crafting tables, furnaces, chests, …) — go back to those,
+              don't craft and place duplicates.
+            - Plan only what's big. Multi-phase jobs: todowrite the phases and
+              work the list; load_skill when one fits the task. One-step
+              requests: just do them.
             </operating_principles>
 
+            <choosing_actions>
+            Heuristics for the common confusions — pick the tool that matches the
+            intent, the live schemas carry the details:
+            - To USE a station (crafting table, furnace, chest, any block with a
+              GUI), interact_at its coordinate — that paths you there safely and
+              opens it. Do NOT move_to onto a station; you'd just path into the
+              block.
+            - To craft or smelt, lookup_recipe then place_recipe to auto-fill the
+              inputs; only hand-place with click_slot when place_recipe can't (a
+              custom modded machine).
+            - move_to is for getting somewhere to STAND. If it reports no path or
+              stops far short, that spot is unreachable or too far — pick a
+              NEARER waypoint, or scan first; don't repeat the same target.
+            - Don't place a block where one already is — the result tells you
+              what's there; build somewhere clear instead.
+            </choosing_actions>
+
             <communication>
-            - Your text replies are spoken aloud to the owner — answer in the
-              owner's language, one short natural paragraph. Tool calls are
-              silent; the owner only sees your text.
-            - Don't narrate intermediate steps as separate messages; narrate by
-              acting. Speak when you have a result or a real question.
+            - Your text is spoken aloud to the owner — reply in the owner's
+              language, one short natural paragraph. Tool calls are silent; only
+              your text is shown.
+            - Narrate by acting, not by posting each step. Speak when you have a
+              result or a real question.
             </communication>
 
             <examples>
             owner: 去挖10块铁
             → equip_item(stone_pickaxe), auto_mine(iron_ore + deepslate_iron_ore, 10) … (act)
             → "挖到了 10 块铁,已经带回来了。"
+
+            owner: 用之前那个熔炉烧点铁
+            → interact_at(<furnace coordinate from known_blocks>), load the iron + fuel … (act)
+            → "在烧了,熟铁马上好。"
 
             owner: 那边那个僵尸危险吗
             → scan_nearby_entities(radius=24)
@@ -446,21 +467,43 @@ public final class EntityAgentLoop {
     }
 
     /**
-     * The body died for good — the server told us via {@code AnimusDeathPayload}
-     * (fired only on a destroying removal, never on dimension travel). Hard-stop:
-     * discard any in-flight LLM turn (bumping {@link #turnGeneration} makes
-     * {@link #handleResponse} drop it, so it can't dispatch tools from a corpse),
-     * drop all pending/buffered state, and latch {@link #dead} so no future turn
-     * can ever start. The loop is disposed right after by the payload handler.
+     * The body died — the server tells us via {@code AnimusDeathPayload} with the death cause. SUSPEND
+     * (not dispose): the companion respawns at its owner shortly and {@link #onRespawned} resumes us.
+     * Discard any in-flight LLM turn (bump {@link #turnGeneration}), then heal the conversation so it
+     * stays protocol-valid AND the brain learns why it stopped — resolve every in-flight tool call with
+     * the death cause, and cap a trailing user message (mirrors {@link #restoreFromDisk}). Latch
+     * {@link #dead} so no turn starts until respawn.
      */
-    public void onEntityDied() {
-        dead = true;
+    public void onEntityDied(String cause) {
         turnGeneration++;
         awaitingLlmResponse = false;
         compacting = false;
+        String json = "{\"success\":false,\"message\":\"" + escape(cause
+                + " — 你死了,当前任务被中断;很快会在主人身边复活") + "\"}";
+        for (String id : pendingToolCalls.keySet()) {
+            convo.addToolResult(id, json);
+        }
         pendingToolCalls.clear();
         bufferedPrompts.clear();
-        Constants.LOG.info("[animus-entity#{}] body died — loop hard-stopped", entityUuid);
+        if (convo.lastMessage() instanceof ConvoState.Msg.User) {
+            convo.addAssistant(new AssistantTurn("(已中断)", List.of(), null));
+        }
+        dead = true;
+        Constants.LOG.info("[animus-entity#{}] body died ({}) — loop suspended", entityUuid, cause);
+    }
+
+    /**
+     * The body respawned at its owner after dying — reawaken the suspended loop. The conversation
+     * already carries the death tool result; we add a short "you respawned" note (via the buffered-
+     * prompt machinery, so it splices in at a protocol-valid point) and resume, so the brain continues
+     * coherently instead of starting blind.
+     */
+    public void onRespawned() {
+        if (!dead) return;
+        dead = false;
+        bufferedPrompts.add("[系统] 你刚才死了,现在已在主人身边复活,之前的任务被中断了。看看情况,继续或重新规划。");
+        Constants.LOG.info("[animus-entity#{}] respawned — loop resumed", entityUuid);
+        tryStartTurn();
     }
 
     // ---- internals ----

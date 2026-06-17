@@ -1,16 +1,21 @@
 package com.dwinovo.animus.entity;
 
+import com.dwinovo.animus.network.payload.AnimusDeathPayload;
+import com.dwinovo.animus.network.payload.AnimusRespawnPayload;
 import com.dwinovo.animus.network.payload.CompanionListPayload;
 import com.dwinovo.animus.platform.Services;
+import com.dwinovo.animus.task.CompanionTickDispatcher;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Coordinates companion lifecycle on top of {@link CompanionFactory} (body
@@ -19,6 +24,11 @@ import java.util.UUID;
  * be recreated when its owner returns or a tool call arrives.
  */
 public final class Companions {
+
+    /** Ticks a dead companion stays down before respawning at its owner (~30 s). */
+    private static final long RESPAWN_DELAY_TICKS = 30 * 20;
+    /** companion UUID → server game-time it died, awaiting the timed respawn-at-owner. */
+    private static final Map<UUID, Long> PENDING_RESPAWN = new ConcurrentHashMap<>();
 
     private Companions() {}
 
@@ -67,10 +77,61 @@ public final class Companions {
         return CompanionFactory.spawn(server, companionUuid, entry.name(), entry.owner(), level, null);
     }
 
-    /** When an owner logs in, bring back every companion of theirs not already live. */
+    /** When an owner logs in, bring back every companion of theirs not already live —
+     *  except ones still serving their post-death timer (the respawn scheduler owns those). */
     public static void respawnAllOwnedBy(MinecraftServer server, UUID ownerUuid) {
         for (Map.Entry<UUID, CompanionRegistry.Entry> e : CompanionRegistry.get(server).ownedBy(ownerUuid)) {
+            if (PENDING_RESPAWN.containsKey(e.getKey())) continue;
             respawn(server, e.getKey());
+        }
+    }
+
+    /**
+     * A companion just DIED (detected in {@link AnimusPlayer#tick}). The death itself is left fully
+     * vanilla — drops / a grave mod / keepInventory all run because it's a real ServerPlayer death.
+     * We only: stop the brain (the owner's loop suspends on {@link AnimusDeathPayload}, resolving the
+     * in-flight tool call with the death cause), heal the body so its saved {@code .dat} is whole, and
+     * queue a timed respawn at the owner. The corpse is removed AFTER this tick (a fake player isn't
+     * auto-removed on death — it would sit at 0 HP forever waiting for a respawn packet that never comes).
+     */
+    public static void onDeath(AnimusPlayer body) {
+        MinecraftServer server = body.level().getServer();
+        if (server == null) return;
+        UUID uuid = body.getUUID();
+        String cause = body.getCombatTracker().getDeathMessage().getString();
+        CompanionTickDispatcher.clearActiveTask(body);   // no result shipped — the death payload drives the client
+        ServerPlayer owner = body.resolveOwnerPlayer();
+        if (owner != null) {
+            Services.NETWORK.sendToPlayer(owner, new AnimusDeathPayload(uuid, cause));
+        }
+        PENDING_RESPAWN.put(uuid, server.overworld().getGameTime());
+        body.setHealth(body.getMaxHealth());             // saved .dat is a healthy body for the respawn
+        server.execute(() -> CompanionFactory.despawn(server, body));   // remove the corpse safely after the tick
+    }
+
+    /**
+     * Bring back any companion whose post-death timer has elapsed, AT ITS OWNER (covers dimension
+     * follow too — it returns in whatever dimension the owner is now in). Owner offline → keep waiting
+     * (their client-side brain can't run anyway); it respawns the moment they're back. Called each tick.
+     */
+    public static void tickRespawns(MinecraftServer server) {
+        if (PENDING_RESPAWN.isEmpty()) return;
+        long now = server.overworld().getGameTime();
+        for (Iterator<Map.Entry<UUID, Long>> it = PENDING_RESPAWN.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<UUID, Long> e = it.next();
+            if (now - e.getValue() < RESPAWN_DELAY_TICKS) continue;
+            UUID uuid = e.getKey();
+            CompanionRegistry.Entry entry = CompanionRegistry.get(server).find(uuid);
+            if (entry == null) { it.remove(); continue; }          // dismissed while down
+            ServerPlayer owner = server.getPlayerList().getPlayer(entry.owner());
+            if (owner == null) continue;                            // owner offline — wait for login
+            ServerLevel level = (ServerLevel) owner.level();
+            AnimusPlayer body = CompanionFactory.spawn(server, uuid, entry.name(), entry.owner(), level, owner.position());
+            body.setHealth(body.getMaxHealth());
+            body.clearFire();
+            it.remove();
+            syncRosterToOwner(server, owner);
+            Services.NETWORK.sendToPlayer(owner, new AnimusRespawnPayload(uuid));
         }
     }
 

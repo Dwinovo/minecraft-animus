@@ -42,6 +42,9 @@ public final class AnimusPlayer extends ServerPlayer {
     /** Owner's player UUID. Null only transiently before the first assignment. */
     private UUID ownerUuid;
 
+    /** Latched once we've handled this body's death, so the post-death routine runs exactly once. */
+    private boolean deathHandled;
+
     // ---- task hosting (lifted from the old AnimusEntity Mob) ----
     private TaskQueue taskQueue;
     private final PathTally pathTally = new PathTally();
@@ -161,6 +164,14 @@ public final class AnimusPlayer extends ServerPlayer {
      */
     @Override
     public void tick() {
+        // A fake player isn't auto-removed on death (no client to send a respawn packet), so it would
+        // sit at 0 HP forever. Detect death once, hand off to the recoverable-death routine (stop the
+        // brain, schedule a respawn at the owner), and skip the normal movement/AI tick for this corpse.
+        if (!deathHandled && (getHealth() <= 0.0f || isDeadOrDying())) {
+            deathHandled = true;
+            Companions.onDeath(this);
+            return;
+        }
         if (level() instanceof ServerLevel sl && sl.getGameTime() % 10 == 0) {
             this.connection.resetPosition();
             sl.getChunkSource().move(this);
