@@ -6,15 +6,13 @@ import com.dwinovo.animus.task.PlayerInv;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.Vec3;
 
 import java.util.HashMap;
 import java.util.Map;
 
-/** {@code drop_items} on the player body — toss items forward. One-tick. */
+/** {@code drop_items} on the player body — toss items forward, natively. One-tick. */
 public final class DropCompanionTask implements CompanionTask {
 
     private final AnimusPlayer player;
@@ -30,7 +28,7 @@ public final class DropCompanionTask implements CompanionTask {
     @Override
     public void start() {
         dropped = 0;
-        if (!(player.level() instanceof ServerLevel sl)) {
+        if (!(player.level() instanceof ServerLevel)) {
             doneReason = "not on a server level";
             r.setState(TaskState.FAILED);
             return;
@@ -45,16 +43,15 @@ public final class DropCompanionTask implements CompanionTask {
         dropped = Math.min(r.count, have);
         PlayerInv.remove(inv, r.item, dropped);
 
-        Vec3 look = player.getLookAngle();
+        // Toss like a real player: native Player.drop(stack, false) throws each stack in the facing
+        // direction with vanilla motion + pickup delay and fires the drop event (mods watching item
+        // tosses see it) — instead of hand-building an ItemEntity with a made-up velocity.
+        int max = new ItemStack(r.item).getMaxStackSize();
         int remaining = dropped;
         while (remaining > 0) {
-            int lump = Math.min(remaining, new ItemStack(r.item).getMaxStackSize());
+            int lump = Math.min(remaining, max);
             remaining -= lump;
-            ItemEntity drop = new ItemEntity(sl,
-                    player.getX(), player.getEyeY() - 0.3, player.getZ(),
-                    new ItemStack(r.item, lump), look.x * 0.3, 0.1, look.z * 0.3);
-            drop.setPickUpDelay(40);
-            sl.addFreshEntity(drop);
+            player.drop(new ItemStack(r.item, lump), false);
         }
         doneReason = "dropped " + dropped + "x " + r.label
                 + (dropped < r.count ? " (only had " + dropped + ")" : "");
