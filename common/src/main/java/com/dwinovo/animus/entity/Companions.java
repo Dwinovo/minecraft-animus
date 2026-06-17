@@ -1,6 +1,7 @@
 package com.dwinovo.animus.entity;
 
 import com.dwinovo.animus.network.payload.AnimusDeathPayload;
+import com.dwinovo.animus.network.payload.AnimusEventPayload;
 import com.dwinovo.animus.network.payload.AnimusRespawnPayload;
 import com.dwinovo.animus.network.payload.CompanionListPayload;
 import com.dwinovo.animus.platform.Services;
@@ -152,6 +153,29 @@ public final class Companions {
             }
         }
         Services.NETWORK.sendToPlayer(owner, new CompanionListPayload(list));
+    }
+
+    /**
+     * Push an async world {@code <event>} to the companion's brain (it runs on the owner's client).
+     * {@code urgent} wakes an idle brain to react now; otherwise it rides along on the next owner turn.
+     * No-op if the owner is offline (no client to receive it).
+     */
+    public static void emitEvent(AnimusPlayer body, String xml, boolean urgent) {
+        ServerPlayer owner = body.resolveOwnerPlayer();
+        if (owner != null) {
+            Services.NETWORK.sendToPlayer(owner, new AnimusEventPayload(body.getUUID(), xml, urgent));
+        }
+    }
+
+    /**
+     * The companion crossed into a new dimension — on its OWN (it travels where it likes, not tied to
+     * the owner). Tell its brain, ambient: it rides along on the next owner-driven turn rather than
+     * spending a fresh LLM call just to note the move. Called from each loader's dimension-change hook.
+     */
+    public static void onDimensionChanged(AnimusPlayer body) {
+        String dim = body.level().dimension().identifier().toString();
+        emitEvent(body, "<event kind=\"dimension_change\" to=\"" + dim + "\">你进入了 " + dim
+                + "。留意这个维度的环境和危险。</event>", false);
     }
 
     /** Save the companion to its {@code .dat} and remove it from the world (dormancy). */

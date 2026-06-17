@@ -214,11 +214,15 @@ public final class EntityAgentLoop {
     private int compactFailures = 0;
 
     /**
-     * Set once the body dies for good (see {@link #onEntityDied}). Terminal: a
-     * dead Animus has no body to act through, so the loop must never call the
-     * LLM again. Guards every turn-start path.
+     * Set while the body is DEAD and awaiting its timed respawn (see {@link #onEntityDied} /
+     * {@link #onRespawned}). The loop is frozen — no LLM turn starts — until the body comes back.
      */
     private boolean dead = false;
+
+    /** Death cause recorded at death, replayed in the respawn event (null while alive). */
+    private String deathCause;
+    /** Tool calls that were in flight when the body died — resolved on respawn, not before. */
+    private List<String> deathInterruptedCalls = List.of();
 
     /**
      * Bumped every time the owner interrupts a turn ({@link #abort}). Each LLM
@@ -475,35 +479,61 @@ public final class EntityAgentLoop {
      * {@link #dead} so no turn starts until respawn.
      */
     public void onEntityDied(String cause) {
-        turnGeneration++;
+        // FREEZE hard: stop all LLM output/work and feed the model NOTHING now (adding a tool result
+        // here would let the loop continue). Just record what was in flight + the cause; everything is
+        // restored on respawn. The body is gone, so its tool results will never arrive — we'll synth
+        // them at respawn instead.
+        deathCause = cause;
+        deathInterruptedCalls = new java.util.ArrayList<>(pendingToolCalls.keySet());
+        turnGeneration++;          // discard any in-flight LLM response (halt output)
         awaitingLlmResponse = false;
         compacting = false;
-        String json = "{\"success\":false,\"message\":\"" + escape(cause
-                + " — 你死了,当前任务被中断;很快会在主人身边复活") + "\"}";
-        for (String id : pendingToolCalls.keySet()) {
-            convo.addToolResult(id, json);
-        }
         pendingToolCalls.clear();
         bufferedPrompts.clear();
-        if (convo.lastMessage() instanceof ConvoState.Msg.User) {
-            convo.addAssistant(new AssistantTurn("(已中断)", List.of(), null));
-        }
         dead = true;
-        Constants.LOG.info("[animus-entity#{}] body died ({}) — loop suspended", entityUuid, cause);
+        Constants.LOG.info("[animus-entity#{}] body died ({}) — loop frozen ({} call(s) in flight)",
+                entityUuid, cause, deathInterruptedCalls.size());
     }
 
     /**
-     * The body respawned at its owner after dying — reawaken the suspended loop. The conversation
-     * already carries the death tool result; we add a short "you respawned" note (via the buffered-
-     * prompt machinery, so it splices in at a protocol-valid point) and resume, so the brain continues
-     * coherently instead of starting blind.
+     * The body respawned at its owner after dying — thaw the frozen loop and ONLY NOW restore context:
+     * resolve any tool call that was interrupted by the death (so the conversation is valid and the
+     * brain learns its task was cut short), then inject a {@code <event>} detailing the death cause.
+     * Nothing was fed to the model while dead, so it stayed fully stopped for the whole timer.
      */
     public void onRespawned() {
         if (!dead) return;
         dead = false;
-        bufferedPrompts.add("[系统] 你刚才死了,现在已在主人身边复活,之前的任务被中断了。看看情况,继续或重新规划。");
-        Constants.LOG.info("[animus-entity#{}] respawned — loop resumed", entityUuid);
-        tryStartTurn();
+        for (String id : deathInterruptedCalls) {
+            convo.addToolResult(id, "{\"success\":false,\"message\":\""
+                    + escape("任务因你死亡而中断") + "\"}");
+        }
+        deathInterruptedCalls = List.of();
+        if (convo.lastMessage() instanceof ConvoState.Msg.User) {
+            convo.addAssistant(new AssistantTurn("(已中断)", List.of(), null));
+        }
+        String cause = deathCause == null ? "未知原因" : deathCause.replace('<', '(').replace('>', ')');
+        deathCause = null;
+        Constants.LOG.info("[animus-entity#{}] respawned — loop thawed", entityUuid);
+        injectEvent("<event kind=\"death\">你刚才死了(" + cause
+                + "),手头的任务被中断;现已在主人身边复活。先看看状况,继续或重新规划。</event>", true);
+    }
+
+    /**
+     * Inject an asynchronous world event into the conversation (dimension change, hazard, …) — the
+     * generic version of the Claude-Code "channel notification": the event rides the same buffered
+     * queue as owner prompts, so it splices in only at a protocol-valid boundary. {@code urgent} wakes
+     * an idle brain to react now; otherwise it sits in the queue and the brain sees it on the next
+     * owner-driven turn (no extra LLM call, no unprompted chatter). Dropped while frozen by death.
+     */
+    public void injectEvent(String xml, boolean urgent) {
+        if (dead) return;
+        bufferedPrompts.add(xml);
+        Constants.LOG.info("[animus-entity#{}] event queued{}: {}",
+                entityUuid, urgent ? " (urgent)" : "", truncate(xml, 120));
+        if (urgent) {
+            tryStartTurn();
+        }
     }
 
     // ---- internals ----

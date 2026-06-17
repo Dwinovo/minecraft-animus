@@ -56,6 +56,12 @@ public final class AnimusNetwork {
                 com.dwinovo.animus.network.payload.AnimusRespawnPayload.STREAM_CODEC,
                 com.dwinovo.animus.network.payload.AnimusRespawnPayload::handle);
 
+        // S→C: a generic async world event (dimension change, hazard, …) for a companion's brain.
+        Services.NETWORK.registerServerToClient(
+                com.dwinovo.animus.network.payload.AnimusEventPayload.TYPE,
+                com.dwinovo.animus.network.payload.AnimusEventPayload.STREAM_CODEC,
+                com.dwinovo.animus.network.payload.AnimusEventPayload::handle);
+
         // S→C: the owner's companion roster (UUID + name), pushed on login + summon
         // so the client panel knows which fake players are its companions.
         Services.NETWORK.registerServerToClient(

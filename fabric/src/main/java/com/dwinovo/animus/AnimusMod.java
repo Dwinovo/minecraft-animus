@@ -25,6 +25,14 @@ public class AnimusMod implements ModInitializer {
                     com.dwinovo.animus.entity.Companions.syncRosterToOwner(server, player);
                 });
 
+        // The companion crossed a portal on its own — tell its brain (ambient world event).
+        net.fabricmc.fabric.api.entity.event.v1.ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register(
+                (player, origin, destination) -> {
+                    if (player instanceof com.dwinovo.animus.entity.AnimusPlayer ap) {
+                        com.dwinovo.animus.entity.Companions.onDimensionChanged(ap);
+                    }
+                });
+
         // Advance budget-sliced long-range block scans.
         ServerTickEvents.END_SERVER_TICK.register(
                 com.dwinovo.animus.task.tasks.ScanBlocksJob::tick);
