@@ -28,7 +28,7 @@ Notes:
 
 - Frame: 4 wide × 5 tall, **corners omitted = exactly 10 obsidian**, standing vertically. Inner opening is 2×3 air.
 - Pick flat ground near your base. Build the frame with `place_block` (two columns of 3 at the sides, two rows of 2 at top and bottom).
-- **Flint & steel**: `craft(flint_and_steel)` = 1 iron ingot + 1 flint (flint from `auto_mine(gravel)`, ~10%/block).
+- **Flint & steel**: craft `flint_and_steel` = 1 iron ingot + 1 flint, a 2×2 recipe (`lookup_recipe` + `transfer` into your own grid; see the `containers` skill). Flint drops from `auto_mine(gravel)`, ~10%/block.
 - **Ignite**: `interact_at(button=right, x, y, z, item_id=minecraft:flint_and_steel)` aimed at an **empty air cell INSIDE the frame** (a bottom one), not at the obsidian. The fire lands in that cell and the portal forms.
 - Enter: `move_to` the portal cell and stand in it until the dimension changes (`get_self_status` confirms).
 

@@ -14,8 +14,10 @@ Phase 5 of the dragon route. With rods and pearls in hand you craft eyes, walk s
 
 ## Step 1 — craft the eyes
 
-1. `craft(blaze_powder)` — each blaze rod grinds into 2 powder.
-2. `craft(ender_eye, 12)` — 1 powder + 1 pearl each.
+Both are 2×2/shapeless recipes — `lookup_recipe` for the layout, then `transfer` the ingredients into a grid and take the result (see the `containers` skill; no crafting table needed).
+
+1. `blaze_powder` — each blaze rod grinds into 2 powder.
+2. `ender_eye` (×12) — 1 blaze powder + 1 ender pearl each.
 
 12 is the worst case; frames generate pre-filled at 10% each (~1–2 typically), so spares may remain. **Never throw eyes to navigate** — `locate_structure("minecraft:stronghold")` is free and exact; eyes are only for the frames.
 
