@@ -7,6 +7,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.inventory.RecipeBookMenu;
 import net.minecraft.world.inventory.Slot;
@@ -65,6 +66,21 @@ public final class ContainerSession {
     }
 
     /**
+     * THE primitive — replay ONE GUI click through the menu's own server-side handler
+     * ({@link AbstractContainerMenu#clicked}), the exact code path the server runs for a real player's
+     * click (and what Carpet fake players drive containers with). {@code input} is the click kind
+     * ({@link ContainerInput#QUICK_MOVE} shift-move, {@link ContainerInput#PICKUP} pick-up/place, …);
+     * {@code button} 0 = left, 1 = right. Every move below is composed from this, so a modded menu's
+     * own {@code clicked}/{@code doClick} logic runs too. The {@code slot} is one we DISCOVER from the
+     * live menu (by which container it belongs to + its contents), never a hardcoded layout index.
+     */
+    public void click(int slot, int button, ContainerInput input) {
+        if (isOpen()) {
+            menu.clicked(slot, button, input, player);
+        }
+    }
+
+    /**
      * Shift-click player-inventory stacks matching {@code which} INTO the machine, until EXACTLY
      * {@code max} items have moved (or nothing more matches). The menu routes each to the slot it
      * belongs in (smeltable → input, fuel → fuel, the modded machine's input).
@@ -100,7 +116,7 @@ public final class ContainerSession {
                 // else: nowhere to stash → shift the whole stack (best-effort, slight overshoot).
             }
             int before = s.getItem().getCount();
-            menu.quickMoveStack(player, i);
+            click(i, 0, ContainerInput.QUICK_MOVE);
             moved += before - (s.hasItem() ? s.getItem().getCount() : 0);
         }
         return moved;
@@ -154,7 +170,7 @@ public final class ContainerSession {
                 // else: nothing to stash the remainder in → take the whole stack (slight overshoot).
             }
             int before = s.getItem().getCount();
-            menu.quickMoveStack(player, i);
+            click(i, 0, ContainerInput.QUICK_MOVE);
             moved += before - (s.hasItem() ? s.getItem().getCount() : 0);
         }
         return moved;
@@ -181,7 +197,7 @@ public final class ContainerSession {
                 continue;   // a normal in/out slot (chest cell, furnace input/fuel) — not an output
             }
             int before = s.getItem().getCount();
-            menu.quickMoveStack(player, i);
+            click(i, 0, ContainerInput.QUICK_MOVE);
             moved += before - (s.hasItem() ? s.getItem().getCount() : 0);
         }
         return moved;
@@ -217,7 +233,7 @@ public final class ContainerSession {
             return ItemStack.EMPTY;
         }
         ItemStack crafted = result.copy();
-        menu.quickMoveStack(player, CraftingMenu.RESULT_SLOT);   // shift-click result → inventory
+        click(CraftingMenu.RESULT_SLOT, 0, ContainerInput.QUICK_MOVE);   // shift-click result → inventory
         return crafted;
     }
 
