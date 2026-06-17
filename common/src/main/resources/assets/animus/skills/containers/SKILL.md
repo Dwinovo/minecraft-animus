@@ -35,9 +35,16 @@ You move items through real GUIs, exactly like a player: open the block, look at
 
 So to check a furnace: `interact_at` it → `inspect_gui` → read the input count (slots) + the data values. The output slot filling up is also a clear "an item finished" signal.
 
-## Recipes (vanilla path)
+## Crafting & smelting
 
-For crafting use the `craft` tool (it fills the grid from the recipe and takes the result). For smelting use `load_furnace` / `collect_furnace` (they compute fuel and award XP). Those are higher-level helpers; this skill is for **raw item movement** and for any GUI those helpers don't cover.
+- **Crafting** has a dedicated `craft` tool (it fills the grid from the recipe and takes the result) — use it; you never hand-place a crafting grid.
+- **Smelting** has NO special tool — a furnace is just another container you drive with these primitives:
+  1. `interact_at button=right` the furnace.
+  2. `click_slot type=quick_move` your raw item (the menu routes it to the input slot) and your fuel (routes to the fuel slot).
+     - **Fuel rule**: 1 coal/charcoal smelts 8 items; a log/plank ~1.5. So for N items add about ⌈N/8⌉ coal. Don't overload — surplus fuel just sits in the slot.
+  3. Wait. Poll with `inspect_gui` — the `data values` show cook progress (`[litTime, litDuration, cookProgress, cookTotal]`), and the output slot fills as items finish.
+  4. `click_slot type=quick_move` the `[output]` slot to collect — this awards the smelting XP, same as a player.
+  5. `close_gui`.
 
 ## Common patterns
 
