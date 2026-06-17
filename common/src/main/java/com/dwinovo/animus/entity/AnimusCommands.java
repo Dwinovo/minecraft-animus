@@ -20,8 +20,8 @@ import net.minecraft.server.level.ServerPlayer;
  * {@link ClientUiActionPayload} back at them.
  *
  * <pre>
- *   /animus player summon &lt;name&gt;    create a companion fake player at the caller
- *   /animus player despawn &lt;name&gt;   send the named owned companion dormant
+ *   /animus player summon &lt;name&gt;    summon the named companion (idempotent — reuses an existing one)
+ *   /animus player despawn &lt;name&gt;   permanently dismiss the named companion (gone for good)
  *   /animus settings                  open the settings GUI on the caller's client
  *   /animus reset                     clear the caller's conversation loops
  * </pre>
@@ -61,20 +61,20 @@ public final class AnimusCommands {
     private static int despawn(CommandContext<CommandSourceStack> ctx, String name)
             throws CommandSyntaxException {
         ServerPlayer owner = ctx.getSource().getPlayerOrException();
-        for (ServerPlayer p : owner.level().getServer().getPlayerList().getPlayers()) {
-            if (p instanceof AnimusPlayer companion
-                    && companion.isOwnedByPlayer(owner.getUUID())
-                    && companion.getName().getString().equals(name)) {
-                Companions.dormant(owner.level().getServer(), companion);
-                Companions.syncRosterToOwner(owner.level().getServer(), owner);
-                ctx.getSource().sendSuccess(() ->
-                        Component.literal("Companion '" + name + "' is now dormant"), false);
-                return 1;
-            }
+        var server = owner.level().getServer();
+        // Permanent dismissal: removes the live body AND its registry entry (and any same-name
+        // duplicates), so it does NOT come back on the next login. NOT dormancy.
+        int dismissed = Companions.dismissByName(server, owner.getUUID(), name);
+        if (dismissed == 0) {
+            ctx.getSource().sendFailure(
+                    Component.literal("No companion of yours named '" + name + "'"));
+            return 0;
         }
-        ctx.getSource().sendFailure(
-                Component.literal("No live companion of yours named '" + name + "'"));
-        return 0;
+        Companions.syncRosterToOwner(server, owner);
+        ctx.getSource().sendSuccess(() -> Component.literal(
+                "Dismissed companion '" + name + "' — gone for good"
+                        + (dismissed > 1 ? " (cleaned up " + dismissed + " duplicates)" : "")), false);
+        return dismissed;
     }
 
     private static int clientAction(CommandContext<CommandSourceStack> ctx,

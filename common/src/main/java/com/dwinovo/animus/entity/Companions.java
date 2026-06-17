@@ -22,14 +22,33 @@ public final class Companions {
 
     private Companions() {}
 
-    /** Create a brand-new companion at {@code pos}, owned by {@code ownerUuid}. */
+    /**
+     * Summon the owner's companion called {@code name}. IDEMPOTENT per (owner, name): if one already
+     * exists it is reused — already live → returned as-is; dormant → brought back. Only a name with no
+     * existing companion mints a fresh one. (The old "fresh random UUID every summon" minted same-name
+     * duplicates that all respawned on login — that's the duplicate-companion bug.)
+     */
     public static AnimusPlayer summon(MinecraftServer server, UUID ownerUuid, String name,
                                       ServerLevel level, Vec3 pos) {
+        UUID existing = findByOwnerName(server, ownerUuid, name);
+        if (existing != null) {
+            AnimusPlayer body = respawn(server, existing);
+            if (body != null) return body;
+            CompanionRegistry.get(server).remove(existing);   // stale entry (no .dat) — replace it
+        }
         UUID companionUuid = UUID.randomUUID();
         AnimusPlayer body = CompanionFactory.spawn(server, companionUuid, name, ownerUuid, level, pos);
         CompanionRegistry.get(server).put(companionUuid,
                 new CompanionRegistry.Entry(name, ownerUuid, level.dimension(), body.blockPosition()));
         return body;
+    }
+
+    /** Companion UUID of the owner's companion named {@code name}, or null if none. */
+    private static UUID findByOwnerName(MinecraftServer server, UUID ownerUuid, String name) {
+        for (Map.Entry<UUID, CompanionRegistry.Entry> e : CompanionRegistry.get(server).ownedBy(ownerUuid)) {
+            if (e.getValue().name().equals(name)) return e.getKey();
+        }
+        return null;
     }
 
     /**
@@ -92,5 +111,33 @@ public final class Companions {
         UUID uuid = body.getUUID();
         CompanionFactory.despawn(server, body);
         CompanionRegistry.get(server).remove(uuid);
+    }
+
+    /**
+     * Permanently dismiss EVERY companion of {@code ownerUuid} named {@code name} — gone for good, it
+     * will NOT come back on login. Removes both live bodies and registry entries, so it also cleans up
+     * any same-name duplicates that the old non-idempotent summon left behind. Returns how many it
+     * dismissed. (The {@code .dat} files orphan harmlessly — with no registry entry nothing respawns
+     * them.)
+     */
+    public static int dismissByName(MinecraftServer server, UUID ownerUuid, String name) {
+        CompanionRegistry reg = CompanionRegistry.get(server);
+        List<UUID> ids = new ArrayList<>();
+        for (Map.Entry<UUID, CompanionRegistry.Entry> e : reg.ownedBy(ownerUuid)) {
+            if (e.getValue().name().equals(name)) ids.add(e.getKey());
+        }
+        // Defensive: also catch a live body of that name somehow missing from the registry.
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
+            if (p instanceof AnimusPlayer a && a.isOwnedByPlayer(ownerUuid)
+                    && a.getName().getString().equals(name) && !ids.contains(a.getUUID())) {
+                ids.add(a.getUUID());
+            }
+        }
+        for (UUID id : ids) {
+            AnimusPlayer live = AnimusPlayer.findByUuid(server, id);
+            if (live != null) CompanionFactory.despawn(server, live);
+            reg.remove(id);
+        }
+        return ids.size();
     }
 }
