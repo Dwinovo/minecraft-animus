@@ -5,6 +5,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
 
 /**
  * Catalogue of every datapack tag the mod declares. Both the runtime entity
@@ -37,10 +38,27 @@ public final class InitTag {
      */
     public static final TagKey<Item> SCAFFOLDS = item("scaffolds");
 
+    /**
+     * Blocks the pathfinder must never break while travelling — the player's
+     * functional/valuable furniture. {@link com.dwinovo.animus.pathing.util.BlockHelper#shouldAvoidBreaking}
+     * gives any block in this tag {@code COST_INF}, so it's routed around (and a
+     * {@code move_to} onto one relaxes to "stand adjacent" rather than digging it).
+     * This tag carries the no-BlockEntity work stations (crafting table, stonecutter,
+     * smithing table, …) that the BlockEntity proxy can't catch; container blocks are
+     * still covered by that proxy on top. Datapack-driven so packs extend it freely —
+     * see {@code data/animus/tags/block/do_not_break.json}.
+     */
+    public static final TagKey<Block> DO_NOT_BREAK = block("do_not_break");
+
     private InitTag() {}
 
     private static TagKey<Item> item(String name) {
         return TagKey.create(Registries.ITEM,
+                Identifier.fromNamespaceAndPath(Constants.MOD_ID, name));
+    }
+
+    private static TagKey<Block> block(String name) {
+        return TagKey.create(Registries.BLOCK,
                 Identifier.fromNamespaceAndPath(Constants.MOD_ID, name));
     }
 }

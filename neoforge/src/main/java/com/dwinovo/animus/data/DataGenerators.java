@@ -24,5 +24,6 @@ public final class DataGenerators {
         event.getGenerator().addProvider(true, new ModLanguageProvider(output, "en_us"));
         event.getGenerator().addProvider(true, new ModLanguageProvider(output, "zh_cn"));
         event.getGenerator().addProvider(true, new ModItemTagsProvider(output, event.getLookupProvider()));
+        event.getGenerator().addProvider(true, new ModBlockTagsProvider(output, event.getLookupProvider()));
     }
 }

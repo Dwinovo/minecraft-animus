@@ -439,13 +439,19 @@ public final class BlockHelper {
      * cheap, broad proxy that catches essentially every griefable block.
      */
     public static boolean shouldAvoidBreaking(BlockGetter level, BlockPos pos) {
-        // Off-thread the search can't reconstruct a block entity, so the cache view answers presence
-        // from a main-thread snapshot (BlockEntityAware); a live view just asks the level.
+        // Declarative + datapack-overridable layer: the do_not_break block tag (no-BlockEntity work
+        // stations like the crafting table). A tag membership test reads only the immutable BlockState
+        // holder — no Level/snapshot — so it is safe on the off-thread search.
+        BlockState state = level.getBlockState(pos);
+        if (state.is(com.dwinovo.animus.init.InitTag.DO_NOT_BREAK)) return true;
+        // Broad proxy: any block-entity block (chests, furnaces, hoppers, barrels, shulkers, modded
+        // machines, …) is functional/valuable. Off-thread the search can't reconstruct a block entity,
+        // so the cache view answers presence from a main-thread snapshot (BlockEntityAware).
         boolean hasBlockEntity = level instanceof BlockEntityAware aware
                 ? aware.hasBlockEntity(pos)
                 : level.getBlockEntity(pos) != null;
         if (hasBlockEntity) return true;
-        return level.getBlockState(pos).getBlock() instanceof BedBlock;
+        return state.getBlock() instanceof BedBlock;
     }
 
     /**
