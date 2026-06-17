@@ -76,7 +76,8 @@ public class CommonClass {
         // GUI primitives — interact_at opens a menu, then the model inspects + clicks it directly.
         ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.InspectGuiTool());
         ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.TransferTool());
-        ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.CraftTool());
+        // TEMP (experiment): craft tool disabled to observe native grid-crafting via transfer only.
+        // ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.CraftTool());
         ToolRegistry.register(new com.dwinovo.animus.agent.tool.tools.CloseGuiTool());
         ToolRegistry.register(new GetSelfStatusTool());
         ToolRegistry.register(new GetOwnerStatusTool());

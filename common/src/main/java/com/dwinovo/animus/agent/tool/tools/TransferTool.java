@@ -43,7 +43,8 @@ public final class TransferTool implements AnimusTool {
                 + "merges; a different item → the two slots SWAP.\n"
                 + "• `count` (needs `to`) → move exactly that many instead of the whole stack.\n"
                 + "Returns what actually happened to each transfer — amounts, merges, swaps, or why "
-                + "nothing moved (full / output-only slot). Crafting → use craft; dropping → drop_items.";
+                + "nothing moved (full / output-only slot). To craft, transfer ingredients into a grid "
+                + "(lookup_recipe for the layout); to drop items use drop_items.";
     }
 
     @Override

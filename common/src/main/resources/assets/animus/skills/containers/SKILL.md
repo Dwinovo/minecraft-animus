@@ -1,6 +1,6 @@
 ---
 name: containers
-description: How to move items in/out of any container or machine GUI — chest, barrel, shulker, furnace, modded machine. The open → inspect_gui → transfer → close_gui loop, depositing/taking/swapping with the transfer tool, crafting via the craft tool, smelting by loading a furnace, and error recovery.
+description: How to move items in/out of any container or machine GUI — chest, barrel, shulker, furnace, modded machine. The open → inspect_gui → transfer → close_gui loop, depositing/taking/swapping with the transfer tool, crafting by laying a recipe into the grid with transfer, smelting by loading a furnace, and error recovery.
 ---
 
 # Skill: containers
@@ -50,14 +50,19 @@ So to check a furnace: `interact_at` it → `inspect_gui` → read the input cou
 
 ## Crafting
 
-**Use the `craft` tool — it does the whole thing for you** (look up the recipe, lay the ingredients into the grid, take the result back to your inventory). You don't touch slots.
+You craft by laying the recipe into a grid yourself with `transfer`, then taking the result.
 
-- `craft item_id=<item> count=<n>` — makes `n` of the item (crafts until you have at least that many, or materials run out; it reports how many it made).
-- **≤2×2 recipe** (planks, sticks, torches, a crafting table): NO table needed — done on your own 2×2 grid automatically. Nothing to open.
-- **3×3 recipe** (most tools, etc.): a crafting table must be OPEN first — `interact_at button=right` a table, then `craft`. If you forget, craft tells you to open one.
-- Short on materials → it crafts what it can and says so; `lookup_recipe <item>` to see what's missing.
+1. **`lookup_recipe <item>`** — get the ingredients and, for shaped recipes, the grid layout.
+2. **Open the grid:**
+   - **≤2×2 recipe** (planks, sticks, torches, a crafting table): NO table needed — `inspect_gui` with nothing open shows your own 2×2 grid.
+   - **3×3 recipe** (most tools, etc.): `interact_at button=right` a crafting table, then `inspect_gui` — it draws the grid as a 2D map of slot numbers.
+3. **Place the recipe** — lay its layout onto the grid **top-left**, and `transfer {from:<ingredient>, to:<cell>, count:1}` for each NON-EMPTY cell (batch them in one call). A 1-ingredient recipe = ONE cell; don't fill the rest.
+4. **Take the result** — `transfer {from:<result slot>}` (no `to` — routes it to your inventory; this performs the craft). Repeat steps 3–4 for each item you want.
+5. For a table, `close_gui` when done.
 
-*Example — a full wooden tool set:* `craft oak_planks count=8` → `craft stick count=4` → `craft crafting_table` → `interact_at` the table → `craft wooden_pickaxe`. No grid math, no slot moves.
+**Watch the cells** — the grid is wider than a small recipe. A 2-wide recipe in a 3-wide table uses the top-left cells, **NOT** consecutive slot numbers (e.g. a 2×2 recipe in a 3×3 grid skips the right column). Read the 2D map from `inspect_gui` and match the layout cell-for-cell; this is the easiest thing to get wrong.
+
+*Example — sticks (2 oak_planks stacked vertically):* `inspect_gui` (own grid, say cells are slots 1–4 in a 2×2) → `transfer moves=[{from:<planks>, to:1, count:1}, {from:<planks>, to:3, count:1}]` → `transfer moves=[{from:<result>}]`.
 
 ## Smelting
 
@@ -70,7 +75,7 @@ Smelting is NOT crafting — there's no auto-tool, you load the furnace yourself
 
 ## Modded machines (hand-load)
 
-A custom modded machine has its own slots. For a single input, `transfer moves=[{from:<input>}]` (omit `to` — the menu routes it). For a machine with several specific input slots, `inspect_gui` then give an exact `to` per input: `transfer moves=[{from:<a>, to:<slotA>}, {from:<b>, to:<slotB>}]`. If a modded *crafting* grid isn't covered by `craft`, `inspect_gui` draws it as a 2D map of slot numbers — lay the recipe onto it cell-for-cell (smaller recipe → top-left) with one `transfer {from, to, count:1}` per non-empty cell.
+A custom modded machine has its own slots. For a single input, `transfer moves=[{from:<input>}]` (omit `to` — the menu routes it). For a machine with several specific input slots, `inspect_gui` then give an exact `to` per input: `transfer moves=[{from:<a>, to:<slotA>}, {from:<b>, to:<slotB>}]`. A modded *crafting* grid works the same as a vanilla one (see Crafting above): `inspect_gui` draws it as a 2D map of slot numbers — lay the recipe onto it cell-for-cell (smaller recipe → top-left) with one `transfer {from, to, count:1}` per non-empty cell.
 
 ## Common patterns
 

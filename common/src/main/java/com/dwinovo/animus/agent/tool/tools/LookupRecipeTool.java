@@ -52,7 +52,8 @@ public final class LookupRecipeTool implements AnimusTool {
         return "Look up how to make an item — like JEI. Returns every recipe whose output is this item, "
                 + "across all stations: crafting (with the grid layout), smelting / blasting / smoking, "
                 + "stonecutting, and smithing — each tagged [crafting] / [smelting] / [stonecutter] / "
-                + "[smithing] / …. Then make it: [crafting] → the craft tool does it all; "
+                + "[smithing] / …. Then make it: [crafting] → transfer each ingredient into a grid cell "
+                + "(your own 2x2, or a crafting table for 3x3); "
                 + "[smelting] → open the furnace and transfer the input + fuel; [stonecutter] / "
                 + "[smithing] → open the station and transfer the inputs. No recipe found = the item "
                 + "is mined or traded, not made.";
@@ -159,8 +160,10 @@ public final class LookupRecipeTool implements AnimusTool {
         }
         return "recipe(s) for " + name + ":\n\n" + String.join("\n\n", recipes) + "\n\n"
                 + "To make it —\n"
-                + "• [crafting]: just `craft " + name + "` — it does the whole thing (2x2 on your own "
-                + "grid; a 3x3 recipe needs a crafting table open first via interact_at).\n"
+                + "• [crafting]: open the grid (2x2 = your own, inspect_gui with nothing open; 3x3 = "
+                + "interact_at a crafting table), then transfer each ingredient into its cell per the "
+                + "layout above — one item per cell (count:1), matched top-left — and transfer the "
+                + "result slot out (no `to`). Repeat to make more.\n"
                 + "• [smelting|blasting|smoking]: interact_at the furnace, then transfer the input and "
                 + "the fuel with NO `to` — the menu routes each to its slot. Wait, then transfer the "
                 + "output back out.\n"

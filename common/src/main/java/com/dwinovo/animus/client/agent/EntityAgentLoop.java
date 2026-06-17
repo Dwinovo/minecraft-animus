@@ -101,11 +101,14 @@ public final class EntityAgentLoop {
               GUI), interact_at its coordinate — that paths you there safely and
               opens it. Do NOT move_to onto a station; you'd just path into the
               block.
-            - To craft, just call craft (item + count) — it does the whole click
-              sequence for you; a 2x2 recipe needs no GUI, a 3x3 needs a crafting
-              table open first (interact_at it). To smelt, interact_at a furnace
-              and transfer the input + fuel. To move items in/out of any container
-              (deposit, take, load a machine), use transfer. lookup_recipe if unsure.
+            - To craft, lookup_recipe for the grid layout, then transfer each
+              ingredient into its cell. A 2x2 recipe uses your own grid (inspect_gui
+              with nothing open); a 3x3 needs a crafting table (interact_at it,
+              then inspect_gui shows the grid as a slot-number map). Place ONE item
+              per cell (count:1), match the layout top-left, then transfer the
+              result slot out (no `to`). To smelt, interact_at a furnace and transfer
+              the input + fuel. To move items in/out of any container, use transfer.
+              lookup_recipe if unsure.
             - move_to is for getting somewhere to STAND. If it reports no path or
               stops far short, that spot is unreachable or too far — pick a
               NEARER waypoint, or scan first; don't repeat the same target.
