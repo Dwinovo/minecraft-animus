@@ -680,6 +680,14 @@ public final class EntityAgentLoop {
         }
         awaitingLlmResponse = false;
 
+        // World is unloading (owner quit / disconnected): the client→server channel is gone, so a
+        // dispatched ExecuteToolPayload would NPE in the platform sender. Drop this turn quietly.
+        if (Minecraft.getInstance().getConnection() == null) {
+            Constants.LOG.info("[animus-entity#{}] client disconnected — dropping LLM turn", entityUuid);
+            aborted = true;
+            return;
+        }
+
         if (err != null) {
             Constants.LOG.warn("[animus-entity#{}] LLM call failed: {}",
                     entityUuid, unwrap(err));

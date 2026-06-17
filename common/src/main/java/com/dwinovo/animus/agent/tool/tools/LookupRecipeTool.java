@@ -9,12 +9,16 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.crafting.AbstractCookingRecipe;
 import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.PlacementInfo;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.item.crafting.ShapedRecipe;
+import net.minecraft.world.item.crafting.SingleRecipeInput;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -42,12 +46,12 @@ public final class LookupRecipeTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Look up the crafting recipe(s) for an output item — like JEI. Returns each recipe's "
-                + "ingredients and, for shaped recipes, the grid layout, so you can place them yourself "
-                + "with the GUI primitives. Then to craft: interact_at a crafting table (or use your 2x2 "
-                + "inventory grid for small recipes) → inspect_gui → click_slot type=pickup each "
-                + "ingredient into its cell → click_slot the result slot. No recipe found = the item is "
-                + "not crafted (mine / smelt / trade it instead).";
+        return "Look up how to make an item — like JEI. Returns every recipe whose output is this item: "
+                + "crafting recipes (with the grid layout) AND smelting / blasting / smoking recipes "
+                + "(with the input + station), each tagged [crafting] / [smelting] / …. Then make it: "
+                + "open the matching station (crafting table / furnace / your 2x2 grid) and call "
+                + "place_recipe to auto-fill the ingredients. No recipe found = the item is mined or "
+                + "traded, not made.";
     }
 
     @Override
@@ -89,35 +93,46 @@ public final class LookupRecipeTool implements AnimusTool {
             if (recipes.size() >= MAX_RECIPES) {
                 break;
             }
-            if (!(holder.value() instanceof CraftingRecipe cr)) {
-                continue;
+            Recipe<?> r = holder.value();
+            if (r instanceof CraftingRecipe cr) {
+                PlacementInfo info = cr.placementInfo();
+                if (info.isImpossibleToPlace() || info.ingredients().isEmpty()) {
+                    continue;   // special / no static ingredient list (firework, map-clone, …)
+                }
+                ItemStack result;
+                try {
+                    result = cr.assemble(CraftingInput.EMPTY);   // shaped/shapeless ignore input
+                } catch (RuntimeException inputDependent) {
+                    continue;
+                }
+                if (result.isEmpty() || result.getItem() != target) {
+                    continue;
+                }
+                recipes.add("[crafting] " + format(cr, result));
+            } else if (r instanceof AbstractCookingRecipe cook) {
+                ItemStack result;
+                try {
+                    result = cook.assemble(new SingleRecipeInput(ItemStack.EMPTY));   // ignores input
+                } catch (RuntimeException inputDependent) {
+                    continue;
+                }
+                if (result.isEmpty() || result.getItem() != target) {
+                    continue;
+                }
+                recipes.add(formatCooking(cook, result));
             }
-            PlacementInfo info = cr.placementInfo();
-            if (info.isImpossibleToPlace() || info.ingredients().isEmpty()) {
-                continue;   // special / no static ingredient list (firework, map-clone, …)
-            }
-            ItemStack result;
-            try {
-                result = cr.assemble(CraftingInput.EMPTY);   // shaped/shapeless ignore input
-            } catch (RuntimeException inputDependent) {
-                continue;
-            }
-            if (result.isEmpty() || result.getItem() != target) {
-                continue;
-            }
-            recipes.add(format(cr, result));
         }
 
         if (recipes.isEmpty()) {
-            return "no crafting recipe for " + name + " — it's obtained another way (mine it, smelt it "
-                    + "in a furnace, or trade), not crafted.";
+            return "no recipe for " + name + " — it's obtained another way (mine it, or trade), not "
+                    + "crafted or smelted.";
         }
         return "recipe(s) for " + name + ":\n\n" + String.join("\n\n", recipes) + "\n\n"
-                + "To craft: interact_at a crafting table (3x3; small recipes also fit your 2x2 inventory "
-                + "grid) → inspect_gui, which draws the grid as a 2D map of slot numbers → lay this recipe "
-                + "onto that map cell-for-cell (a smaller recipe goes in the top-left) and click_slot the "
-                + "slot number at each ingredient's position; fill EVERY cell shown → click_slot "
-                + "type=quick_move the result slot to take the output.";
+                + "To make it: open the matching station — interact_at a crafting table or furnace / "
+                + "blast furnace / smoker (small crafting recipes also fit your own 2x2 grid) — then call "
+                + "place_recipe " + name + " to auto-fill the ingredients for you, and click_slot "
+                + "type=quick_move the result slot to take the output. (Smelting: also add fuel and wait.) "
+                + "Only hand-place with click_slot if place_recipe can't (a custom modded machine).";
     }
 
     private static String format(CraftingRecipe recipe, ItemStack result) {
@@ -148,6 +163,16 @@ public final class LookupRecipeTool implements AnimusTool {
                 .map(e -> e.getValue() + "x " + e.getKey())
                 .collect(Collectors.joining(", "));
         return "shapeless, makes " + count + ": " + list + " (place anywhere in the grid)";
+    }
+
+    /** A cooking recipe (one input → one output) labelled by its station. */
+    private static String formatCooking(AbstractCookingRecipe recipe, ItemStack result) {
+        RecipeType<?> type = recipe.getType();
+        String station = type == RecipeType.BLASTING ? "blasting (blast furnace)"
+                : type == RecipeType.SMOKING ? "smoking (smoker)"
+                : "smelting (furnace)";
+        return "[" + station + "] " + describeIngredient(recipe.input()) + " -> makes "
+                + result.getCount() + " (" + recipe.cookingTime() + " ticks)";
     }
 
     /** Name an ingredient: a single item directly, a shared-suffix tag as "planks (any)", else a few
