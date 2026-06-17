@@ -19,7 +19,7 @@ import java.util.Map;
  * {@code inspect_gui} — read the container GUI the companion currently has open (the eyes that make
  * direct GUI manipulation possible). After {@code interact_at} right-clicks a chest/furnace/machine,
  * this lists every slot (index, side, contents, output-only flag) plus the cursor item, so the model
- * can plan {@code click_slot} calls AND verify their effect (error recovery). A read-only server query.
+ * can plan {@code transfer} calls AND verify their effect (error recovery). A read-only server query.
  */
 public final class InspectGuiTool implements AnimusTool {
 
@@ -35,9 +35,8 @@ public final class InspectGuiTool implements AnimusTool {
                 + "inventory menu (which includes a 2x2 crafting grid), so you can craft small recipes "
                 + "without a table. Lists every slot — index, side, item + count, [output] mark — plus "
                 + "the cursor and any machine progress. If a crafting grid is open it draws the grid as a "
-                + "2D map of slot numbers, so you place a recipe by dropping its layout onto the same "
-                + "positions (no index math). Use it to choose click_slot indices and to verify a click. "
-                + "No arguments.";
+                + "2D map of slot numbers (handy for hand-loading a modded grid). Use it to choose "
+                + "transfer slot indices and to verify a transfer. No arguments.";
     }
 
     @Override
@@ -157,7 +156,8 @@ public final class InspectGuiTool implements AnimusTool {
                 + "your inventory (non-empty):\n" + (mine.length() == 0 ? "  (empty)\n" : mine)
                 + "cursor: " + describe(menu.getCarried()) + "\n"
                 + dataLine
-                + "tip: click_slot type=quick_move shift-moves a whole stack; type=pickup for precise counts.";
+                + "tip: transfer {from} (no `to`) routes a whole stack to the other section; add `to`"
+                + " + `count` for an exact move into a specific slot.";
     }
 
     private static String describe(ItemStack stack) {

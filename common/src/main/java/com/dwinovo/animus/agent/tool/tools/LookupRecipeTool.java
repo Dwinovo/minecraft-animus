@@ -34,8 +34,8 @@ import java.util.stream.Collectors;
  * {@code lookup_recipe} — look up the crafting recipe(s) for an output item, the way JEI does: iterate
  * the server's {@code RecipeManager} and read each recipe's OWN ingredient data (no per-recipe
  * adapters), so it works for vanilla and modded recipes alike. Returns the ingredients and, for shaped
- * recipes, the grid layout — the model then places them itself with the GUI primitives (inspect_gui +
- * click_slot) in an open crafting table. A read-only server query.
+ * recipes, the grid layout — for crafting the model just calls {@code craft}; for other stations it
+ * loads the inputs with {@code transfer}. A read-only server query.
  */
 public final class LookupRecipeTool implements AnimusTool {
 
@@ -53,8 +53,8 @@ public final class LookupRecipeTool implements AnimusTool {
                 + "across all stations: crafting (with the grid layout), smelting / blasting / smoking, "
                 + "stonecutting, and smithing — each tagged [crafting] / [smelting] / [stonecutter] / "
                 + "[smithing] / …. Then make it: [crafting] → the craft tool does it all; "
-                + "[smelting] → open the furnace and click_slot the input + fuel; [stonecutter] / "
-                + "[smithing] → open the station and click_slot the inputs. No recipe found = the item "
+                + "[smelting] → open the furnace and transfer the input + fuel; [stonecutter] / "
+                + "[smithing] → open the station and transfer the inputs. No recipe found = the item "
                 + "is mined or traded, not made.";
     }
 
@@ -161,9 +161,9 @@ public final class LookupRecipeTool implements AnimusTool {
                 + "To make it —\n"
                 + "• [crafting]: just `craft " + name + "` — it does the whole thing (2x2 on your own "
                 + "grid; a 3x3 recipe needs a crafting table open first via interact_at).\n"
-                + "• [smelting|blasting|smoking]: interact_at the furnace, click_slot the input into the "
+                + "• [smelting|blasting|smoking]: interact_at the furnace, transfer the input into the "
                 + "top slot + fuel into the bottom, then wait and take the output.\n"
-                + "• [stonecutter] / [smithing]: interact_at the station, then inspect_gui and click_slot "
+                + "• [stonecutter] / [smithing]: interact_at the station, then inspect_gui and transfer "
                 + "the input(s) into their slot(s) and take the output.";
     }
 
