@@ -5,6 +5,7 @@ import com.dwinovo.animus.task.TaskRecord;
 import com.dwinovo.animus.task.tasks.PlaceBlockTaskRecord;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.BlockItem;
@@ -38,20 +39,22 @@ public final class PlaceBlockTool implements AnimusTool {
     @Override
     public String description() {
         return "Place a block from your inventory at an absolute coordinate. The "
-                + "entity travels to a reachable spot next to the target on its own "
-                + "— digging through obstacles, bridging gaps, and pillaring up "
-                + "automatically, like move_to — then places the block. "
+                + "companion travels to a reachable spot next to the target on its own "
+                + "— digging through obstacles, bridging gaps, pillaring up — then "
+                + "places it like a real player (steps to the edge, looks, places). "
                 + "The coordinate is the cell the block will OCCUPY, not the block it "
                 + "sits on — to put a torch on top of a block at (x,y,z), target "
-                + "(x,y+1,z). The block must attach to an existing solid neighbour — "
-                + "you can't place a floating block in mid-air — and the target cell "
-                + "must be empty. Fails with guidance if you don't carry the block, it "
-                + "isn't a placeable block, the target is occupied, there's no "
-                + "support, or no reachable spot to place from; failure messages "
-                + "include nearby coordinates where placement WOULD work — retry with "
-                + "one of those instead of probing blindly. Use it for torches "
-                + "(light), walls/shelter, sealing caves, or positioning a crafting "
-                + "table/furnace/chest.";
+                + "(x,y+1,z). Placement still needs a block to attach to (you can't "
+                + "place in pure mid-air), and the target cell must be empty. "
+                + "Optional orientation for blocks that have one: `facing` "
+                + "(north/south/east/west/up/down — furnace/chest/stairs/observer…), "
+                + "`axis` (x/y/z — logs/pillars), `half` (top/bottom — slabs/stairs). "
+                + "The result reports the block's ACTUAL orientation, so if it differs "
+                + "from what you asked, break it and retry from another angle. Fails "
+                + "with guidance (incl. nearby coords that WOULD work) if you lack the "
+                + "block, it isn't placeable, the target is occupied, or there's no "
+                + "reachable spot. Use for torches, walls/shelter, sealing caves, or "
+                + "positioning a crafting table/furnace/chest.";
     }
 
     @Override
@@ -62,6 +65,15 @@ public final class PlaceBlockTool implements AnimusTool {
         properties.put("x", Map.of("type", "integer", "description", "Target x."));
         properties.put("y", Map.of("type", "integer", "description", "Target y."));
         properties.put("z", Map.of("type", "integer", "description", "Target z."));
+        properties.put("facing", Map.of("type", List.of("string", "null"),
+                "enum", List.of("north", "south", "east", "west", "up", "down"),
+                "description", "Optional. Which way the block should face (furnace/chest/stairs/…)."));
+        properties.put("axis", Map.of("type", List.of("string", "null"),
+                "enum", List.of("x", "y", "z"),
+                "description", "Optional. Pillar/log axis (y = upright)."));
+        properties.put("half", Map.of("type", List.of("string", "null"),
+                "enum", List.of("top", "bottom"),
+                "description", "Optional. Which half for a slab / stairs."));
 
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("type", "object");
@@ -85,8 +97,21 @@ public final class PlaceBlockTool implements AnimusTool {
         }
         BlockPos pos = new BlockPos(requireInt(args, "x"), requireInt(args, "y"), requireInt(args, "z"));
         String label = BuiltInRegistries.ITEM.getKey(item).getPath();
+        Direction facing = optEnum(args, "facing") == null ? null
+                : Direction.byName(optEnum(args, "facing"));
+        Direction.Axis axis = optEnum(args, "axis") == null ? null
+                : Direction.Axis.byName(optEnum(args, "axis"));
+        String half = optEnum(args, "half");
+        Boolean topHalf = half == null ? null : half.equals("top");
         return new PlaceBlockTaskRecord(toolCallId, currentGameTime + MIN_TIMEOUT_TICKS,
-                blockItem.getBlock(), item, pos, label);
+                blockItem.getBlock(), item, pos, label, facing, axis, topHalf);
+    }
+
+    /** A lowercased optional enum string arg, or null if absent. */
+    private static String optEnum(JsonObject args, String key) {
+        if (!args.has(key) || args.get(key).isJsonNull()) return null;
+        String v = args.get(key).getAsString().trim().toLowerCase();
+        return v.isEmpty() ? null : v;
     }
 
     private static Item readItem(JsonObject args) {

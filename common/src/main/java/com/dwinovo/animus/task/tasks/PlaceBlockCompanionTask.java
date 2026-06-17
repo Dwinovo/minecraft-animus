@@ -2,16 +2,22 @@ package com.dwinovo.animus.task.tasks;
 
 import com.dwinovo.animus.entity.AnimusPlayer;
 import com.dwinovo.animus.pathing.exec.PlaceManeuver;
-import com.dwinovo.animus.pathing.exec.Placement;
 import com.dwinovo.animus.pathing.exec.PlayerNav;
-import com.dwinovo.animus.pathing.util.BlockHelper;
 import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.PlayerInv;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
+import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.Half;
+import net.minecraft.world.level.block.state.properties.SlabType;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -43,12 +49,13 @@ public final class PlaceBlockCompanionTask implements CompanionTask {
             fail("no " + r.label + " in inventory to place");
             return;
         }
-        if (!BlockHelper.isReplaceableForPlacement(level, r.pos)) {
-            fail("target " + coords() + " is already occupied");
-            return;
-        }
-        if (!Placement.hasAnySupport(level, r.pos)) {
-            fail("can't place a floating " + r.label + " at " + coords() + " — nothing adjacent to place against");
+        // Occupancy is the one thing worth a fast, clear message; everything else (support faces,
+        // modded placement rules) is left to vanilla's own placement to accept or reject — we don't
+        // second-guess it with our own heuristic. Vanilla's `canBeReplaced` is the same test it uses.
+        BlockState existing = level.getBlockState(r.pos);
+        if (!existing.isAir() && !existing.canBeReplaced()) {
+            fail("target " + coords() + " is already occupied by "
+                    + BuiltInRegistries.BLOCK.getKey(existing.getBlock()).getPath());
             return;
         }
         nav = new PlayerNav(player, r.pos, WALK_SPEED, this::withinReach);
@@ -57,18 +64,19 @@ public final class PlaceBlockCompanionTask implements CompanionTask {
     @Override
     public TaskState tick() {
         if (player.level().getBlockState(r.pos).is(r.block)) {
-            doneReason = "placed " + r.label + " at " + coords();
+            doneReason = "placed " + r.label + " at " + coords() + orientation();
             return TaskState.SUCCESS;
         }
         if (withinReach()) {
             if (maneuver == null) {
                 maneuver = new PlaceManeuver(player, r.pos,
                         () -> PlayerInv.findSlot(player.getInventory(), r.item),
-                        () -> player.level().getBlockState(r.pos).is(r.block));
+                        () -> player.level().getBlockState(r.pos).is(r.block),
+                        new PlaceManeuver.Hints(r.facing, r.axis, r.topHalf), r.block);
             }
             return switch (maneuver.tick()) {
                 case DONE -> {
-                    doneReason = "placed " + r.label + " at " + coords();
+                    doneReason = "placed " + r.label + " at " + coords() + orientation();
                     yield TaskState.SUCCESS;
                 }
                 case FAILED -> {
@@ -94,6 +102,42 @@ public final class PlaceBlockCompanionTask implements CompanionTask {
 
     private String coords() {
         return r.pos.getX() + "," + r.pos.getY() + "," + r.pos.getZ();
+    }
+
+    /** Report the ACTUAL orientation the block landed in (so the model can see + correct it), flagging
+     *  any property that didn't come out the way it asked. Empty for blocks with no orientation. */
+    private String orientation() {
+        BlockState s = player.level().getBlockState(r.pos);
+        List<String> parts = new ArrayList<>();
+        Direction f = s.hasProperty(BlockStateProperties.FACING) ? s.getValue(BlockStateProperties.FACING)
+                : s.hasProperty(BlockStateProperties.HORIZONTAL_FACING) ? s.getValue(BlockStateProperties.HORIZONTAL_FACING)
+                : null;
+        if (f != null) parts.add("facing " + f.getName() + mismatch(r.facing != null && r.facing != f, r.facing));
+        Direction.Axis ax = s.hasProperty(BlockStateProperties.AXIS) ? s.getValue(BlockStateProperties.AXIS)
+                : s.hasProperty(BlockStateProperties.HORIZONTAL_AXIS) ? s.getValue(BlockStateProperties.HORIZONTAL_AXIS)
+                : null;
+        if (ax != null) parts.add("axis " + ax.getName() + mismatch(r.axis != null && r.axis != ax, r.axis));
+        Boolean top = topHalf(s);
+        if (top != null) {
+            parts.add((top ? "top" : "bottom") + " half"
+                    + mismatch(r.topHalf != null && !r.topHalf.equals(top), r.topHalf == null ? null : (r.topHalf ? "top" : "bottom")));
+        }
+        return parts.isEmpty() ? "" : " (" + String.join(", ", parts) + ")";
+    }
+
+    private static Boolean topHalf(BlockState s) {
+        if (s.hasProperty(BlockStateProperties.SLAB_TYPE)) {
+            SlabType t = s.getValue(BlockStateProperties.SLAB_TYPE);
+            return t == SlabType.DOUBLE ? null : t == SlabType.TOP;
+        }
+        if (s.hasProperty(BlockStateProperties.HALF)) {
+            return s.getValue(BlockStateProperties.HALF) == Half.TOP;
+        }
+        return null;
+    }
+
+    private static String mismatch(boolean differs, Object wanted) {
+        return differs ? " [wanted " + wanted + "]" : "";
     }
 
     private void fail(String reason) {
