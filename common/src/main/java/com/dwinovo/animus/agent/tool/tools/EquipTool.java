@@ -47,12 +47,15 @@ public final class EquipTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Equip an item from the entity's OWN inventory so it actually "
-                + "takes effect — a tool/weapon goes to the main hand (speeds up "
-                + "auto_mine, boosts melee), armor to its slot. Omit slot to "
-                + "auto-route by item type; set it to force a hand or a specific "
-                + "armor piece. Whatever was equipped before is stowed back. Fails "
-                + "if the item isn't in the inventory.";
+        return "Equip an item from your OWN inventory so it actually takes effect — "
+                + "a tool/weapon to the main hand (speeds up auto_mine, boosts melee), "
+                + "armor to its slot, a modded accessory (Curios / Trinkets ring, "
+                + "amulet, …) to its accessory slot. It equips by right-clicking the "
+                + "item the way a player does, so armor and accessories route to the "
+                + "correct slot on their own. Omit slot for that auto-routing; set it "
+                + "only to force a hand or a specific vanilla armor piece. Whatever was "
+                + "equipped before is stowed back. Fails if the item isn't in your "
+                + "inventory.";
     }
 
     @Override
