@@ -62,6 +62,8 @@ You craft by laying the recipe into a grid yourself with `transfer`, then taking
 
 **Watch the cells** — the grid is wider than a small recipe. A 2-wide recipe in a 3-wide table uses the top-left cells, **NOT** consecutive slot numbers (e.g. a 2×2 recipe in a 3×3 grid skips the right column). Read the 2D map from `inspect_gui` and match the layout cell-for-cell; this is the easiest thing to get wrong.
 
+**Make many at once** — put a *stack* in each cell (`count:N`), then ONE `transfer {from:<result>}` crafts over and over until a cell runs dry. E.g. 7 logs in one grid cell → a single take = 28 planks; 8 planks in each of the two stick cells → one take = 32 sticks. Far fewer calls than one set at a time.
+
 *Example — sticks (2 oak_planks stacked vertically):* `inspect_gui` (own grid, say cells are slots 1–4 in a 2×2) → `transfer moves=[{from:<planks>, to:1, count:1}, {from:<planks>, to:3, count:1}]` → `transfer moves=[{from:<result>}]`.
 
 ## Smelting
