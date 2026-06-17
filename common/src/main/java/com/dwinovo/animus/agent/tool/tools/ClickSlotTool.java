@@ -86,12 +86,23 @@ public final class ClickSlotTool implements AnimusTool {
         int button = (args.has("button") && !args.get("button").isJsonNull())
                 ? args.get("button").getAsInt() : 0;
 
+        ItemStack beforeSlot = menu.slots.get(slot).getItem().copy();
+        ItemStack beforeCursor = menu.getCarried().copy();
+
         menu.clicked(slot, button, input, entity);
 
         ItemStack now = menu.slots.get(slot).getItem();
         ItemStack cursor = menu.getCarried();
+        // The menu's own rules (Slot.mayPlace) can refuse a move — e.g. raw iron into a furnace's
+        // fuel slot. Then nothing changes (item stays on the cursor, slot untouched). Flag that
+        // explicitly so the model knows it was BLOCKED rather than assuming it worked.
+        boolean blocked = ItemStack.matches(beforeSlot, now) && ItemStack.matches(beforeCursor, cursor);
+        String note = blocked
+                ? " — NO CHANGE: that slot refused the move (wrong item type for this machine slot, "
+                        + "the slot is full, or it's output-only). Try a different slot or container."
+                : "";
         return "clicked slot " + slot + " (" + input.name().toLowerCase() + ", button " + button + "): "
-                + "slot now " + describe(now) + ", cursor " + describe(cursor);
+                + "slot now " + describe(now) + ", cursor " + describe(cursor) + note;
     }
 
     private static ContainerInput readType(JsonObject args) {
