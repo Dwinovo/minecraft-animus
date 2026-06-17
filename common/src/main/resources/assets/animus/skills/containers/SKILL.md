@@ -41,11 +41,12 @@ Neither has a dedicated tool — you drive the GUI yourself, the same as any con
 
 - **Crafting**:
   1. `lookup_recipe <item>` — get the recipe's ingredients + grid layout (reads the game's recipe data, so modded recipes work too, like JEI).
-  2. `interact_at button=right` a crafting table (3×3). Small recipes (≤2×2) also fit your own 2×2 inventory grid — but `interact_at` on a table is simplest.
-  3. `inspect_gui` — the grid slots (row-major; slot 0 = result).
-  4. `click_slot type=pickup` each ingredient into its cell, matching the recipe grid (a W×H shaped recipe goes in the top-left; shapeless = place anywhere). Right-click (button=1) places one at a time for cells that need a single item.
-  5. `click_slot type=quick_move` the result slot (0) to take the output — repeat to craft more.
-  6. `close_gui`.
+  2. Open a grid:
+     - **≤2×2 recipe** (planks, sticks, torches, a crafting table itself): NO table needed — your own **2×2 grid is always available**. Just `inspect_gui` with nothing open: it shows your `InventoryMenu`, where the crafting grid is slots **1-4** and the result is slot **0**.
+     - **3×3 recipe** (tools, etc.): `interact_at button=right` a crafting table, then `inspect_gui`.
+  3. `click_slot type=pickup` each ingredient into its cell, matching the recipe grid (a W×H shaped recipe goes in the top-left of the grid; shapeless = place anywhere). Right-click (button=1) places one item at a time.
+  4. `click_slot type=quick_move` the result slot (**0**) to take the output — repeat to craft more.
+  5. For a table, `close_gui`. For your own 2×2 grid there's nothing to close; if you left items in slots 1-4, `click_slot` them back out.
 - **Smelting** — a furnace is just another container you drive with these primitives:
   1. `interact_at button=right` the furnace.
   2. `click_slot type=quick_move` your raw item (the menu routes it to the input slot) and your fuel (routes to the fuel slot).

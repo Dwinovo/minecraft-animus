@@ -28,11 +28,12 @@ public final class InspectGuiTool implements AnimusTool {
 
     @Override
     public String description() {
-        return "Look at the container GUI you currently have open (after interact_at right-clicks a "
-                + "chest / furnace / barrel / machine). Lists every slot — index, side (container vs "
-                + "your inventory), item + count, and an [output] mark for slots you can only take "
-                + "from — plus the item on your cursor. Use it to choose click_slot indices and to "
-                + "check the result of a click. No arguments; returns 'no GUI open' if nothing is open.";
+        return "Look at the GUI you currently have open. After interact_at right-clicks a chest / "
+                + "furnace / machine it shows that container; with NO container open it shows YOUR own "
+                + "inventory menu — which includes the 2x2 crafting grid (slots 1-4, result slot 0), so "
+                + "you can craft small recipes without a table. Lists every slot — index, side, item + "
+                + "count, [output] mark — plus the cursor and any machine progress. Use it to choose "
+                + "click_slot indices and to verify a click. No arguments.";
     }
 
     @Override
@@ -58,9 +59,12 @@ public final class InspectGuiTool implements AnimusTool {
     @Override
     public String executeQuery(JsonObject args, AnimusPlayer entity) {
         AbstractContainerMenu menu = entity.containerMenu;
-        if (menu == null || menu == entity.inventoryMenu) {
-            return "no GUI open — interact_at (button=right) a container or machine first.";
+        if (menu == null) {
+            return "no GUI open.";
         }
+        // With no block menu open, containerMenu IS your own InventoryMenu — which carries the 2x2
+        // crafting grid. Surface it so the model can craft small recipes without a table.
+        boolean ownInventory = menu == entity.inventoryMenu;
         StringBuilder container = new StringBuilder();
         StringBuilder mine = new StringBuilder();
         for (int i = 0; i < menu.slots.size(); i++) {
@@ -94,7 +98,11 @@ public final class InspectGuiTool implements AnimusTool {
             dataLine = d.append("]\n").toString();
         }
 
-        return "GUI: " + menu.getClass().getSimpleName() + "\n"
+        String header = ownInventory
+                ? "GUI: InventoryMenu (YOUR own inventory — the 2x2 crafting grid is container slots 1-4, "
+                        + "result = slot 0; put ingredients in 1-4, take the result from 0)\n"
+                : "GUI: " + menu.getClass().getSimpleName() + "\n";
+        return header
                 + "container slots:\n" + (container.length() == 0 ? "  (none)\n" : container)
                 + "your inventory (non-empty):\n" + (mine.length() == 0 ? "  (empty)\n" : mine)
                 + "cursor: " + describe(menu.getCarried()) + "\n"

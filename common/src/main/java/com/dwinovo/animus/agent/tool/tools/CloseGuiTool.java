@@ -52,7 +52,9 @@ public final class CloseGuiTool implements AnimusTool {
     public String executeQuery(JsonObject args, AnimusPlayer entity) {
         AbstractContainerMenu menu = entity.containerMenu;
         if (menu == null || menu == entity.inventoryMenu) {
-            return "no GUI was open.";
+            // The InventoryMenu (your own 2x2 grid + inventory) is always open — nothing to close.
+            // If you left items in the 2x2 crafting grid, click_slot them back out.
+            return "no block GUI was open (your own inventory menu is always available).";
         }
         entity.closeContainer();
         return "closed the GUI.";

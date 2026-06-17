@@ -71,8 +71,8 @@ public final class ClickSlotTool implements AnimusTool {
     @Override
     public String executeQuery(JsonObject args, AnimusPlayer entity) {
         AbstractContainerMenu menu = entity.containerMenu;
-        if (menu == null || menu == entity.inventoryMenu) {
-            return "no GUI open — interact_at (button=right) a container first.";
+        if (menu == null) {
+            return "no GUI open.";   // never really happens — containerMenu is at least your InventoryMenu
         }
         if (!args.has("slot") || args.get("slot").isJsonNull()) {
             throw new IllegalArgumentException("missing required argument: slot");
