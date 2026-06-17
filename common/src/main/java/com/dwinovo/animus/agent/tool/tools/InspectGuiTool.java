@@ -77,10 +77,19 @@ public final class InspectGuiTool implements AnimusTool {
                 container.append(line);  // all container slots, empty included (placement targets)
             }
         }
+        // Machine progress lives in the menu's data slots, not the item slots. Vanilla exposes the
+        // furnace family's via typed getters; surface it so smelting progress is visible here too.
+        String progress = "";
+        if (menu instanceof net.minecraft.world.inventory.AbstractFurnaceMenu furnace) {
+            progress = "smelt progress: cook " + Math.round(furnace.getBurnProgress() * 100) + "%, fuel "
+                    + Math.round(furnace.getLitProgress() * 100) + "% left, lit=" + furnace.isLit() + "\n";
+        }
+
         return "GUI: " + menu.getClass().getSimpleName() + "\n"
                 + "container slots:\n" + (container.length() == 0 ? "  (none)\n" : container)
                 + "your inventory (non-empty):\n" + (mine.length() == 0 ? "  (empty)\n" : mine)
                 + "cursor: " + describe(menu.getCarried()) + "\n"
+                + progress
                 + "tip: click_slot type=quick_move shift-moves a whole stack; type=pickup for precise counts.";
     }
 
