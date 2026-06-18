@@ -715,61 +715,60 @@ public final class AnimusScreen extends Screen {
         AbstractClientPlayer e = ClientAnimusLookup.resolve(uuid);
         List<ItemStack> craft = snap != null ? snap.craft() : List.of();
 
-        int cTop = top + HEADER_H + 8;
+        // Two centred columns: LEFT = big portrait + armor column + offhand; RIGHT = craft + vitals +
+        // 3×9 storage + hotbar. Symmetric framing margins (no lopsided whitespace).
+        final int STORAGE_W = 9 * 18;                     // 162 — the widest element (caps the band)
+        final int COMP_W = 130 + STORAGE_W;               // left col (130) + right col (storage)
+        final int COMP_H = 152;
+        int startX = left + (PANEL_W - COMP_W) / 2;
+        int cTop = top + HEADER_H + (PANEL_H - HEADER_H - COMP_H) / 2;
+        int rightX = startX + 130;
 
-        // -- armor column (left) + offhand below it --
-        int armorX = left + PAD;
+        // -- LEFT: portrait socket, armor column + offhand (vertically centred against the portrait) --
+        renderPortrait(g, e, startX + 22, cTop, 84, COMP_H, mouseX, mouseY);
+        int armorTop = cTop + (COMP_H - 5 * 18) / 2;
         for (int i = 0; i < ARMOR.length; i++) {
-            drawEquip(g, e, ARMOR[i], armorX, cTop + i * 18, mouseX, mouseY);
+            drawEquip(g, e, ARMOR[i], startX, armorTop + i * 18, mouseX, mouseY);
         }
-        int offY = cTop + ARMOR.length * 18 + 4;
-        drawEquip(g, e, EquipmentSlot.OFFHAND, armorX, offY, mouseX, mouseY);
+        drawEquip(g, e, EquipmentSlot.OFFHAND, startX, armorTop + 4 * 18, mouseX, mouseY);
 
-        // -- live 3D portrait socket (bottom aligned with the offhand slot) --
-        int portX = armorX + 18 + 6, portW = 52, portH = ARMOR.length * 18 + 4 + 16;
-        renderPortrait(g, e, portX, cTop, portW, portH, mouseX, mouseY);
-
-        // -- synced 2×2 craft grid (+ arrow + result) --
-        int craftX = portX + portW + 12, craftY = cTop + 4;
+        // -- RIGHT top: synced 2×2 craft grid (+ arrow + result) --
         for (int i = 0; i < 4; i++) {
-            int cx = craftX + (i % 2) * 18, cy = craftY + (i / 2) * 18;
+            int cx = rightX + (i % 2) * 18, cy = cTop + (i / 2) * 18;
             slotBg(g, SLOT_SPRITE, cx, cy);
             stackOn(g, i < craft.size() ? craft.get(i) : ItemStack.EMPTY, cx, cy, mouseX, mouseY);
         }
-        int resultX = craftX + 2 * 18 + 12, resultY = craftY + 9;
-        txt(g, Component.literal("→"), craftX + 2 * 18 + 2, resultY + 4, TXT_MUTED);
+        txt(g, Component.literal("→"), rightX + 38, cTop + 13, TXT_MUTED);
+        int resultX = rightX + 54, resultY = cTop + 9;
         slotBg(g, SLOT_SPRITE, resultX, resultY);
         stackOn(g, craft.size() > 4 ? craft.get(4) : ItemStack.EMPTY, resultX, resultY, mouseX, mouseY);
 
-        // -- vitals: segmented hearts + drumsticks, under the craft row --
-        int vx = craftX, vy = craftY + 2 * 18 + 6;
-        if (e != null) renderStatRow(g, vx, vy, e.getHealth(), e.getMaxHealth(),
+        // -- RIGHT mid: segmented hearts + drumsticks --
+        if (e != null) renderStatRow(g, rightX, cTop + 46, e.getHealth(), e.getMaxHealth(),
                 HEART_FULL, HEART_HALF, HEART_EMPTY);
         int food = (snap != null && snap.loaded()) ? snap.foodLevel() : 0;
-        renderStatRow(g, vx, vy + ICON + 3, food, 20, FOOD_FULL, FOOD_HALF, FOOD_EMPTY);
+        renderStatRow(g, rightX, cTop + 46 + ICON + 2, food, 20, FOOD_FULL, FOOD_HALF, FOOD_EMPTY);
 
-        // -- backpack: checkerboard 3×9 storage + hotbar --
-        int sectionB = offY + 16 + 8;
-        int gx = left + (PANEL_W - 9 * 18) / 2;           // centre the 9-wide grid
+        // -- RIGHT bottom: checkerboard 3×9 storage + hotbar --
+        int storeY = cTop + 74;
         if (snap == null) {
-            txt(g, Component.literal("loading…"), gx, sectionB + 4, TXT_FAINT);
+            txt(g, Component.literal("loading…"), rightX, storeY + 4, TXT_FAINT);
             return;
         }
         if (!snap.loaded() || snap.items().isEmpty()) {
-            txt(g, Component.literal("asleep / out of view — chat to wake it."),
-                    left + PAD, sectionB + 4, TXT_FAINT);
+            txt(g, Component.literal("asleep — chat to wake it."), rightX, storeY + 4, TXT_FAINT);
             return;
         }
         List<ItemStack> items = snap.items();
         for (int i = 9; i < 36; i++) {                     // storage rows (slots 9..35)
             int col = (i - 9) % 9, row = (i - 9) / 9;
-            int x = gx + col * 18, y = sectionB + row * 18;
+            int x = rightX + col * 18, y = storeY + row * 18;
             slotBg(g, ((col + row) & 1) == 0 ? SLOT_SPRITE : SLOT_ALT, x, y);
             stackOn(g, items.get(i), x, y, mouseX, mouseY);
         }
-        int hotbarY = sectionB + 3 * 18 + 6;               // hotbar (slots 0..8)
+        int hotbarY = storeY + 3 * 18 + 6;                 // hotbar (slots 0..8)
         for (int i = 0; i < 9; i++) {
-            int x = gx + i * 18;
+            int x = rightX + i * 18;
             slotBg(g, (i & 1) == 0 ? SLOT_SPRITE : SLOT_ALT, x, hotbarY);
             stackOn(g, items.get(i), x, hotbarY, mouseX, mouseY);
         }
