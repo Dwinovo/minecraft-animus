@@ -10,6 +10,7 @@ import com.dwinovo.animus.client.agent.EntityAgentLoop;
 import com.dwinovo.animus.client.data.ClientAnimusInventory;
 import com.dwinovo.animus.network.payload.RequestInventoryPayload;
 import com.dwinovo.animus.platform.Services;
+import com.dwinovo.animus.platform.services.IAnimusConfig;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -87,6 +88,13 @@ public final class AnimusScreen extends Screen {
     private SimpleButton compactButton;
     private String savedInput = "";
 
+    // settings tab widgets
+    private ProviderDropdown providerDropdown;
+    private EditBox apiKeyInput;
+    private EditBox modelInput;
+    private EditBox baseUrlInput;
+    private long savedFlashUntil;
+
     // geometry resolved in init()
     private int left, top;
     private final int[] tabX = new int[3];   // left x of each tab label, for click hit-testing
@@ -135,13 +143,18 @@ public final class AnimusScreen extends Screen {
         }
     }
 
-    /** Rebuild the widgets for the active tab (chat owns the input row; other tabs have none). */
+    /** Rebuild the widgets for the active tab. */
     private void rebuild() {
         if (input != null) savedInput = input.getValue();
         clearWidgets();
         input = null;
         sendButton = stopButton = compactButton = null;
-        if (tab == Tab.CHAT) buildChatWidgets();
+        apiKeyInput = modelInput = baseUrlInput = null;
+        switch (tab) {
+            case CHAT -> buildChatWidgets();
+            case SETTINGS -> buildSettingsWidgets();
+            case ITEMS -> { /* no widgets */ }
+        }
     }
 
     private void buildChatWidgets() {
@@ -175,17 +188,72 @@ public final class AnimusScreen extends Screen {
     }
 
     private void selectTab(Tab t) {
-        if (t == Tab.SETTINGS) {                      // settings is still its own screen (stage 1)
-            if (input != null) savedInput = input.getValue();
-            Minecraft.getInstance().setScreen(new SettingsScreen(this));
-            return;
-        }
         if (t == tab) return;
         tab = t;
         scroll = 0;
         pinBottom = true;
         if (t == Tab.ITEMS) requestInventory();
         rebuild();
+    }
+
+    // ---- settings tab ----
+
+    private void buildSettingsWidgets() {
+        IAnimusConfig cfg = Services.CONFIG;
+        int x = left + PAD, w = PANEL_W - PAD * 2;
+        int y = top + HEADER_H + 10;
+
+        providerDropdown = new ProviderDropdown(cfg.getProvider());
+        providerDropdown.setBounds(x, y + 11, w, 18);
+
+        int y2 = y + 37;
+        apiKeyInput = field(x, y2 + 11, w, 512, cfg.getApiKey());
+        int y3 = y2 + 37;
+        modelInput = field(x, y3 + 11, w, 128, cfg.getModel());
+        int y4 = y3 + 37;
+        baseUrlInput = field(x, y4 + 11, w, 256, cfg.getBaseUrl());
+
+        int saveW = 64;
+        addRenderableWidget(new SimpleButton(left + PANEL_W - PAD - saveW, top + PANEL_H - PAD - 18,
+                saveW, 18, Component.literal("Save"), b -> onSaveSettings()));
+    }
+
+    private EditBox field(int x, int y, int w, int max, String value) {
+        EditBox e = new EditBox(font, x, y, w, 18, Component.literal(""));
+        e.setMaxLength(max);
+        e.setValue(value == null ? "" : value);
+        addRenderableWidget(e);
+        return e;
+    }
+
+    private void onSaveSettings() {
+        IAnimusConfig cfg = Services.CONFIG;
+        cfg.setProvider(providerDropdown.selectedId());
+        cfg.setApiKey(apiKeyInput.getValue());
+        cfg.setModel(modelInput.getValue());
+        cfg.setBaseUrl(baseUrlInput.getValue());
+        cfg.save();
+        AnimusLlmClient.reset();
+        savedFlashUntil = System.currentTimeMillis() + 1500;
+    }
+
+    private void renderSettings(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        int x = left + PAD;
+        int y = top + HEADER_H + 10;
+        LlmProviders.Option opt = LlmProviders.byId(providerDropdown.selectedId());
+        if (modelInput != null) modelInput.setHint(Component.literal(opt.defaultModel()));
+        if (baseUrlInput != null) baseUrlInput.setHint(Component.literal(opt.defaultBaseUrl()));
+
+        g.text(font, Component.literal("Provider"), x, y, TXT_MUTED);
+        g.text(font, Component.literal("API Key"), x, y + 37, TXT_MUTED);
+        g.text(font, Component.literal("Model"), x, y + 74, TXT_MUTED);
+        g.text(font, Component.literal("Base URL"), x, y + 111, TXT_MUTED);
+
+        if (savedFlashUntil > System.currentTimeMillis()) {
+            g.text(font, Component.literal("✔ saved"), x, top + PANEL_H - PAD - 14, OK);
+        }
+        // drawn LAST so the open option list overlays the fields below it
+        providerDropdown.render(g, font, mouseX, mouseY);
     }
 
     @Override
@@ -229,6 +297,10 @@ public final class AnimusScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean dbl) {
         if (event.button() == 0) {
+            if (tab == Tab.SETTINGS && providerDropdown != null
+                    && providerDropdown.mouseClicked(event.x(), event.y())) {
+                return true;
+            }
             int my = (int) event.y();
             if (my >= top && my < top + HEADER_H) {
                 for (int i = 0; i < 3; i++) {
@@ -271,7 +343,7 @@ public final class AnimusScreen extends Screen {
         switch (tab) {
             case CHAT -> { renderVitals(g, mouseX, mouseY); renderChat(g); }
             case ITEMS -> { renderVitals(g, mouseX, mouseY); renderItems(g, mouseX, mouseY); }
-            case SETTINGS -> { /* opened as a sub-screen */ }
+            case SETTINGS -> renderSettings(g, mouseX, mouseY);
         }
     }
 
