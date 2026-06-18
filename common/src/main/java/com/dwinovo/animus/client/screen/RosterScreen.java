@@ -64,7 +64,7 @@ public final class RosterScreen extends Screen {
         AnimusRoster roster = AnimusRoster.instance();
         if (roster.size() == 1) {
             AnimusRoster.Entry only = roster.entries().get(0);
-            EntityChatScreen.openRemote(only.uuid(), only.name());
+            AnimusScreen.open(only.uuid(), only.name());
             return;
         }
         Minecraft.getInstance().setScreen(new RosterScreen());
@@ -188,7 +188,7 @@ public final class RosterScreen extends Screen {
                 if (y + ROW_HEIGHT > top + CONTENT_HEIGHT - PADDING) break;
                 if (event.x() >= bodyX && event.x() <= bodyX + bodyWidth
                         && event.y() >= y && event.y() < y + ROW_HEIGHT) {
-                    EntityChatScreen.openRemote(entry.uuid(), entry.name());
+                    AnimusScreen.open(entry.uuid(), entry.name());
                     return true;
                 }
                 y += ROW_HEIGHT;
