@@ -45,7 +45,15 @@ public class AnimusFabricClient implements ClientModInitializer {
         // G → companion roster panel (chat entry + settings/reset live in there).
         KeyMappingHelper.registerKeyMapping(com.dwinovo.animus.client.AnimusKeys.OPEN_ROSTER);
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK
-                .register(client -> com.dwinovo.animus.client.AnimusKeys.tick());
+                .register(client -> {
+                    com.dwinovo.animus.client.AnimusKeys.tick();
+                    com.dwinovo.animus.client.hud.AnimusToasts.tick();
+                });
+
+        // HUD: advancement-style activity toasts (top-right) when not watching a panel.
+        net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
+                Identifier.fromNamespaceAndPath(Constants.MOD_ID, "animus_toasts"),
+                (g, delta) -> com.dwinovo.animus.client.hud.AnimusToasts.render(g));
 
         // In-world path overlay for every companion (Baritone PathRenderer port),
         // drawn after translucent terrain so it sits over the world.
@@ -58,6 +66,7 @@ public class AnimusFabricClient implements ClientModInitializer {
                 .register((handler, client) -> {
                     com.dwinovo.animus.client.path.ClientPathViz.clearAll();
                     com.dwinovo.animus.client.data.ClientAnimusInventory.clear();
+                    com.dwinovo.animus.client.hud.AnimusToasts.clear();
                 });
     }
 }

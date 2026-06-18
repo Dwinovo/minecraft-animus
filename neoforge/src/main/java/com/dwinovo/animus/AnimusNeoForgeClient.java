@@ -26,6 +26,7 @@ public class AnimusNeoForgeClient {
     @SubscribeEvent
     static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
         com.dwinovo.animus.client.AnimusKeys.tick();
+        com.dwinovo.animus.client.hud.AnimusToasts.tick();
     }
 
     @SubscribeEvent
@@ -39,6 +40,15 @@ public class AnimusNeoForgeClient {
         // Drop every path overlay on disconnect so a frozen path can't survive a relog.
         com.dwinovo.animus.client.path.ClientPathViz.clearAll();
         com.dwinovo.animus.client.data.ClientAnimusInventory.clear();
+        com.dwinovo.animus.client.hud.AnimusToasts.clear();
+    }
+
+    @SubscribeEvent
+    static void registerGuiLayers(net.neoforged.neoforge.client.event.RegisterGuiLayersEvent event) {
+        // HUD: advancement-style activity toasts (top-right) when not watching a panel.
+        event.registerAboveAll(
+                Identifier.fromNamespaceAndPath(Constants.MOD_ID, "animus_toasts"),
+                (g, delta) -> com.dwinovo.animus.client.hud.AnimusToasts.render(g));
     }
 
     @SubscribeEvent
