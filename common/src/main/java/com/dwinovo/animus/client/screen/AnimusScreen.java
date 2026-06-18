@@ -54,6 +54,11 @@ public final class AnimusScreen extends Screen {
     private static final int PANEL_H = 232;
     private static final int HEADER_H = 22;
     private static final int INPUT_H = 18;
+    /** Text fields are inset inside their parchment frame: the EditBox is shrunk by this much
+     *  (so vanilla's top-left unbordered text lands padded + centred) and the FIELD_SPRITE is
+     *  inflated back out to the full frame. */
+    private static final int FIELD_INSET_X = 5;
+    private static final int FIELD_INSET_Y = 4;
     private static final int PAD = 8;
     private static final int LINE_H = 10;
     private static final int PLAN_W = 122;
@@ -212,9 +217,11 @@ public final class AnimusScreen extends Screen {
                 Component.literal("⤬"), b -> loop().requestCompact()));
         compactButton.active = loop().canCompact();
 
-        input = new EditBox(font, inX, inputY, inW, INPUT_H, Component.literal("animus.chat.input"));
+        input = new EditBox(font, inX + FIELD_INSET_X, inputY + FIELD_INSET_Y,
+                inW - FIELD_INSET_X * 2, INPUT_H - FIELD_INSET_Y * 2, Component.literal("animus.chat.input"));
         input.setMaxLength(MAX_PROMPT);
         input.setBordered(false);
+        input.setTextShadow(false);
         input.setTextColor(TXT);
         input.setHint(Component.literal("Talk to " + name + "…"));
         if (!savedInput.isEmpty()) { input.setValue(savedInput); savedInput = ""; }
@@ -270,10 +277,12 @@ public final class AnimusScreen extends Screen {
     }
 
     private EditBox field(int x, int y, int w, int max, String value) {
-        EditBox e = new EditBox(font, x, y, w, 18, Component.literal(""));
+        EditBox e = new EditBox(font, x + FIELD_INSET_X, y + FIELD_INSET_Y,
+                w - FIELD_INSET_X * 2, 18 - FIELD_INSET_Y * 2, Component.literal(""));
         e.setMaxLength(max);
         e.setValue(value == null ? "" : value);
         e.setBordered(false);
+        e.setTextShadow(false);
         e.setTextColor(TXT);
         add(e);
         return e;
@@ -403,9 +412,10 @@ public final class AnimusScreen extends Screen {
         // used to paint over the auto-rendered widgets). Text fields are borderless EditBoxes, so draw
         // a parchment field background + border behind each before it renders its text.
         for (AbstractWidget w : overlay) {
-            if (w instanceof EditBox eb) {                          // parchment field sprite behind the text
+            if (w instanceof EditBox eb) {                          // parchment frame, inflated past the inset text
                 g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
-                        FIELD_SPRITE, eb.getX(), eb.getY(), eb.getWidth(), eb.getHeight());
+                        FIELD_SPRITE, eb.getX() - FIELD_INSET_X, eb.getY() - FIELD_INSET_Y,
+                        eb.getWidth() + FIELD_INSET_X * 2, eb.getHeight() + FIELD_INSET_Y * 2);
             }
         }
         for (AbstractWidget w : overlay) {
