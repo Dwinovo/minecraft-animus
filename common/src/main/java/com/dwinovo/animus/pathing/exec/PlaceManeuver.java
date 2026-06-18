@@ -98,7 +98,9 @@ public final class PlaceManeuver {
             return Status.FAILED;
         }
         if (against == null && !resolveSupport()) {
-            failReason = "nothing adjacent to place against at " + placeAt.toShortString();
+            failReason = "can't place at " + placeAt.toShortString() + " — nothing solid beside or below "
+                    + "it to place against (it's over air or a non-solid block like leaf_litter / grass). "
+                    + "Pick a cell that touches solid ground.";
             return Status.FAILED;
         }
 
@@ -139,7 +141,9 @@ public final class PlaceManeuver {
             }
         }
         if (++ticks > LIMIT_TICKS) {
-            failReason = "couldn't get a line of sight to place at " + placeAt.toShortString();
+            failReason = "couldn't get a clear line to a support face at " + placeAt.toShortString()
+                    + " — the view to it is blocked (a wall between, or the body is boxed in). Try a more "
+                    + "open spot next to solid ground.";
             return Status.FAILED;
         }
         return Status.RUNNING;

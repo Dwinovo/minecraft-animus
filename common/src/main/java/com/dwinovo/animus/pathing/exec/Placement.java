@@ -65,8 +65,15 @@ public final class Placement {
             Vec3 toFace = facePoint.subtract(eye);
             if (toFace.lengthSqr() < 1.0e-6) continue;
             Vec3 end = eye.add(toFace.normalize().scale(reach));
+            // COLLIDER, not OUTLINE: the ray must reach the SOLID support face, passing THROUGH any
+            // non-colliding decoration sitting in the target cell — leaf_litter, grass, a flower, a
+            // carpet. With OUTLINE those tiny shapes intercept the ray (the hit is the litter, not the
+            // support behind it) and placement never resolves — the leaf_litter "no line of sight" bug.
+            // Every valid support (canPlaceAgainst) is a full-collision cube or glass, so COLLIDER still
+            // lands on it; vanilla's useItemOn then replaces the decoration on placement, like a player
+            // right-clicking grassy ground.
             BlockHitResult res = level.clip(new ClipContext(
-                    eye, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
+                    eye, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
             if (res.getType() == HitResult.Type.BLOCK
                     && res.getBlockPos().equals(against)
                     && against.relative(res.getDirection()).equals(placeAt)) {
