@@ -1,6 +1,6 @@
 package com.dwinovo.tulpa.client;
 
-import com.dwinovo.tulpa.client.screen.RosterScreen;
+import com.dwinovo.tulpa.client.screen.TulpaScreen;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -26,7 +26,7 @@ public final class TulpaKeys {
         while (OPEN_ROSTER.consumeClick()) {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null && mc.screen == null) {
-                RosterScreen.openHotkey();
+                TulpaScreen.openWorkspace();
             }
         }
     }

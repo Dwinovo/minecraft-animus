@@ -101,5 +101,11 @@ public final class TulpaNetwork {
                 com.dwinovo.tulpa.network.payload.TulpaInventoryPayload.TYPE,
                 com.dwinovo.tulpa.network.payload.TulpaInventoryPayload.STREAM_CODEC,
                 com.dwinovo.tulpa.network.payload.TulpaInventoryPayload::handle);
+
+        // C→S: the panel's "+" button asks to summon a companion by name.
+        Services.NETWORK.registerClientToServer(
+                com.dwinovo.tulpa.network.payload.SummonRequestPayload.TYPE,
+                com.dwinovo.tulpa.network.payload.SummonRequestPayload.STREAM_CODEC,
+                com.dwinovo.tulpa.network.payload.SummonRequestPayload::handle);
     }
 }

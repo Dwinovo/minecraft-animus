@@ -7,6 +7,7 @@ import com.dwinovo.tulpa.agent.provider.LlmToolCall;
 import com.dwinovo.tulpa.client.agent.AgentLoopRegistry;
 import com.dwinovo.tulpa.client.agent.ClientTulpaLookup;
 import com.dwinovo.tulpa.client.agent.EntityAgentLoop;
+import com.dwinovo.tulpa.client.agent.TulpaRoster;
 import com.dwinovo.tulpa.client.data.ClientTulpaInventory;
 import com.dwinovo.tulpa.network.payload.RequestInventoryPayload;
 import com.dwinovo.tulpa.platform.Services;
@@ -22,7 +23,10 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.client.resources.DefaultPlayerSkin;
+import net.minecraft.world.entity.player.PlayerSkin;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -52,6 +56,11 @@ public final class TulpaScreen extends Screen {
     // ---- layout ----
     private static final int PANEL_W = 380;
     private static final int PANEL_H = 232;
+    // Left companion rail (folded-in roster): one avatar per Tulpa, click to switch, + to summon.
+    private static final int RAIL_W = 46;
+    private static final int RAIL_GAP = 6;       // rail → panel
+    private static final int RAIL_AV = 26;       // avatar tile size
+    private static final int RAIL_SLOT = 32;     // vertical pitch per avatar
     private static final int HEADER_H = 22;
     private static final int INPUT_H = 18;
     /** Text fields are inset inside their parchment frame: the EditBox is shrunk by this much
@@ -86,14 +95,16 @@ public final class TulpaScreen extends Screen {
      *  loaded into the GUI sprite atlas at resource-load), drawn with blitSprite like vanilla widgets. */
     private static final net.minecraft.resources.Identifier PANEL_SPRITE =
             net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.tulpa.Constants.MOD_ID, "panel");
+    private static final net.minecraft.resources.Identifier RAIL_SPRITE =
+            net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.tulpa.Constants.MOD_ID, "bubble");
 
     private static final String[] SPIN = {"|", "/", "-", "\\"};
     /** Armor column on the Items tab (top → bottom); offhand is drawn separately below it. */
     private static final EquipmentSlot[] ARMOR = {
             EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
 
-    private final UUID uuid;
-    private final String name;
+    private UUID uuid;       // active companion (mutable — the rail switches it in place)
+    private String name;
     private Tab tab = Tab.CHAT;
 
     private EditBox input;
@@ -101,6 +112,10 @@ public final class TulpaScreen extends Screen {
     private SimpleButton stopButton;
     private SimpleButton compactButton;
     private String savedInput = "";
+
+    // "+" summon flow: a transient name field shown over the panel
+    private boolean summoning;
+    private EditBox summonInput;
 
     // settings tab widgets
     private ProviderDropdown providerDropdown;
@@ -117,7 +132,7 @@ public final class TulpaScreen extends Screen {
     private boolean showKey;
 
     // geometry resolved in init()
-    private int left, top;
+    private int left, top, railX;
     private final int[] tabX = new int[3];   // left x of each tab label, for click hit-testing
     private final int[] tabW = new int[3];
 
@@ -133,13 +148,32 @@ public final class TulpaScreen extends Screen {
     private int tickCounter;
 
     private TulpaScreen(UUID uuid, String name) {
-        super(Component.literal("Tulpa - " + name));
+        super(Component.literal(name == null ? "Tulpa" : "Tulpa - " + name));
         this.uuid = uuid;
         this.name = name;
     }
 
+    /** Open the panel focused on a specific companion. */
     public static void open(UUID uuid, String name) {
         Minecraft.getInstance().setScreen(new TulpaScreen(uuid, name));
+    }
+
+    /** Hotkey entry: open the workspace on the first companion (or an empty panel to summon from). */
+    public static void openWorkspace() {
+        var entries = TulpaRoster.instance().entries();
+        if (entries.isEmpty()) { Minecraft.getInstance().setScreen(new TulpaScreen(null, null)); return; }
+        TulpaRoster.Entry first = entries.get(0);
+        Minecraft.getInstance().setScreen(new TulpaScreen(first.uuid(), first.name()));
+    }
+
+    /** Switch the panel to another companion in place (left-rail click) — no reopen. */
+    private void switchTo(UUID u, String n) {
+        if (java.util.Objects.equals(u, uuid)) return;
+        input = null; savedInput = "";          // don't carry typed text across companions
+        uuid = u; name = n;
+        scroll = 0; pinBottom = true; expandedGroups.clear();
+        rebuild();
+        if (tab == Tab.ITEMS && u != null) requestInventory();
     }
 
     private EntityAgentLoop loop() {
@@ -148,7 +182,9 @@ public final class TulpaScreen extends Screen {
 
     @Override
     protected void init() {
-        this.left = (this.width - PANEL_W) / 2;
+        int composite = RAIL_W + RAIL_GAP + PANEL_W;
+        this.railX = (this.width - composite) / 2;
+        this.left = railX + RAIL_W + RAIL_GAP;
         this.top = (this.height - PANEL_H) / 2;
         layoutTabs();
         rebuild();
@@ -174,11 +210,26 @@ public final class TulpaScreen extends Screen {
         input = null;
         sendButton = stopButton = compactButton = null;
         apiKeyInput = modelInput = baseUrlInput = null;
+        summonInput = null;
+        if (summoning) { buildSummonField(); return; }
         switch (tab) {
-            case CHAT -> buildChatWidgets();
+            case CHAT -> { if (uuid != null) buildChatWidgets(); }
             case SETTINGS -> buildSettingsWidgets();
             case ITEMS -> { /* no widgets */ }
         }
+    }
+
+    private void buildSummonField() {
+        int y = top + HEADER_H + 24;
+        summonInput = new EditBox(font, left + PAD + FIELD_INSET_X, y + FIELD_INSET_Y,
+                PANEL_W - PAD * 2 - FIELD_INSET_X * 2, 18 - FIELD_INSET_Y * 2, Component.literal(""));
+        summonInput.setMaxLength(com.dwinovo.tulpa.network.payload.SummonRequestPayload.MAX_NAME);
+        summonInput.setBordered(false);
+        summonInput.setTextShadow(false);
+        summonInput.setTextColor(TXT);
+        summonInput.setHint(Component.literal("New companion name…"));
+        add(summonInput);
+        setInitialFocus(summonInput);
     }
 
     /** Register a widget for EVENTS only; it's rendered manually (on top of the panel) in {@link
@@ -352,6 +403,11 @@ public final class TulpaScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         int k = event.key();
+        if (summoning) {
+            if (k == 257 || k == 335) { doSummon(); return true; }    // Enter
+            if (k == 256) { summoning = false; rebuild(); return true; } // Esc cancels (doesn't close panel)
+            return super.keyPressed(event);
+        }
         if ((k == 257 || k == 335) && input != null && input.isFocused()) {
             onSend();
             return true;
@@ -359,9 +415,34 @@ public final class TulpaScreen extends Screen {
         return super.keyPressed(event);
     }
 
+    private void doSummon() {
+        String n = summonInput == null ? "" : summonInput.getValue().trim();
+        if (n.isEmpty()) return;
+        Services.NETWORK.sendToServer(new com.dwinovo.tulpa.network.payload.SummonRequestPayload(n));
+        summoning = false;
+        rebuild();   // the new companion arrives via CompanionListPayload — click its avatar to open
+    }
+
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean dbl) {
         if (event.button() == 0) {
+            if (railPlusAt((int) event.x(), (int) event.y())) {   // + → start the summon name prompt
+                summoning = !summoning;
+                rebuild();
+                return true;
+            }
+            int rail = railIndexAt((int) event.x(), (int) event.y());
+            if (rail >= 0) {
+                List<TulpaRoster.Entry> entries = TulpaRoster.instance().entries();
+                if (rail < entries.size()) {
+                    boolean wasSummoning = summoning;
+                    summoning = false;
+                    TulpaRoster.Entry e = entries.get(rail);
+                    if (e.uuid().equals(uuid)) { if (wasSummoning) rebuild(); }   // already active — just exit summon
+                    else switchTo(e.uuid(), e.name());
+                }
+                return true;
+            }
             if (tab == Tab.SETTINGS && providerDropdown != null
                     && providerDropdown.mouseClicked(event.x(), event.y())) {
                 return true;
@@ -412,21 +493,30 @@ public final class TulpaScreen extends Screen {
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
         super.extractRenderState(g, mouseX, mouseY, partial);
 
+        renderRail(g, mouseX, mouseY);   // left companion rail (folded-in roster)
+
         // Cottage panel — 100% the GUI sprite (warm tan ground + dot-grid + sage band + warm-brown
         // border), drawn the vanilla way. No procedural draw.
         g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
                 PANEL_SPRITE, left, top, PANEL_W, PANEL_H);
 
-        txt(g, Component.literal(name), left + PAD, top + 7, ON_BAND);   // name on the sage band
+        txt(g, Component.literal(name == null ? "Tulpa" : name), left + PAD, top + 7, ON_BAND);
         renderTabs(g, mouseX, mouseY);
 
-        if (compactButton != null) compactButton.active = loop().canCompact();
-        if (stopButton != null) stopButton.active = loop().canInterrupt();
-
-        switch (tab) {
-            case CHAT -> renderChat(g);
-            case ITEMS -> renderItems(g, mouseX, mouseY);
-            case SETTINGS -> renderSettings(g, mouseX, mouseY);
+        if (summoning) {
+            txt(g, Component.literal("Summon a companion"), left + PAD, top + HEADER_H + 8, TXT);
+            txt(g, Component.literal("type a name · Enter to confirm · Esc to cancel"),
+                    left + PAD, top + HEADER_H + 48, TXT_FAINT);
+        } else {
+            if (uuid != null) {
+                if (compactButton != null) compactButton.active = loop().canCompact();
+                if (stopButton != null) stopButton.active = loop().canInterrupt();
+            }
+            switch (tab) {
+                case SETTINGS -> renderSettings(g, mouseX, mouseY);   // global — works with no companion
+                case CHAT -> { if (uuid != null) renderChat(g); else emptyHint(g); }
+                case ITEMS -> { if (uuid != null) renderItems(g, mouseX, mouseY); else emptyHint(g); }
+            }
         }
 
         // Widgets render LAST, on top of the panel background (fixes the "dim fields" — the panel fill
@@ -446,6 +536,74 @@ public final class TulpaScreen extends Screen {
         if (tab == Tab.SETTINGS && providerDropdown != null) {
             providerDropdown.render(g, font, mouseX, mouseY);
         }
+    }
+
+    // ---- left companion rail ----
+
+    /** The folded-in roster: one avatar head per companion, active one framed gold, a status dot each. */
+    private void renderRail(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        var pipe = net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED;
+        g.blitSprite(pipe, RAIL_SPRITE, railX, top, RAIL_W, PANEL_H);
+        List<TulpaRoster.Entry> entries = TulpaRoster.instance().entries();
+        int ax = railX + (RAIL_W - RAIL_AV) / 2;
+        for (int i = 0; i < entries.size(); i++) {
+            int ay = top + PAD + i * RAIL_SLOT;
+            if (ay + RAIL_AV > top + PANEL_H - PAD - RAIL_SLOT) break;   // reserve the bottom + slot
+            TulpaRoster.Entry e = entries.get(i);
+            boolean active = e.uuid().equals(uuid);
+            boolean hover = mouseX >= ax && mouseX < ax + RAIL_AV && mouseY >= ay && mouseY < ay + RAIL_AV;
+            PlayerFaceExtractor.extractRenderState(g, skinFor(e.uuid()), ax, ay, RAIL_AV);
+            int d = ax + RAIL_AV - 6, e2 = ay + RAIL_AV - 6;          // status dot, bottom-right
+            g.fill(d, e2, d + 5, e2 + 5, statusColor(e.uuid()));
+            Nb.border(g, d, e2, 5, 5, 1, BORDER);
+            Nb.border(g, ax - 1, ay - 1, RAIL_AV + 2, RAIL_AV + 2,
+                    active ? 2 : 1, active ? CTA : (hover ? ON_BAND : BORDER));
+        }
+        // "+" summon tile, pinned to the rail bottom
+        int py = top + PANEL_H - PAD - RAIL_AV;
+        boolean ph = mouseX >= ax && mouseX < ax + RAIL_AV && mouseY >= py && mouseY < py + RAIL_AV;
+        g.fill(ax, py, ax + RAIL_AV, py + RAIL_AV, FIELD);
+        Nb.border(g, ax, py, RAIL_AV, RAIL_AV, 2, summoning ? CTA : (ph ? ON_BAND : BORDER));
+        txt(g, Component.literal("+"), ax + (RAIL_AV - font.width("+")) / 2, py + (RAIL_AV - 8) / 2,
+                summoning ? CTA : TXT);
+    }
+
+    private boolean railPlusAt(int mx, int my) {
+        int ax = railX + (RAIL_W - RAIL_AV) / 2;
+        int py = top + PANEL_H - PAD - RAIL_AV;
+        return mx >= ax && mx < ax + RAIL_AV && my >= py && my < py + RAIL_AV;
+    }
+
+    /** idle = green, working/compacting = amber, queued = gold; faint if no loop yet. */
+    private int statusColor(UUID u) {
+        return AgentLoopRegistry.get(u).map(loop -> {
+            if (loop.isCompacting() || loop.isBusy()) return RUN;
+            if (loop.hasQueuedPrompts()) return CTA;
+            return OK;
+        }).orElse(TXT_FAINT);
+    }
+
+    private static PlayerSkin skinFor(UUID u) {
+        AbstractClientPlayer e = ClientTulpaLookup.resolve(u);
+        return e != null ? e.getSkin() : DefaultPlayerSkin.get(u);
+    }
+
+    /** Roster index of the avatar under (mx,my), or -1. */
+    private int railIndexAt(int mx, int my) {
+        int ax = railX + (RAIL_W - RAIL_AV) / 2;
+        if (mx < ax || mx >= ax + RAIL_AV) return -1;
+        List<TulpaRoster.Entry> entries = TulpaRoster.instance().entries();
+        for (int i = 0; i < entries.size(); i++) {
+            int ay = top + PAD + i * RAIL_SLOT;
+            if (ay + RAIL_AV > top + PANEL_H - PAD) break;
+            if (my >= ay && my < ay + RAIL_AV) return i;
+        }
+        return -1;
+    }
+
+    private void emptyHint(GuiGraphicsExtractor g) {
+        txt(g, Component.literal("No companions. Click + to summon one."),
+                left + PAD, top + HEADER_H + 10, TXT_FAINT);
     }
 
     private void renderTabs(GuiGraphicsExtractor g, int mouseX, int mouseY) {
