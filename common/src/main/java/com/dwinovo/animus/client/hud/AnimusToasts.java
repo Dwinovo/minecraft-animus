@@ -26,80 +26,96 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Left-edge activity HUD. Every roster companion shows a small persistent avatar head stacked around the
- * screen's vertical middle (when not watching a panel). When a companion SPEAKS, a toast bubble pops out
- * to the right of its avatar — wrapped, vertically-centred reply text — and fades line-by-line. Tool-only
- * turns are ignored. The avatar stays even when idle.
+ * Left-edge activity HUD with a three-stage lifecycle per companion:
+ * <ol>
+ *   <li><b>Idle</b> (no recent activity) — the avatar is retracted off-screen, leaving only a thin gold
+ *       sliver at the very edge as a "still here" hint.</li>
+ *   <li><b>Recently active, toast expired</b> — the avatar lingers, fully out, but no bubble.</li>
+ *   <li><b>Active</b> (just spoke) — the avatar AND a toast bubble slide out together.</li>
+ * </ol>
+ * "Active" = any new assistant turn or the loop being busy; the avatar's lifetime ({@link #AVATAR_LIFE_MS})
+ * is longer than a toast line's ({@link #LINE_LIFE_MS}), so stage 2 exists. A fresh message after a long
+ * idle pulls the avatar and the bubble out together. Tool-only turns refresh activity but raise no bubble.
  */
 public final class AnimusToasts {
 
     private static final int W = 172;            // bubble width
     private static final int AVATAR = 24;        // avatar head size
-    private static final int MARGIN = 6;         // screen-edge inset
-    private static final int STACK_GAP = 8;      // between stacked avatars
-    private static final int BUBBLE_GAP = 5;     // avatar → bubble
+    private static final int MARGIN = 6;
+    private static final int STACK_GAP = 8;
+    private static final int BUBBLE_GAP = 5;
+    private static final int TIP_W = 6, TIP_H = 11;
+    private static final int SLIVER_W = 3;       // collapsed gold edge
     private static final int LINE_H = 11;
-    private static final int PADV = 5;           // bubble top/bottom padding (vertical centring)
-    private static final int INNER_W = W - 14;   // text column (7px each side)
+    private static final int PADV = 5;
+    private static final int INNER_W = W - 14;
     private static final int MAX_LINES = 4;
     private static final int MAX_REPLY_LINES = 3;
-    private static final long LINE_LIFE_MS = 5000;
+    private static final long LINE_LIFE_MS = 5000;     // toast line lifetime
+    private static final long AVATAR_LIFE_MS = 30000;  // avatar lingers this long after activity (> toast)
     private static final long SLIDE_MS = 220;
 
-    private static final net.minecraft.resources.Identifier BUBBLE_SPRITE =
-            net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, "bubble");
-    private static final net.minecraft.resources.Identifier TIP_SPRITE =
-            net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, "bubble_tip");
-    private static final int TIP_W = 6, TIP_H = 11;
+    private static net.minecraft.resources.Identifier spr(String n) {
+        return net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, n);
+    }
+    private static final net.minecraft.resources.Identifier BUBBLE_SPRITE = spr("bubble");
+    private static final net.minecraft.resources.Identifier TIP_SPRITE = spr("bubble_tip");
 
     private static final Map<UUID, Integer> SEEN = new HashMap<>();
-    private static final Map<UUID, Card> CARDS = new HashMap<>();
+    private static final Map<UUID, Status> STATUS = new HashMap<>();
 
     private AnimusToasts() {}
 
     private record Line(String text, int color, long bornMs) {}
 
-    private static final class Card {
-        long bornMs;                                     // when the bubble (re)appeared — drives the slide
-        final Deque<Line> lines = new ArrayDeque<>();    // oldest first
+    private static final class Status {
+        long lastActivityMs;      // any assistant turn / busy tick — drives the avatar lifetime
+        long activatedMs;         // last idle→active transition — drives the avatar slide-out
+        long bubbleBornMs;        // last time a bubble (re)appeared — drives the bubble slide-out
+        final Deque<Line> lines = new ArrayDeque<>();
     }
 
-    /** Drop expired lines / empty cards, then poll loops for new assistant turns. */
+    /** Expire toast lines, then poll loops for new assistant turns / busy state. */
     public static void tick() {
         long now = System.currentTimeMillis();
-        CARDS.values().forEach(c -> c.lines.removeIf(l -> now - l.bornMs() > LINE_LIFE_MS));
-        CARDS.values().removeIf(c -> c.lines.isEmpty());
+        STATUS.values().forEach(s -> s.lines.removeIf(l -> now - l.bornMs() > LINE_LIFE_MS));
 
         for (AnimusRoster.Entry entry : AnimusRoster.instance().entries()) {
             UUID uuid = entry.uuid();
             AgentLoopRegistry.get(uuid).ifPresent(loop -> {
                 List<ConvoState.Msg> snap = loop.convo().snapshot();
                 int prev = SEEN.getOrDefault(uuid, -1);
-                if (prev < 0) { SEEN.put(uuid, snap.size()); return; }   // skip backlog on first sight
-                for (int i = prev; i < snap.size(); i++) {
-                    if (snap.get(i) instanceof ConvoState.Msg.Assistant a) {
-                        addLine(uuid, a.turn(), now);
+                if (prev >= 0) {
+                    for (int i = prev; i < snap.size(); i++) {
+                        if (snap.get(i) instanceof ConvoState.Msg.Assistant a) {
+                            markActivity(uuid, now);
+                            if (a.turn().content() != null && !a.turn().content().isBlank()) {
+                                addToastLines(uuid, a.turn(), now);
+                            }
+                        }
                     }
                 }
                 SEEN.put(uuid, snap.size());
+                if (loop.isBusy()) markActivity(uuid, now);   // keep the avatar out during long task runs
             });
         }
     }
 
-    /** Append a spoken reply (wrapped to the bubble width, sharing one lifetime); tool-only turns ignored. */
-    private static void addLine(UUID uuid, AssistantTurn turn, long now) {
-        if (turn.content() == null || turn.content().isBlank()) return;   // text-only toasts
+    private static void markActivity(UUID uuid, long now) {
+        Status s = STATUS.computeIfAbsent(uuid, k -> new Status());
+        if (now - s.lastActivityMs >= AVATAR_LIFE_MS) s.activatedMs = now;   // was collapsed → start slide-out
+        s.lastActivityMs = now;
+    }
+
+    private static void addToastLines(UUID uuid, AssistantTurn turn, long now) {
         UiTheme th = UiTheme.current();
-        Card card = CARDS.get(uuid);
-        if (card == null || card.lines.isEmpty()) {        // a fresh bubble — (re)start the slide
-            card = new Card();
-            card.bornMs = now;
-            CARDS.put(uuid, card);
-        }
+        Status s = STATUS.computeIfAbsent(uuid, k -> new Status());
+        boolean wasEmpty = s.lines.isEmpty();
         for (String wrapped : wrapToWidth(turn.content(), INNER_W, MAX_REPLY_LINES)) {
-            card.lines.addLast(new Line(wrapped, th.reply(), now));
+            s.lines.addLast(new Line(wrapped, th.reply(), now));
         }
-        while (card.lines.size() > MAX_LINES) card.lines.removeFirst();
+        while (s.lines.size() > MAX_LINES) s.lines.removeFirst();
+        if (wasEmpty) s.bubbleBornMs = now;                 // fresh bubble → restart the slide
     }
 
     public static void render(GuiGraphicsExtractor g) {
@@ -112,34 +128,47 @@ public final class AnimusToasts {
         UiTheme th = UiTheme.current();
         long now = System.currentTimeMillis();
         int n = entries.size();
-        int totalH = n * AVATAR + (n - 1) * STACK_GAP;
-        int startY = (g.guiHeight() - totalH) / 2;
+        int startY = (g.guiHeight() - (n * AVATAR + (n - 1) * STACK_GAP)) / 2;
 
         for (int i = 0; i < n; i++) {
             UUID uuid = entries.get(i).uuid();
             int ay = startY + i * (AVATAR + STACK_GAP);
+            Status s = STATUS.get(uuid);
+            long sinceActive = s == null ? Long.MAX_VALUE : now - s.lastActivityMs;
 
-            // bubble FIRST (so it emerges from BEHIND the avatar), only while it has live lines
-            Card card = CARDS.get(uuid);
-            if (card != null && !card.lines.isEmpty()) {
-                int h = card.lines.size() * LINE_H + PADV * 2;
-                int targetX = MARGIN + AVATAR + BUBBLE_GAP;
-                int bx = targetX - slideOut(now - card.bornMs, AVATAR + BUBBLE_GAP);   // slide out from avatar
-                int by = ay + AVATAR / 2 - h / 2;                                       // centred on the avatar
-                var pipe = net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED;
-                g.blitSprite(pipe, TIP_SPRITE, bx - TIP_W + 1, ay + AVATAR / 2 - TIP_H / 2, TIP_W, TIP_H);   // points at avatar
-                g.blitSprite(pipe, BUBBLE_SPRITE, bx, by, W, h);
-                int ly = by + PADV;
-                for (Line line : card.lines) {
-                    Nb.text(g, font, line.text(), bx + 7, ly, line.color());
-                    ly += LINE_H;
+            if (s != null && sinceActive < AVATAR_LIFE_MS) {                 // stage 2/3 — avatar out
+                int ax = MARGIN - slideOut(now - s.activatedMs, MARGIN + AVATAR);
+                if (!s.lines.isEmpty()) drawBubble(g, font, ax, ay, s, now); // stage 3 — bubble too
+                drawAvatar(g, uuid, ax, ay, th);
+            } else {
+                long collapseAge = s == null ? Long.MAX_VALUE : sinceActive - AVATAR_LIFE_MS;
+                if (collapseAge < SLIDE_MS) {                                // retracting off-screen
+                    int ax = MARGIN - ((MARGIN + AVATAR) - slideOut(collapseAge, MARGIN + AVATAR));
+                    drawAvatar(g, uuid, ax, ay, th);
+                } else {                                                     // stage 1 — gold sliver only
+                    g.fill(0, ay + 2, SLIVER_W, ay + AVATAR - 2, th.cta());
                 }
             }
+        }
+    }
 
-            // avatar ON TOP — companion head, framed
-            PlayerSkin skin = skinFor(uuid);
-            PlayerFaceExtractor.extractRenderState(g, skin, MARGIN, ay, AVATAR);
-            Nb.border(g, MARGIN, ay, AVATAR, AVATAR, 2, th.border());
+    private static void drawAvatar(GuiGraphicsExtractor g, UUID uuid, int x, int y, UiTheme th) {
+        PlayerFaceExtractor.extractRenderState(g, skinFor(uuid), x, y, AVATAR);
+        Nb.border(g, x, y, AVATAR, AVATAR, 2, th.border());
+    }
+
+    private static void drawBubble(GuiGraphicsExtractor g, Font font, int ax, int ay, Status s, long now) {
+        int h = s.lines.size() * LINE_H + PADV * 2;
+        int targetX = ax + AVATAR + BUBBLE_GAP;
+        int bx = targetX - slideOut(now - s.bubbleBornMs, AVATAR + BUBBLE_GAP);
+        int by = ay + AVATAR / 2 - h / 2;
+        var pipe = net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED;
+        g.blitSprite(pipe, TIP_SPRITE, bx - TIP_W + 1, ay + AVATAR / 2 - TIP_H / 2, TIP_W, TIP_H);
+        g.blitSprite(pipe, BUBBLE_SPRITE, bx, by, W, h);
+        int ly = by + PADV;
+        for (Line line : s.lines) {
+            Nb.text(g, font, line.text(), bx + 7, ly, line.color());
+            ly += LINE_H;
         }
     }
 
@@ -148,26 +177,25 @@ public final class AnimusToasts {
         return e != null ? e.getSkin() : DefaultPlayerSkin.get(uuid);
     }
 
-    /** Eased horizontal slide-out: {@code dist} px → 0 over {@link #SLIDE_MS}. */
+    /** Eased slide: {@code dist} px → 0 over {@link #SLIDE_MS}. */
     private static int slideOut(long age, int dist) {
         if (age >= SLIDE_MS) return 0;
-        float p = 1f - (float) age / SLIDE_MS;             // 1 → 0
+        float p = 1f - (float) age / SLIDE_MS;
         return (int) (dist * p * p);
     }
 
-    /** Greedily wrap to a pixel width (handles CJK / wide glyphs), capped at {@code maxLines}; the last
-     *  line gets an ellipsis if the text was truncated. */
+    /** Greedily wrap to a pixel width (CJK-aware), capped at {@code maxLines}; ellipsis if truncated. */
     private static List<String> wrapToWidth(String text, int maxW, int maxLines) {
         Font font = Minecraft.getInstance().font;
         String s = text.replaceAll("\\s+", " ").trim();
         List<String> out = new ArrayList<>();
         while (!s.isEmpty() && out.size() < maxLines) {
             String head = font.plainSubstrByWidth(s, maxW);
-            if (head.isEmpty()) head = s.substring(0, 1);   // never stall
+            if (head.isEmpty()) head = s.substring(0, 1);
             out.add(head.trim());
             s = s.substring(head.length());
         }
-        if (!s.isEmpty() && !out.isEmpty()) {               // truncated — ellipsise the last line
+        if (!s.isEmpty() && !out.isEmpty()) {
             String last = out.get(out.size() - 1);
             while (!last.isEmpty() && font.width(last + "…") > maxW) last = last.substring(0, last.length() - 1);
             out.set(out.size() - 1, last + "…");
@@ -177,6 +205,6 @@ public final class AnimusToasts {
 
     public static void clear() {
         SEEN.clear();
-        CARDS.clear();
+        STATUS.clear();
     }
 }
