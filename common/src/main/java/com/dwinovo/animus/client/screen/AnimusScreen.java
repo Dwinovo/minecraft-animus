@@ -61,18 +61,26 @@ public final class AnimusScreen extends Screen {
     private static final int MAX_PROMPT = 1024;
     private static final int TOOL_ARG_CHARS = 44;
 
-    // ---- palette (clean dark, JEI/REI-ish) ----
-    private static final int BG = 0xF00E1116;
-    private static final int BORDER = 0xFF2B313B;
-    private static final int ACCENT = 0xFF4F8CC9;
-    private static final int TXT = 0xFFE6E8EB;
-    private static final int TXT_MUTED = 0xFF8A929C;
-    private static final int TXT_FAINT = 0xFF5C636D;
-    private static final int YOU = 0xFF6FC3FF;
-    private static final int TOOL = 0xFF7FD4C8;
-    private static final int OK = 0xFF74D17A;
-    private static final int RUN = 0xFFE3C25E;
-    private static final int FAIL = 0xFFE57373;
+    // ---- palette (BlockFrame "Cottage" theme — single theme for now, see UiTheme) ----
+    private static final UiTheme TH = UiTheme.WARM;
+    private static final int BORDER = TH.border();
+    private static final int ACCENT = TH.cta();
+    private static final int TXT = TH.text();
+    private static final int TXT_MUTED = TH.textDim();
+    private static final int TXT_FAINT = 0xFF8C7C62;
+    private static final int ON_BAND = TH.onBand();
+    private static final int CTA = TH.cta();
+    private static final int ON_CTA = TH.onCta();
+    private static final int FIELD = TH.field();
+    private static final int YOU = TH.reply();
+    private static final int TOOL = TH.text();
+    private static final int OK = TH.ok();
+    private static final int RUN = TH.run();
+    private static final int FAIL = TH.fail();
+    /** Baked panel chrome (warm tan ground + dot-grid + sage header band + warm-brown border). */
+    private static final net.minecraft.resources.Identifier PANEL_TEX =
+            net.minecraft.resources.Identifier.fromNamespaceAndPath(
+                    com.dwinovo.animus.Constants.MOD_ID, "textures/gui/panel.png");
 
     private static final String[] SPIN = {"|", "/", "-", "\\"};
     private static final EquipmentSlot[] EQUIP = {
@@ -353,11 +361,13 @@ public final class AnimusScreen extends Screen {
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
         super.extractRenderState(g, mouseX, mouseY, partial);
 
-        g.fill(left, top, left + PANEL_W, top + PANEL_H, BG);
-        g.outline(left, top, PANEL_W, PANEL_H, BORDER);
-        g.fill(left, top + HEADER_H - 1, left + PANEL_W, top + HEADER_H, BORDER);   // header divider
+        // BlockFrame panel: hard offset shadow + the baked Cottage chrome texture (ground + dot-grid
+        // + sage header band + warm-brown border). Content is drawn procedurally on top.
+        int s = 4;
+        g.fill(left + s, top + s, left + PANEL_W + s, top + PANEL_H + s, BORDER);
+        g.blit(PANEL_TEX, left, top, PANEL_W, PANEL_H, 0f, 0f, 1f, 1f);
 
-        g.text(font, Component.literal(name), left + PAD, top + 7, TXT);
+        g.text(font, Component.literal(name), left + PAD, top + 7, ON_BAND);   // name on the sage band
         renderTabs(g, mouseX, mouseY);
 
         if (compactButton != null) compactButton.active = loop().canCompact();
@@ -386,10 +396,10 @@ public final class AnimusScreen extends Screen {
             boolean active = tab == Tab.values()[i];
             boolean hover = mouseX >= tabX[i] && mouseX < tabX[i] + tabW[i]
                     && mouseY >= top && mouseY < top + HEADER_H;
-            int color = active ? TXT : (hover ? TXT : TXT_MUTED);
+            int color = (active || hover) ? ON_BAND : (0x00FFFFFF & ON_BAND) | 0xA0000000;   // dim on band
             g.text(font, Component.literal(labels[i]), tabX[i] + 5, top + 7, color);
-            if (active) {
-                g.fill(tabX[i] + 3, top + HEADER_H - 2, tabX[i] + tabW[i] - 3, top + HEADER_H, ACCENT);
+            if (active) {                                                                     // gold CTA underline
+                g.fill(tabX[i] + 3, top + HEADER_H - 4, tabX[i] + tabW[i] - 3, top + HEADER_H - 1, ACCENT);
             }
         }
     }

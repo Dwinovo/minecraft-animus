@@ -5,87 +5,29 @@
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 768px; height: 486px; overflow: hidden; background: #14161A;
-        font-family: "Segoe UI", Inter, system-ui, sans-serif; }
-      .screen { position: absolute; inset: 14px; border: 6px solid var(--bd);
-        box-shadow: 9px 9px 0 var(--bd); background-color: var(--ground);
-        background-image: radial-gradient(rgba(0,0,0,0.08) 2px, transparent 2px);
-        background-size: 34px 34px; color: var(--txt); display: flex; flex-direction: column; }
-      /* header band */
-      .hdr { height: 40px; flex: none; background: var(--band); border-bottom: 6px solid var(--bd);
-        display: flex; align-items: center; padding: 0 12px; color: var(--bandtxt); }
-      .name { font-weight: 800; font-size: 17px; letter-spacing: .02em; }
-      .tabs { margin-left: auto; display: flex; gap: 14px; font-weight: 700; font-size: 13px; }
-      .tabs .t { color: var(--bandtxt); opacity: .65; }
-      .tabs .active { opacity: 1; border-bottom: 4px solid var(--cta); padding-bottom: 2px; }
-      /* hp */
-      .hp { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px 4px; font-weight: 800; font-size: 12px; }
-      .bar { width: 150px; height: 9px; border: 3px solid var(--bd); background: #3a1414; }
-      .bar > i { display: block; height: 100%; width: 78%; background: #E0473C; }
-      /* body */
-      .body { flex: 1; display: flex; min-height: 0; }
-      .chat { flex: 1; padding: 6px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-      .msg { line-height: 1.25; }
-      .msg b { font-weight: 800; }
-      .pill { display: inline-block; font-weight: 800; font-size: 10px; padding: 1px 6px; border: 3px solid var(--bd); color: var(--chiptxt); margin-right: 5px; vertical-align: 1px; }
-      .pill.you { background: var(--reply); }
-      .tool { display: inline-flex; align-items: center; align-self: flex-start; font-weight: 800; font-size: 11px;
-        padding: 2px 8px; border: 3px solid var(--bd); color: var(--chiptxt); box-shadow: 3px 3px 0 var(--bd); }
-      .tool.done { background: var(--ok); } .tool.run { background: var(--run); } .tool.fail { background: var(--fail); }
-      /* plan */
-      .plan { width: 168px; flex: none; border-left: 6px solid var(--bd); padding: 8px 10px; }
-      .plantitle { font-weight: 800; font-size: 11px; letter-spacing: .12em; opacity: .7; margin-bottom: 8px; }
-      .todo { font-weight: 700; font-size: 12px; margin-bottom: 7px; line-height: 1.2; }
-      .todo.done { color: #1F7A2E; } .todo.prog { color: #9A6A00; } .todo.wait { opacity: .55; }
-      /* input row */
-      .input { flex: none; display: flex; gap: 8px; padding: 8px 12px 12px; align-items: center; }
-      .field { flex: 1; height: 26px; border: 4px solid var(--bd); background: var(--field);
-        display: flex; align-items: center; padding: 0 9px; font-size: 12px; color: #444; }
-      .send { height: 26px; padding: 0 14px; background: var(--cta); border: 4px solid var(--bd); color: #111;
-        font-weight: 800; font-size: 12px; display: flex; align-items: center; box-shadow: 4px 4px 0 var(--bd); }
-      .stop { height: 26px; width: 26px; background: var(--fail); border: 4px solid var(--bd); color: var(--chiptxt);
-        font-weight: 800; display: flex; align-items: center; justify-content: center; }
-      /* themes — default chip text dark + bright MC status (overridden per cozy theme) */
-      .screen { --chiptxt:#111; --reply:#55FFFF; --ok:#55FF55; --run:#FFD24A; --fail:#FF5555; }
-      .theme-a { --ground:#C6C6C6; --band:#565656; --bd:#161616; --bandtxt:#FFFFFF; --txt:#16181B; --cta:#FFAA00; --field:#B3B3B3; }
-      .theme-b { --ground:#AAAAAA; --band:#00AAAA; --bd:#000000; --bandtxt:#06363A; --txt:#121212; --cta:#FFAA00; --field:#9A9A9A; }
-      .theme-c { --ground:#A9B4BC; --band:#2C7E86; --bd:#13171B; --bandtxt:#EAFBFF; --txt:#15191D; --cta:#FFAA00; --field:#97A4AD; }
-      /* Cozy 1 — Oil-6 warm: cream ground, indigo warm-dark borders, dusty mauve band, honey CTA, muted earthy status */
-      .theme-cozy1 { --ground:#EAD3A8; --band:#8B6D9C; --bd:#2C2540; --bandtxt:#FBF5EF; --txt:#2C2540; --cta:#E0A53A; --field:#DFC79A;
-        --chiptxt:#2C2540; --reply:#9DB4D6; --ok:#9CC57E; --run:#E8C06A; --fail:#D08A82; }
-      /* Cozy 2 — Mizuno warm tan + sage, warm-brown outline */
-      .theme-cozy2 { --ground:#CBA87B; --band:#6E8F66; --bd:#352818; --bandtxt:#F6EFD9; --txt:#352818; --cta:#E3A23A; --field:#BE9C70;
-        --chiptxt:#2A2012; --reply:#86A6B0; --ok:#8DB36A; --run:#E3B95E; --fail:#C77A5C; }
+      html, body { width: 760px; height: 464px; overflow: hidden; background: #00000000; }
+      /* Cozy-2 "Cottage" panel chrome ONLY (content drawn procedurally on top in-code).
+         2x scale: 6px border = 3 GUI units, band ends at GUI y22 = HEADER_H. */
+      .panel {
+        position: absolute; inset: 0;
+        background: #CBA87B;                       /* warm tan ground */
+        border: 6px solid #352818;                 /* warm-brown border */
+        background-image: radial-gradient(rgba(53,40,24,0.16) 2px, transparent 2px);
+        background-size: 34px 34px; background-position: 6px 6px;   /* dot grid */
+      }
+      .header {
+        position: absolute; top: 6px; left: 6px; right: 6px; height: 32px;
+        background: #6E8F66;                        /* sage green band */
+        border-bottom: 6px solid #352818;
+      }
     </style>
   </head>
   <body>
     <div id="root" data-composition-id="main" data-start="0" data-duration="1"
-         data-width="768" data-height="486"
-         style="position: relative; width: 768px; height: 486px; overflow: hidden;">
+         data-width="760" data-height="464"
+         style="position: relative; width: 760px; height: 464px; overflow: hidden;">
       <div class="clip" data-start="0" data-duration="1" data-track-index="1" style="position: absolute; inset: 0;">
-        <div class="screen theme-cozy2">
-          <div class="hdr"><span class="name">Spark</span>
-            <span class="tabs"><span class="t active">Chat</span><span class="t">Items</span><span class="t">Settings</span></span></div>
-          <div class="hp">HP 16/20 <span class="bar"><i></i></span></div>
-          <div class="body">
-            <div class="chat">
-              <div class="msg"><span class="pill you">YOU</span>做一套木质装备</div>
-              <div class="msg"><b>Spark</b>：好的，先去砍树。</div>
-              <div class="tool done">✓ auto_mine → 7 logs</div>
-              <div class="tool run">▸ craft 工作台…</div>
-              <div class="msg"><b>Spark</b>：木板木棍够了，开始做工具。</div>
-              <div class="tool done">✓ craft → wooden_pickaxe</div>
-            </div>
-            <div class="plan">
-              <div class="plantitle">PLAN</div>
-              <div class="todo done">☑ 砍 5 原木</div>
-              <div class="todo prog">▸ 合成木板 / 木棍</div>
-              <div class="todo wait">○ 合成工具</div>
-              <div class="todo wait">○ 装备</div>
-            </div>
-          </div>
-          <div class="input"><div class="field">Talk to Spark…</div><div class="send">SEND</div><div class="stop">■</div></div>
-        </div>
+        <div class="panel"><div class="header"></div></div>
       </div>
     </div>
     <script>

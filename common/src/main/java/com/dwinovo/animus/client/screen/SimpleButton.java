@@ -23,14 +23,6 @@ import net.minecraft.network.chat.Component;
  */
 public final class SimpleButton extends Button {
 
-    private static final int BG_IDLE       = 0x8A000000;
-    private static final int BG_HOVERED    = 0xB0202020;
-    private static final int BG_DISABLED   = 0x52000000;
-    private static final int BORDER_IDLE     = 0x77FFFFFF;
-    private static final int BORDER_HOVERED  = 0xFFE8E1D2;
-    private static final int BORDER_DISABLED = 0x33FFFFFF;
-    private static final int HIGHLIGHT     = 0x33FFFFFF;
-
     public SimpleButton(int x, int y, int width, int height, Component message, Button.OnPress onPress) {
         super(x, y, width, height, message, onPress,
                 defaultNarrationSupplier -> defaultNarrationSupplier.get());
@@ -38,21 +30,29 @@ public final class SimpleButton extends Button {
 
     @Override
     protected void extractContents(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-        int x = getX();
-        int y = getY();
-        int width = getWidth();
-        int height = getHeight();
+        // BlockFrame button: warm parchment fill + thick warm-brown border + hard offset shadow
+        // (the filled look marks it CLICKABLE). Disabled / pressed flattens the shadow.
+        UiTheme t = UiTheme.current();
+        int x = getX(), y = getY(), w = getWidth(), h = getHeight();
         boolean hovered = active && isHoveredOrFocused();
+        int border = t.border();
+        int fill = !active ? 0xFFB6A988 : (hovered ? 0xFFF2E4C2 : 0xFFE7D7B2);
 
-        int bg     = active ? (hovered ? BG_HOVERED     : BG_IDLE)     : BG_DISABLED;
-        int border = active ? (hovered ? BORDER_HOVERED : BORDER_IDLE) : BORDER_DISABLED;
+        int sh = active ? (hovered ? 2 : 3) : 0;
+        int oy = active && hovered ? 1 : 0;             // nudge down on hover (button "press")
+        if (sh > 0) graphics.fill(x + sh, y + sh, x + w + sh, y + h + sh, border);
+        graphics.fill(x, y + oy, x + w, y + h + oy, fill);
+        thickBorder(graphics, x, y + oy, w, h, 2, border);
+        net.minecraft.client.gui.Font font = net.minecraft.client.Minecraft.getInstance().font;
+        graphics.centeredText(font, getMessage(), x + w / 2, y + oy + (h - 8) / 2,
+                active ? t.text() : 0xFF6E5E48);
+    }
 
-        graphics.fill(x, y, x + width, y + height, bg);
-        graphics.outline(x, y, width, height, border);
-        if (hovered) {
-            graphics.fill(x + 1, y + 1, x + width - 1, y + 2, HIGHLIGHT);
-        }
-        extractDefaultLabel(graphics.textRendererForWidget(this,
-                GuiGraphicsExtractor.HoveredTextEffects.NONE));
+    /** Square thick border = four filled edge rects (no rounded corners). */
+    static void thickBorder(GuiGraphicsExtractor g, int x, int y, int w, int h, int t, int color) {
+        g.fill(x, y, x + w, y + t, color);
+        g.fill(x, y + h - t, x + w, y + h, color);
+        g.fill(x, y, x + t, y + h, color);
+        g.fill(x + w - t, y, x + w, y + h, color);
     }
 }
