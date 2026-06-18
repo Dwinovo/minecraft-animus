@@ -53,7 +53,6 @@ public final class AnimusScreen extends Screen {
     private static final int PANEL_W = 380;
     private static final int PANEL_H = 232;
     private static final int HEADER_H = 22;
-    private static final int VITALS_H = 22;
     private static final int INPUT_H = 18;
     private static final int PAD = 8;
     private static final int LINE_H = 10;
@@ -395,7 +394,7 @@ public final class AnimusScreen extends Screen {
         if (stopButton != null) stopButton.active = loop().canInterrupt();
 
         switch (tab) {
-            case CHAT -> { renderVitals(g, mouseX, mouseY); renderChat(g); }
+            case CHAT -> renderChat(g);
             case ITEMS -> renderItems(g, mouseX, mouseY);
             case SETTINGS -> renderSettings(g, mouseX, mouseY);
         }
@@ -430,17 +429,6 @@ public final class AnimusScreen extends Screen {
                 g.fill(tabX[i] + 3, top + HEADER_H - 4, tabX[i] + tabW[i] - 3, top + HEADER_H - 1, ACCENT);
             }
         }
-    }
-
-    /** Chat header vitals: just the HP bar (equipment + hunger live on the Items tab now). */
-    private void renderVitals(GuiGraphicsExtractor g, int mouseX, int mouseY) {
-        int y = top + HEADER_H + 4;
-        AbstractClientPlayer e = ClientAnimusLookup.resolve(uuid);
-        if (e == null) {
-            txt(g, Component.literal("(body out of view)"), left + PAD, y + 4, TXT_FAINT);
-            return;
-        }
-        renderHpBar(g, left + PAD, y, e.getHealth(), e.getMaxHealth());
     }
 
     private void renderHpBar(GuiGraphicsExtractor g, int x, int y, float hp, float max) {
@@ -482,7 +470,7 @@ public final class AnimusScreen extends Screen {
     // ---- chat transcript + plan ----
 
     private void renderChat(GuiGraphicsExtractor g) {
-        int bodyY = top + HEADER_H + VITALS_H + 4;
+        int bodyY = top + HEADER_H + 4;
         int bodyBottom = top + PANEL_H - INPUT_H - PAD - 6;
         int transX = left + PAD;
         int transW = PANEL_W - PAD * 2 - PLAN_W - 8;
