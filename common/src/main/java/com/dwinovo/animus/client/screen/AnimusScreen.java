@@ -79,7 +79,11 @@ public final class AnimusScreen extends Screen {
     private static final int FAIL = TH.fail();
     private static final int GROUND = TH.ground();
     private static final int BAND = TH.band();
-    private static final int DOT = TH.dot();
+    /** Baked Cottage panel chrome (warm tan ground + dot-grid + sage band + warm-brown border). Blitted
+     *  over a cheap procedural base so a not-yet-loaded texture never shows broken. */
+    private static final net.minecraft.resources.Identifier PANEL_TEX =
+            net.minecraft.resources.Identifier.fromNamespaceAndPath(
+                    com.dwinovo.animus.Constants.MOD_ID, "textures/gui/panel.png");
 
     private static final String[] SPIN = {"|", "/", "-", "\\"};
     private static final EquipmentSlot[] EQUIP = {
@@ -363,16 +367,16 @@ public final class AnimusScreen extends Screen {
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
         super.extractRenderState(g, mouseX, mouseY, partial);
 
-        // BlockFrame "Cottage" chrome, drawn procedurally (pixel-identical to the sprite, but reliable
-        // + theme-swappable): hard offset shadow, warm tan ground, faint dot-grid, sage header band,
-        // thick warm-brown border.
+        // BlockFrame "Cottage" panel. Cheap procedural base (hard offset shadow + warm tan ground +
+        // sage band + thick warm-brown border) as a fallback, then the baked chrome TEXTURE on top
+        // (adds the dot-grid; a not-yet-loaded texture just no-ops over the matching base).
         int s = 4;
         g.fill(left + s, top + s, left + PANEL_W + s, top + PANEL_H + s, BORDER);   // hard offset shadow
         g.fill(left, top, left + PANEL_W, top + PANEL_H, GROUND);                   // warm tan ground
         g.fill(left + 3, top + 3, left + PANEL_W - 3, top + HEADER_H, BAND);        // sage header band
-        dotGrid(g, left + 5, top + HEADER_H + 3, left + PANEL_W - 4, top + PANEL_H - 4);
         SimpleButton.thickBorder(g, left, top, PANEL_W, PANEL_H, 3, BORDER);        // thick border
         g.fill(left, top + HEADER_H, left + PANEL_W, top + HEADER_H + 3, BORDER);   // header divider
+        g.blit(PANEL_TEX, left, top, PANEL_W, PANEL_H, 0f, 0f, 1f, 1f);             // real sprite on top
 
         g.text(font, Component.literal(name), left + PAD, top + 7, ON_BAND);   // name on the sage band
         renderTabs(g, mouseX, mouseY);
@@ -401,15 +405,6 @@ public final class AnimusScreen extends Screen {
         // The provider dropdown's open list must sit above even the fields.
         if (tab == Tab.SETTINGS && providerDropdown != null) {
             providerDropdown.render(g, font, mouseX, mouseY);
-        }
-    }
-
-    /** Faint BlockFrame dot-grid over the body ground. */
-    private void dotGrid(GuiGraphicsExtractor g, int x0, int y0, int x1, int y1) {
-        for (int y = y0; y < y1; y += 12) {
-            for (int x = x0; x < x1; x += 12) {
-                g.fill(x, y, x + 1, y + 1, DOT);
-            }
         }
     }
 
