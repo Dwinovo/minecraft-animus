@@ -5,37 +5,65 @@
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 760px; height: 464px; overflow: hidden; background: #000; }
-      /* BlockFrame atoms: 8px black border (4px@1x), square corners, candy pastels */
-      .panel {
-        position: absolute; inset: 0;
-        background: #FFFDF5;                       /* offwhite ground */
-        border: 8px solid #000;
-        background-image: radial-gradient(rgba(0,0,0,0.10) 2px, transparent 2px);  /* faint dot grid */
-        background-size: 48px 48px;
-        background-position: 8px 8px;
-      }
-      .header {
-        position: absolute; top: 8px; left: 8px; right: 8px; height: 36px;
-        background: #C0F7FE;                       /* blue chrome band */
-        border-bottom: 8px solid #000;
-      }
-      .badge {                                     /* tilted yellow grid-puncture, bottom-right */
-        position: absolute; right: 18px; bottom: 18px; width: 34px; height: 34px;
-        background: #F7CB46; border: 6px solid #000; transform: rotate(-8deg);
-        box-shadow: 8px 8px 0 #000;
-      }
+      html, body { width: 1180px; height: 470px; overflow: hidden; background: #1B1D22;
+        font-family: "Segoe UI", Inter, system-ui, sans-serif; }
+      .row { position: absolute; inset: 0; display: flex; gap: 26px; padding: 24px 26px; }
+      .col { flex: 1; display: flex; flex-direction: column; }
+      .label { color: #fff; font-weight: 800; font-size: 16px; margin-bottom: 4px; }
+      .src { color: #9aa0a8; font-size: 11px; margin-bottom: 11px; }
+      /* BlockFrame atoms — thick black border, hard offset shadow, square corners, dot-grid ground */
+      .panel { position: relative; flex: 1; border: 7px solid var(--bd);
+        box-shadow: 9px 9px 0 var(--bd); background-color: var(--ground);
+        background-image: radial-gradient(rgba(0,0,0,0.09) 2px, transparent 2px);
+        background-size: 38px 38px; }
+      .hdr { position: absolute; top: 7px; left: 7px; right: 7px; height: 38px;
+        background: var(--band); border-bottom: 7px solid var(--bd);
+        color: var(--bandtxt); font-weight: 800; font-size: 15px;
+        display: flex; align-items: center; padding: 0 11px; letter-spacing: .02em; }
+      /* filled status chips use the BRIGHT §-code colors (pop on grey, black border + black text) */
+      .chips { position: absolute; left: 14px; top: 60px; display: flex; gap: 7px; flex-wrap: wrap; width: 60%; }
+      .chip { height: 21px; padding: 0 9px; border: 3px solid var(--bd); color: #111;
+        font-weight: 800; font-size: 11px; display: flex; align-items: center; }
+      .reply { background: #55FFFF; } .act { background: #55FF55; }
+      .ok { background: #55FF55; } .fail { background: #FF5555; }
+      /* gold CTA badge + a tilted yellow grid-puncture */
+      .cta { position: absolute; left: 14px; bottom: 16px; height: 26px; padding: 0 14px;
+        background: #FFAA00; border: 4px solid var(--bd); color: #111;
+        font-weight: 800; font-size: 12px; display: flex; align-items: center; box-shadow: 5px 5px 0 var(--bd); }
+      .badge { position: absolute; right: 16px; bottom: 16px; width: 38px; height: 38px;
+        background: #FFFF55; border: 5px solid var(--bd); transform: rotate(-8deg); box-shadow: 7px 7px 0 var(--bd); }
+      /* A — Vanilla inventory grey (#C6C6C6 panel, #555 stone band) + gold */
+      .a { --ground:#C6C6C6; --band:#565656; --bd:#161616; --bandtxt:#FFFFFF; }
+      /* B — §-code chat palette: §7 gray ground, §3 dark_aqua band */
+      .b { --ground:#AAAAAA; --band:#00AAAA; --bd:#000000; --bandtxt:#06363A; }
+      /* C — Diamond / deepslate: slate ground, diamond-teal band, aqua */
+      .c { --ground:#A9B4BC; --band:#2C7E86; --bd:#13171B; --bandtxt:#EAFBFF; }
     </style>
   </head>
   <body>
     <div id="root" data-composition-id="main" data-start="0" data-duration="1"
-         data-width="760" data-height="464"
-         style="position: relative; width: 760px; height: 464px; overflow: hidden;">
-      <div class="clip" data-start="0" data-duration="1" data-track-index="1"
-           style="position: absolute; inset: 0;">
-        <div class="panel">
-          <div class="header"></div>
-          <div class="badge"></div>
+         data-width="1180" data-height="470"
+         style="position: relative; width: 1180px; height: 470px; overflow: hidden;">
+      <div class="clip" data-start="0" data-duration="1" data-track-index="1" style="position: absolute; inset: 0;">
+        <div class="row">
+          <div class="col">
+            <div class="label">A · Vanilla Inventory</div><div class="src">MC inventory grey #C6C6C6 + stone band + §6 gold</div>
+            <div class="panel a"><div class="hdr">Spark</div>
+              <div class="chips"><div class="chip reply">reply</div><div class="chip act">▸ auto_mine</div><div class="chip fail">✗</div></div>
+              <div class="cta">CRAFT</div><div class="badge"></div></div>
+          </div>
+          <div class="col">
+            <div class="label">B · Format Codes</div><div class="src">§7 gray ground + §3 dark_aqua band + §-code status</div>
+            <div class="panel b"><div class="hdr">Spark</div>
+              <div class="chips"><div class="chip reply">reply</div><div class="chip act">▸ auto_mine</div><div class="chip fail">✗</div></div>
+              <div class="cta">CRAFT</div><div class="badge"></div></div>
+          </div>
+          <div class="col">
+            <div class="label">C · Diamond / Slate</div><div class="src">slate ground + diamond-teal band + aqua</div>
+            <div class="panel c"><div class="hdr">Spark</div>
+              <div class="chips"><div class="chip reply">reply</div><div class="chip act">▸ auto_mine</div><div class="chip fail">✗</div></div>
+              <div class="cta">CRAFT</div><div class="badge"></div></div>
+          </div>
         </div>
       </div>
     </div>
