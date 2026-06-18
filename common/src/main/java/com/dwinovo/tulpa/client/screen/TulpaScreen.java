@@ -547,7 +547,7 @@ public final class TulpaScreen extends Screen {
         List<TulpaRoster.Entry> entries = TulpaRoster.instance().entries();
         int ax = railX + (RAIL_W - RAIL_AV) / 2;
         for (int i = 0; i < entries.size(); i++) {
-            int ay = top + HEADER_H + 4 + i * RAIL_SLOT;             // start BELOW the green header
+            int ay = top + 8 + i * RAIL_SLOT;                        // rail has no header — start near the top
             if (ay + RAIL_AV > top + PANEL_H - PAD - RAIL_SLOT) break;   // reserve the bottom + slot
             TulpaRoster.Entry e = entries.get(i);
             boolean active = e.uuid().equals(uuid);
@@ -589,7 +589,7 @@ public final class TulpaScreen extends Screen {
         if (mx < ax || mx >= ax + RAIL_AV) return -1;
         List<TulpaRoster.Entry> entries = TulpaRoster.instance().entries();
         for (int i = 0; i < entries.size(); i++) {
-            int ay = top + HEADER_H + 4 + i * RAIL_SLOT;
+            int ay = top + 8 + i * RAIL_SLOT;
             if (ay + RAIL_AV > top + PANEL_H - PAD - RAIL_SLOT) break;
             if (my >= ay && my < ay + RAIL_AV) return i;
         }
