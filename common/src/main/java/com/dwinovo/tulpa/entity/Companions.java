@@ -12,11 +12,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Coordinates companion lifecycle on top of {@link CompanionFactory} (body
@@ -28,8 +26,6 @@ public final class Companions {
 
     /** Ticks a dead companion stays down before respawning at its owner (~30 s). */
     private static final long RESPAWN_DELAY_TICKS = 30 * 20;
-    /** companion UUID → server game-time it died, awaiting the timed respawn-at-owner. */
-    private static final Map<UUID, Long> PENDING_RESPAWN = new ConcurrentHashMap<>();
 
     private Companions() {}
 
@@ -78,12 +74,17 @@ public final class Companions {
         return CompanionFactory.spawn(server, companionUuid, entry.name(), entry.owner(), level, null);
     }
 
-    /** When an owner logs in, bring back every companion of theirs not already live —
-     *  except ones still serving their post-death timer (the respawn scheduler owns those). */
+    /** When an owner logs in, bring back every companion of theirs. A companion that DIED while the owner
+     *  was away (death state persisted in the registry — survives the logout) is respawned-at-owner now
+     *  AND told why it died; a live one is just restored from its {@code .dat}. */
     public static void respawnAllOwnedBy(MinecraftServer server, UUID ownerUuid) {
+        ServerPlayer owner = server.getPlayerList().getPlayer(ownerUuid);
         for (Map.Entry<UUID, CompanionRegistry.Entry> e : CompanionRegistry.get(server).ownedBy(ownerUuid)) {
-            if (PENDING_RESPAWN.containsKey(e.getKey())) continue;
-            respawn(server, e.getKey());
+            if (e.getValue().diedAt() > 0L) {
+                if (owner != null) respawnDead(server, e.getKey(), e.getValue(), owner);
+            } else {
+                respawn(server, e.getKey());
+            }
         }
     }
 
@@ -100,12 +101,16 @@ public final class Companions {
         if (server == null) return;
         UUID uuid = body.getUUID();
         String cause = body.getCombatTracker().getDeathMessage().getString();
+        if (cause == null || cause.isBlank()) cause = "未知原因";
         CompanionTickDispatcher.clearActiveTask(body);   // no result shipped — the death payload drives the client
         ServerPlayer owner = body.resolveOwnerPlayer();
         if (owner != null) {
-            Services.NETWORK.sendToPlayer(owner, new TulpaDeathPayload(uuid, cause));
+            Services.NETWORK.sendToPlayer(owner, new TulpaDeathPayload(uuid, cause));   // immediate, same-session
         }
-        PENDING_RESPAWN.put(uuid, server.overworld().getGameTime());
+        // Persist the death (cause + game-time) in the world-saved registry so it survives a logout during
+        // the respawn window — without this, a relog lost the pending state and the body silently respawned
+        // "alive" with an empty inventory and no idea it had died.
+        CompanionRegistry.get(server).markDead(uuid, cause, server.overworld().getGameTime());
         body.setHealth(body.getMaxHealth());             // saved .dat is a healthy body for the respawn
         server.execute(() -> CompanionFactory.despawn(server, body));   // remove the corpse safely after the tick
     }
@@ -116,24 +121,27 @@ public final class Companions {
      * (their client-side brain can't run anyway); it respawns the moment they're back. Called each tick.
      */
     public static void tickRespawns(MinecraftServer server) {
-        if (PENDING_RESPAWN.isEmpty()) return;
         long now = server.overworld().getGameTime();
-        for (Iterator<Map.Entry<UUID, Long>> it = PENDING_RESPAWN.entrySet().iterator(); it.hasNext(); ) {
-            Map.Entry<UUID, Long> e = it.next();
-            if (now - e.getValue() < RESPAWN_DELAY_TICKS) continue;
-            UUID uuid = e.getKey();
-            CompanionRegistry.Entry entry = CompanionRegistry.get(server).find(uuid);
-            if (entry == null) { it.remove(); continue; }          // dismissed while down
+        for (Map.Entry<UUID, CompanionRegistry.Entry> e : CompanionRegistry.get(server).pendingDead()) {
+            CompanionRegistry.Entry entry = e.getValue();
+            if (now - entry.diedAt() < RESPAWN_DELAY_TICKS) continue;
             ServerPlayer owner = server.getPlayerList().getPlayer(entry.owner());
             if (owner == null) continue;                            // owner offline — wait for login
-            ServerLevel level = (ServerLevel) owner.level();
-            TulpaPlayer body = CompanionFactory.spawn(server, uuid, entry.name(), entry.owner(), level, owner.position());
-            body.setHealth(body.getMaxHealth());
-            body.clearFire();
-            it.remove();
-            syncRosterToOwner(server, owner);
-            Services.NETWORK.sendToPlayer(owner, new TulpaRespawnPayload(uuid));
+            respawnDead(server, e.getKey(), entry, owner);
         }
+    }
+
+    /** Respawn a dead companion at its owner, clear the death state, and tell the brain it died + why
+     *  (the cause rides the respawn payload, so it works even after a logout cleared the client's memory). */
+    private static void respawnDead(MinecraftServer server, UUID uuid, CompanionRegistry.Entry entry,
+                                    ServerPlayer owner) {
+        ServerLevel level = (ServerLevel) owner.level();
+        TulpaPlayer body = CompanionFactory.spawn(server, uuid, entry.name(), entry.owner(), level, owner.position());
+        body.setHealth(body.getMaxHealth());
+        body.clearFire();
+        CompanionRegistry.get(server).markAlive(uuid);
+        syncRosterToOwner(server, owner);
+        Services.NETWORK.sendToPlayer(owner, new TulpaRespawnPayload(uuid, entry.deathCause()));
     }
 
     /**

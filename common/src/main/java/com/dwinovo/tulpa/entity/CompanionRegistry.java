@@ -31,13 +31,22 @@ import java.util.UUID;
  */
 public final class CompanionRegistry extends SavedData {
 
-    /** One companion's catalog entry. */
-    public record Entry(String name, UUID owner, ResourceKey<Level> dimension, BlockPos pos) {
+    /** One companion's catalog entry. {@code diedAt > 0} = dead, awaiting a respawn-at-owner (the death
+     *  state is persisted here so it SURVIVES a logout during the respawn window — see Companions). */
+    public record Entry(String name, UUID owner, ResourceKey<Level> dimension, BlockPos pos,
+                        String deathCause, long diedAt) {
+        /** A live companion (not dead). */
+        public Entry(String name, UUID owner, ResourceKey<Level> dimension, BlockPos pos) {
+            this(name, owner, dimension, pos, "", 0L);
+        }
+
         static final Codec<Entry> CODEC = RecordCodecBuilder.create(i -> i.group(
                 Codec.STRING.fieldOf("name").forGetter(Entry::name),
                 UUIDUtil.STRING_CODEC.fieldOf("owner").forGetter(Entry::owner),
                 ResourceKey.codec(Registries.DIMENSION).fieldOf("dimension").forGetter(Entry::dimension),
-                BlockPos.CODEC.fieldOf("pos").forGetter(Entry::pos)
+                BlockPos.CODEC.fieldOf("pos").forGetter(Entry::pos),
+                Codec.STRING.optionalFieldOf("deathCause", "").forGetter(Entry::deathCause),
+                Codec.LONG.optionalFieldOf("diedAt", 0L).forGetter(Entry::diedAt)
         ).apply(i, Entry::new));
     }
 
@@ -86,5 +95,30 @@ public final class CompanionRegistry extends SavedData {
             if (e.getValue().owner().equals(ownerUuid)) out.add(e);
         }
         return out;
+    }
+
+    /** Every companion currently dead and awaiting respawn (persisted, survives a logout). */
+    public List<Map.Entry<UUID, Entry>> pendingDead() {
+        List<Map.Entry<UUID, Entry>> out = new ArrayList<>();
+        for (Map.Entry<UUID, Entry> e : entries.entrySet()) {
+            if (e.getValue().diedAt() > 0L) out.add(e);
+        }
+        return out;
+    }
+
+    /** Mark a companion dead (records the cause + game-time, persisted for the respawn timer). */
+    public void markDead(UUID uuid, String cause, long diedAt) {
+        Entry e = entries.get(uuid);
+        if (e == null) return;
+        entries.put(uuid, new Entry(e.name(), e.owner(), e.dimension(), e.pos(), cause, diedAt));
+        setDirty();
+    }
+
+    /** Clear the death state (called when the body is respawned). */
+    public void markAlive(UUID uuid) {
+        Entry e = entries.get(uuid);
+        if (e == null || e.diedAt() == 0L) return;
+        entries.put(uuid, new Entry(e.name(), e.owner(), e.dimension(), e.pos()));
+        setDirty();
     }
 }

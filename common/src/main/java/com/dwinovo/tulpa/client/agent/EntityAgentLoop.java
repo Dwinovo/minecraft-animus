@@ -506,22 +506,28 @@ public final class EntityAgentLoop {
      * brain learns its task was cut short), then inject a {@code <event>} detailing the death cause.
      * Nothing was fed to the model while dead, so it stayed fully stopped for the whole timer.
      */
-    public void onRespawned() {
-        if (!dead) return;
+    public void onRespawned(String payloadCause) {
+        boolean wasFrozen = dead;                 // same-session death (mid-task) vs a fresh loop after relog
         dead = false;
-        for (String id : deathInterruptedCalls) {
-            convo.addToolResult(id, "{\"success\":false,\"message\":\""
-                    + escape("任务因你死亡而中断") + "\"}");
+        if (wasFrozen) {
+            for (String id : deathInterruptedCalls) {
+                convo.addToolResult(id, "{\"success\":false,\"message\":\""
+                        + escape("任务因你死亡而中断") + "\"}");
+            }
+            deathInterruptedCalls = List.of();
+            if (convo.lastMessage() instanceof ConvoState.Msg.User) {
+                convo.addAssistant(new AssistantTurn("(已中断)", List.of(), null));
+            }
         }
-        deathInterruptedCalls = List.of();
-        if (convo.lastMessage() instanceof ConvoState.Msg.User) {
-            convo.addAssistant(new AssistantTurn("(已中断)", List.of(), null));
-        }
-        String cause = deathCause == null ? "未知原因" : deathCause.replace('<', '(').replace('>', ')');
+        // Prefer the cause carried by the respawn payload (survives a logout that cleared deathCause).
+        String raw = (payloadCause != null && !payloadCause.isBlank()) ? payloadCause
+                : (deathCause != null ? deathCause : "未知原因");
+        String cause = raw.replace('<', '(').replace('>', ')');
         deathCause = null;
-        Constants.LOG.info("[tulpa-entity#{}] respawned — loop thawed", entityUuid);
+        Constants.LOG.info("[tulpa-entity#{}] respawned ({}) — loop thawed", entityUuid, cause);
+        // urgent only when it died mid-task (react now); a fresh post-login revival waits for the owner.
         injectEvent("<event kind=\"death\">你刚才死了(" + cause
-                + "),手头的任务被中断;现已在主人身边复活。先看看状况,继续或重新规划。</event>", true);
+                + "),物品掉落在死亡地点,手头的任务中断了;现已在主人身边复活。先看看状况,继续或重新规划。</event>", wasFrozen);
     }
 
     /**
