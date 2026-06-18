@@ -5,6 +5,7 @@ import com.dwinovo.tulpa.agent.llm.ConvoState;
 import com.dwinovo.tulpa.agent.provider.AssistantTurn;
 import com.dwinovo.tulpa.agent.provider.LlmToolCall;
 import com.dwinovo.tulpa.client.agent.AgentLoopRegistry;
+import com.dwinovo.tulpa.client.agent.ClientDeaths;
 import com.dwinovo.tulpa.client.agent.ClientTulpaLookup;
 import com.dwinovo.tulpa.client.agent.EntityAgentLoop;
 import com.dwinovo.tulpa.client.agent.TulpaRoster;
@@ -503,6 +504,11 @@ public final class TulpaScreen extends Screen {
         renderRail(g, mouseX, mouseY);   // avatars + status + summon tile on the rail column
 
         txt(g, Component.literal(name == null ? "Tulpa" : name), left + PAD, top + 7, ON_BAND);
+        if (uuid != null && ClientDeaths.isDead(uuid)) {        // active companion dead — respawn countdown
+            long rem = ClientDeaths.remainingMs(uuid);
+            txt(g, Component.literal("· 复活中 " + (int) Math.ceil(rem / 1000.0) + "s"),
+                    left + PAD + font.width(name == null ? "Tulpa" : name) + 6, top + 7, ON_BAND);
+        }
         renderTabs(g, mouseX, mouseY);
 
         if (summoning) {
@@ -560,9 +566,18 @@ public final class TulpaScreen extends Screen {
             // textured socket behind the head (gold-bordered when active), then the avatar, then a status LED
             g.blitSprite(pipe, active ? AVATAR_FRAME_ACTIVE : AVATAR_FRAME, ax - 2, ay - 2, RAIL_AV + 4, RAIL_AV + 4);
             PlayerFaceExtractor.extractRenderState(g, skinFor(e.uuid()), ax, ay, RAIL_AV);
-            int d = ax + RAIL_AV - 6, e2 = ay + RAIL_AV - 6;          // status dot, bottom-right
-            g.fill(d, e2, d + 5, e2 + 5, statusColor(e.uuid()));
-            Nb.border(g, d, e2, 5, 5, 1, BORDER);
+            if (ClientDeaths.isDead(e.uuid())) {                      // dead — dim veil + respawn countdown
+                g.fill(ax, ay, ax + RAIL_AV, ay + RAIL_AV, 0xB0101010);
+                long rem = ClientDeaths.remainingMs(e.uuid());
+                if (rem >= 0) {
+                    String c = String.valueOf((int) Math.ceil(rem / 1000.0));
+                    txt(g, Component.literal(c), ax + (RAIL_AV - font.width(c)) / 2, ay + (RAIL_AV - 8) / 2, CTA);
+                }
+            } else {
+                int d = ax + RAIL_AV - 6, e2 = ay + RAIL_AV - 6;     // status LED, bottom-right
+                g.fill(d, e2, d + 5, e2 + 5, statusColor(e.uuid()));
+                Nb.border(g, d, e2, 5, 5, 1, BORDER);
+            }
         }
         // "+" summon tile (baked "+" glyph), pinned to the rail bottom
         int py = top + PANEL_H - PAD - RAIL_AV;

@@ -104,8 +104,8 @@ public final class Companions {
         if (cause == null || cause.isBlank()) cause = "未知原因";
         CompanionTickDispatcher.clearActiveTask(body);   // no result shipped — the death payload drives the client
         ServerPlayer owner = body.resolveOwnerPlayer();
-        if (owner != null) {
-            Services.NETWORK.sendToPlayer(owner, new TulpaDeathPayload(uuid, cause));   // immediate, same-session
+        if (owner != null) {   // immediate, same-session (carries the respawn delay for the client countdown)
+            Services.NETWORK.sendToPlayer(owner, new TulpaDeathPayload(uuid, cause, RESPAWN_DELAY_TICKS * 50L));
         }
         // Persist the death (cause + game-time) in the world-saved registry so it survives a logout during
         // the respawn window — without this, a relog lost the pending state and the body silently respawned

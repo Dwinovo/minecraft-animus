@@ -41,6 +41,7 @@ public class TulpaNeoForgeClient {
         com.dwinovo.tulpa.client.path.ClientPathViz.clearAll();
         com.dwinovo.tulpa.client.data.ClientTulpaInventory.clear();
         com.dwinovo.tulpa.client.hud.TulpaToasts.clear();
+        com.dwinovo.tulpa.client.agent.ClientDeaths.clearAll();
     }
 
     @SubscribeEvent

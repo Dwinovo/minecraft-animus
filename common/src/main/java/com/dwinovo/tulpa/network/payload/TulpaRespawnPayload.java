@@ -38,6 +38,7 @@ public record TulpaRespawnPayload(UUID entityUuid, String cause) implements Cust
      *  getOrCreate (not get): after a logout the loop may not exist yet — make it so the death event lands. */
     public static void handle(TulpaRespawnPayload p) {
         Constants.LOG.info("[tulpa-net] tulpa_respawn entity={} ({}) — resuming loop", p.entityUuid(), p.cause());
+        com.dwinovo.tulpa.client.agent.ClientDeaths.clear(p.entityUuid());
         AgentLoopRegistry.getOrCreate(p.entityUuid()).onRespawned(p.cause());
     }
 }

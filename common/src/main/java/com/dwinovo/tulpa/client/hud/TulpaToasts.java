@@ -3,6 +3,7 @@ package com.dwinovo.tulpa.client.hud;
 import com.dwinovo.tulpa.agent.llm.ConvoState;
 import com.dwinovo.tulpa.agent.provider.AssistantTurn;
 import com.dwinovo.tulpa.client.agent.AgentLoopRegistry;
+import com.dwinovo.tulpa.client.agent.ClientDeaths;
 import com.dwinovo.tulpa.client.agent.TulpaRoster;
 import com.dwinovo.tulpa.client.agent.ClientTulpaLookup;
 import com.dwinovo.tulpa.client.screen.TulpaScreen;
@@ -51,8 +52,8 @@ public final class TulpaToasts {
     private static final int INNER_W = W - 14;
     private static final int MAX_LINES = 4;
     private static final int MAX_REPLY_LINES = 3;
-    private static final long LINE_LIFE_MS = 5000;     // toast line lifetime
-    private static final long AVATAR_LIFE_MS = 30000;  // avatar lingers this long after activity (> toast)
+    private static final long LINE_LIFE_MS = 5000;                  // toast line lifetime
+    private static final long AVATAR_LIFE_MS = LINE_LIFE_MS + 8000; // avatar lingers 8 s past the toast
     private static final long SLIDE_MS = 220;
 
     private static net.minecraft.resources.Identifier spr(String n) {
@@ -133,6 +134,12 @@ public final class TulpaToasts {
         for (int i = 0; i < n; i++) {
             UUID uuid = entries.get(i).uuid();
             int ay = startY + i * (AVATAR + STACK_GAP);
+
+            if (ClientDeaths.isDead(uuid)) {                                 // dead — dimmed avatar + countdown
+                drawDeadAvatar(g, font, uuid, MARGIN, ay, th);
+                continue;
+            }
+
             Status s = STATUS.get(uuid);
             long sinceActive = s == null ? Long.MAX_VALUE : now - s.lastActivityMs;
 
@@ -155,6 +162,18 @@ public final class TulpaToasts {
     private static void drawAvatar(GuiGraphicsExtractor g, UUID uuid, int x, int y, UiTheme th) {
         PlayerFaceExtractor.extractRenderState(g, skinFor(uuid), x, y, AVATAR);
         Nb.border(g, x, y, AVATAR, AVATAR, 2, th.border());
+    }
+
+    /** A dead companion: the avatar under a dim veil with a bright respawn-countdown number on top. */
+    private static void drawDeadAvatar(GuiGraphicsExtractor g, Font font, UUID uuid, int x, int y, UiTheme th) {
+        PlayerFaceExtractor.extractRenderState(g, skinFor(uuid), x, y, AVATAR);
+        g.fill(x, y, x + AVATAR, y + AVATAR, 0xB0101010);   // dim veil → "out" (pragmatic stand-in for grayscale)
+        Nb.border(g, x, y, AVATAR, AVATAR, 2, th.border());
+        long rem = ClientDeaths.remainingMs(uuid);
+        if (rem >= 0) {
+            String s = String.valueOf((int) Math.ceil(rem / 1000.0));
+            Nb.text(g, font, s, x + (AVATAR - font.width(s)) / 2, y + (AVATAR - 8) / 2, th.cta());
+        }
     }
 
     private static void drawBubble(GuiGraphicsExtractor g, Font font, int ax, int ay, Status s, long now) {

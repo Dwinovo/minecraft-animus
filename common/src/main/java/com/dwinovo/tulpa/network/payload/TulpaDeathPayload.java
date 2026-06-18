@@ -29,7 +29,8 @@ import java.util.UUID;
  * cause (so the conversation stays valid and the brain learns WHY it stopped) and latches it idle.
  * {@code cause} is the vanilla death message ("X was slain by a zombie") for that tool result.
  */
-public record TulpaDeathPayload(UUID entityUuid, String cause) implements CustomPacketPayload {
+public record TulpaDeathPayload(UUID entityUuid, String cause, long respawnDelayMs)
+        implements CustomPacketPayload {
 
     public static final Type<TulpaDeathPayload> TYPE = new Type<>(
             Identifier.fromNamespaceAndPath(Constants.MOD_ID, "tulpa_death"));
@@ -38,6 +39,7 @@ public record TulpaDeathPayload(UUID entityUuid, String cause) implements Custom
             StreamCodec.composite(
                     UUIDUtil.STREAM_CODEC, TulpaDeathPayload::entityUuid,
                     ByteBufCodecs.STRING_UTF8, TulpaDeathPayload::cause,
+                    ByteBufCodecs.VAR_LONG, TulpaDeathPayload::respawnDelayMs,
                     TulpaDeathPayload::new);
 
     @Override
@@ -49,7 +51,9 @@ public record TulpaDeathPayload(UUID entityUuid, String cause) implements Custom
     public static void handle(TulpaDeathPayload p) {
         Constants.LOG.info("[tulpa-net] tulpa_death entity={} ({}) — suspending loop", p.entityUuid(), p.cause());
         AgentLoopRegistry.get(p.entityUuid()).ifPresent(loop -> loop.onEntityDied(p.cause()));
-        // Not disposed: the body respawns at the owner and TulpaRespawnPayload resumes the loop.
-        com.dwinovo.tulpa.client.agent.TulpaRoster.instance().remove(p.entityUuid());
+        // Keep it in the roster (marked dead) so the HUD / rail can show the respawn countdown;
+        // it goes live again on TulpaRespawnPayload.
+        com.dwinovo.tulpa.client.agent.ClientDeaths.markDead(
+                p.entityUuid(), System.currentTimeMillis() + p.respawnDelayMs());
     }
 }

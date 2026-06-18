@@ -67,6 +67,7 @@ public class TulpaFabricClient implements ClientModInitializer {
                     com.dwinovo.tulpa.client.path.ClientPathViz.clearAll();
                     com.dwinovo.tulpa.client.data.ClientTulpaInventory.clear();
                     com.dwinovo.tulpa.client.hud.TulpaToasts.clear();
+                    com.dwinovo.tulpa.client.agent.ClientDeaths.clearAll();
                 });
     }
 }
