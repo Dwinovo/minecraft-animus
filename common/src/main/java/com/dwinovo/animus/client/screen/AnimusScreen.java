@@ -206,11 +206,6 @@ public final class AnimusScreen extends Screen {
                 net.minecraft.network.chat.TextColor.fromRgb(color & 0xFFFFFF)));
     }
 
-    /** Like {@link #colored} but bold — used for the chat transcript message text (heavier, easier to read). */
-    private static Component coloredBold(String s, int color) {
-        return Component.literal(s).withStyle(st -> st.withColor(
-                net.minecraft.network.chat.TextColor.fromRgb(color & 0xFFFFFF)).withBold(true));
-    }
 
     private void buildChatWidgets() {
         int inputY = top + PANEL_H - INPUT_H - PAD;
@@ -562,13 +557,13 @@ public final class AnimusScreen extends Screen {
             switch (msg) {
                 case ConvoState.Msg.User u -> {
                     flushTools(out, group, width);
-                    wrap(out, "you  " + u.content(), YOU, width);
+                    wrapLabeled(out, "you", u.content(), YOU, width);
                 }
                 case ConvoState.Msg.Assistant a -> {
                     AssistantTurn turn = a.turn();
                     if (turn.content() != null && !turn.content().isBlank()) {
                         flushTools(out, group, width);           // spoken reply breaks the fold
-                        wrap(out, turn.content(), AI, width);
+                        wrapLabeled(out, name, turn.content(), AI, width);
                     }
                     group.addAll(turn.toolCalls());
                 }
@@ -577,10 +572,10 @@ public final class AnimusScreen extends Screen {
         }
         flushTools(out, group, width);
         if (loop().isCompacting()) {
-            wrap(out, "compacting history…", TXT_MUTED, width);
+            wrapPlain(out, "compacting history…", TXT_MUTED, width);
         }
         if (out.isEmpty()) {
-            wrap(out, "Say something to " + name + ".", TXT_FAINT, width);
+            wrapPlain(out, "Say something to " + name + ".", TXT_FAINT, width);
         }
         return out;
     }
@@ -617,8 +612,20 @@ public final class AnimusScreen extends Screen {
         return tc.name() + "  " + args;
     }
 
-    private void wrap(List<Row> out, String text, int color, int width) {
-        for (FormattedCharSequence seq : font.split(coloredBold(text, color), width - 2)) {   // colour + bold baked in
+    /** A message line: a BOLD label ("you" / the companion name) + regular-weight body, one colour, the
+     *  whole thing split to fit the width (styles carry across wrapped lines). */
+    private void wrapLabeled(List<Row> out, String label, String body, int color, int width) {
+        var tc = net.minecraft.network.chat.TextColor.fromRgb(color & 0xFFFFFF);
+        Component c = Component.literal(label).withStyle(s -> s.withColor(tc).withBold(true))
+                .append(Component.literal("  " + body).withStyle(s -> s.withColor(tc)));
+        for (FormattedCharSequence seq : font.split(c, width - 2)) {
+            out.add(new Row(seq, color, null));
+        }
+    }
+
+    /** A plain, regular-weight line (status hints) — colour baked into the style. */
+    private void wrapPlain(List<Row> out, String text, int color, int width) {
+        for (FormattedCharSequence seq : font.split(colored(text, color), width - 2)) {
             out.add(new Row(seq, color, null));
         }
     }
