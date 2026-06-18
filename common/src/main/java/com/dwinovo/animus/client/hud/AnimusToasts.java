@@ -48,6 +48,9 @@ public final class AnimusToasts {
 
     private static final net.minecraft.resources.Identifier BUBBLE_SPRITE =
             net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, "bubble");
+    private static final net.minecraft.resources.Identifier TIP_SPRITE =
+            net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, "bubble_tip");
+    private static final int TIP_W = 6, TIP_H = 11;
 
     private static final Map<UUID, Integer> SEEN = new HashMap<>();
     private static final Map<UUID, Card> CARDS = new HashMap<>();
@@ -123,7 +126,9 @@ public final class AnimusToasts {
                 int targetX = MARGIN + AVATAR + BUBBLE_GAP;
                 int bx = targetX - slideOut(now - card.bornMs, AVATAR + BUBBLE_GAP);   // slide out from avatar
                 int by = ay + AVATAR / 2 - h / 2;                                       // centred on the avatar
-                g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, BUBBLE_SPRITE, bx, by, W, h);
+                var pipe = net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED;
+                g.blitSprite(pipe, TIP_SPRITE, bx - TIP_W + 1, ay + AVATAR / 2 - TIP_H / 2, TIP_W, TIP_H);   // points at avatar
+                g.blitSprite(pipe, BUBBLE_SPRITE, bx, by, W, h);
                 int ly = by + PADV;
                 for (Line line : card.lines) {
                     Nb.text(g, font, line.text(), bx + 7, ly, line.color());
