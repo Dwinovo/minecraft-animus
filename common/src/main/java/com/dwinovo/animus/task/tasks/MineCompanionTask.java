@@ -13,9 +13,15 @@ import com.dwinovo.animus.task.CompanionTask;
 import com.dwinovo.animus.task.TaskResult;
 import com.dwinovo.animus.task.TaskState;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -81,6 +87,12 @@ public final class MineCompanionTask implements CompanionTask {
     private final MineBlockTaskRecord r;
     private final List<BlockPos> knownOres = new ArrayList<>();
     private final Set<BlockPos> blacklist = new HashSet<>();
+    /** Items the target blocks drop (loot-table simulated, Baritone BlockOptionalMeta.drops). The
+     *  count is over THESE in the inventory, not blocks broken — redstone_ore yields ~4 redstone. */
+    private Set<Item> dropItems = Set.of();
+    /** Matching items already in the inventory when the task began — the count is the DELTA above this
+     *  (companion semantics: "gather N more", not Baritone's absolute "have N"). */
+    private int baseline;
     /** Nearby dropped items to collect (Baritone droppedItemsScan), refreshed per tick. */
     private List<BlockPos> drops = List.of();
 
@@ -120,13 +132,19 @@ public final class MineCompanionTask implements CompanionTask {
             r.setState(TaskState.FAILED);
             return;
         }
+        // Count toward `count` by ITEMS gathered (Baritone), not blocks broken: resolve what these
+        // blocks drop, and snapshot how many we already hold so the tally is the delta above it.
+        dropItems = computeDropItems();
+        baseline = inventoryMatch();
         rescan();
     }
 
     @Override
     public TaskState tick() {
-        if (r.getMined() >= r.count) {
-            doneReason = "mined all requested";
+        int gathered = Math.max(0, inventoryMatch() - baseline);   // matching items gained so far
+        r.setMined(gathered);
+        if (gathered >= r.count) {
+            doneReason = "gathered all requested";
             return TaskState.SUCCESS;
         }
 
@@ -198,7 +216,7 @@ public final class MineCompanionTask implements CompanionTask {
         //    in range still succeeds"), rather than running off across the world.
         if (!EXPLORE_FOR_BLOCKS) {
             doneReason = r.getMined() > 0
-                    ? "mined " + r.getMined() + "/" + r.count + ", no more " + r.label + " in range"
+                    ? "gathered " + r.getMined() + "/" + r.count + ", no more " + r.label + " in range"
                     : "no reachable " + r.label + " found within " + r.maxRadius + " blocks";
             return r.getMined() > 0 ? TaskState.SUCCESS : TaskState.FAILED;
         }
@@ -210,7 +228,7 @@ public final class MineCompanionTask implements CompanionTask {
         }
         if (++branchTicks > MAX_BRANCH_TICKS) {
             doneReason = r.getMined() > 0
-                    ? "mined " + r.getMined() + "/" + r.count + ", no more " + r.label + " in range"
+                    ? "gathered " + r.getMined() + "/" + r.count + ", no more " + r.label + " in range"
                     : "no reachable " + r.label + " found within " + r.maxRadius + " blocks";
             return r.getMined() > 0 ? TaskState.SUCCESS : TaskState.FAILED;
         }
@@ -338,13 +356,71 @@ public final class MineCompanionTask implements CompanionTask {
 
     // ---- mining (progressive, tick-by-tick like Baritone / a real player) ----
 
-    /** Advance the shared dig one tick (it switches to the best tool itself); on
-     *  the tick it breaks, count it and drop it from the ore list. */
+    /** Advance the shared dig one tick (it switches to the best tool itself); on the tick it breaks,
+     *  drop it from the ore list. The progress count is read from the inventory each tick, not here —
+     *  one block can yield several items, and the drops take a moment to be picked up. */
     private void mineProgress(BlockPos pos) {
         if (digger.dig(pos)) {
-            r.incrementMined();
             knownOres.remove(pos);
         }
+    }
+
+    // ---- item counting (Baritone MineProcess: count matching items in the inventory) ----
+
+    /** Matching items currently in the inventory (sum of stack counts whose item the targets drop). */
+    private int inventoryMatch() {
+        if (dropItems.isEmpty()) return baseline;   // before start() resolved the set — no progress yet
+        Inventory inv = player.getInventory();
+        int sum = 0;
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack s = inv.getItem(i);
+            if (!s.isEmpty() && dropItems.contains(s.getItem())) sum += s.getCount();
+        }
+        return sum;
+    }
+
+    /** The item set the target blocks drop — Baritone {@code BlockOptionalMeta.drops}, via the server
+     *  loot table rolled once per target with the best harvesting tool we carry (so an ore yields its
+     *  ingot/gem, stone yields cobblestone, etc.). Falls back to the block's own item if it has no loot. */
+    private Set<Item> computeDropItems() {
+        Set<Item> items = new HashSet<>();
+        if (!(player.level() instanceof ServerLevel level)) {
+            for (Block b : r.targets) items.add(b.asItem());
+            return items;
+        }
+        BlockPos origin = player.blockPosition();
+        for (Block b : r.targets) {
+            BlockState state = b.defaultBlockState();
+            List<ItemStack> drops;
+            try {
+                drops = Block.getDrops(state, level, origin, null, player, bestToolFor(state));
+            } catch (RuntimeException broken) {
+                drops = List.of();
+            }
+            if (drops.isEmpty()) {
+                items.add(b.asItem());
+            } else {
+                for (ItemStack d : drops) items.add(d.getItem());
+            }
+        }
+        return items;
+    }
+
+    /** The inventory item that mines {@code state} fastest — the tool the dig will actually use, so the
+     *  simulated drops match the real ones (e.g. respects a Silk Touch / Fortune pick if carried). */
+    private ItemStack bestToolFor(BlockState state) {
+        Inventory inv = player.getInventory();
+        ItemStack best = inv.getItem(inv.getSelectedSlot());
+        float bestSpeed = best.getDestroySpeed(state);
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack s = inv.getItem(i);
+            float speed = s.getDestroySpeed(state);
+            if (speed > bestSpeed) {
+                bestSpeed = speed;
+                best = s;
+            }
+        }
+        return best;
     }
 
     // ---- ore list maintenance ----
@@ -453,14 +529,14 @@ public final class MineCompanionTask implements CompanionTask {
         Map<String, Object> data = new HashMap<>();
         data.put("target", r.label);
         data.put("requested", r.count);
-        data.put("mined", r.getMined());
+        data.put("gathered", r.getMined());
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(
-                    "mined " + r.getMined() + "/" + r.count + " " + r.label + " (" + doneReason + ")", data);
+                    "gathered " + r.getMined() + "/" + r.count + " " + r.label + " (" + doneReason + ")", data);
             case TIMEOUT -> new TaskResult(false,
-                    "timed out after mining " + r.getMined() + "/" + r.count + " " + r.label, true, false, data);
+                    "timed out after gathering " + r.getMined() + "/" + r.count + " " + r.label, true, false, data);
             case CANCELLED -> new TaskResult(false,
-                    "interrupted after mining " + r.getMined() + "/" + r.count + " " + r.label, false, true, data);
+                    "interrupted after gathering " + r.getMined() + "/" + r.count + " " + r.label, false, true, data);
             case FAILED -> TaskResult.fail(doneReason, data);
             default -> TaskResult.fail("unexpected state: " + finalState, data);
         };

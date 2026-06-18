@@ -30,7 +30,9 @@ public final class MineBlockTaskRecord extends TaskRecord {
     /** Human-readable target label for messages / debug overlay (e.g. "iron_ore"). */
     public final String label;
 
-    /** Live progress, updated by the goal as blocks break — drives the debug overlay text. */
+    /** Live progress = matching ITEMS gathered since the task started (Baritone-style inventory count,
+     *  not blocks broken — multi-drop ores like redstone yield several items per block). Set each tick
+     *  by the task; drives the stop condition + the debug overlay text. */
     private int mined = 0;
 
     public MineBlockTaskRecord(String toolCallId, long deadlineGameTime,
@@ -46,8 +48,9 @@ public final class MineBlockTaskRecord extends TaskRecord {
         return mined;
     }
 
-    public void incrementMined() {
-        this.mined++;
+    /** Set the running item-gathered tally (the task recomputes it from the inventory each tick). */
+    public void setMined(int gathered) {
+        this.mined = gathered;
     }
 
     @Override

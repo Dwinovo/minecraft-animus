@@ -65,13 +65,17 @@ public final class MineBlockTool implements AnimusTool {
                 + "tunnels to reach buried ores, pillars up to blocks high on "
                 + "cliffs, and bridges gaps with cobblestone/dirt from its own "
                 + "inventory, all automatically — then mines them and repeats "
-                + "until the count is met or none remain nearby. You do NOT "
+                + "until it has gathered `count` of the resulting ITEMS or none "
+                + "remain nearby. count is items, not blocks: a block can drop "
+                + "several (redstone_ore → ~4 redstone), so count:10 redstone "
+                + "mines only ~3 ore. It counts only NEW items gained, on top of "
+                + "what you already carry. You do NOT "
                 + "provide coordinates, call move_to, or pre-clear a path; "
                 + "carrying some cobblestone/dirt helps it cross terrain. "
                 + "Include all variants of a resource in block_ids "
                 + "(e.g. iron_ore AND deepslate_iron_ore). Optional radius caps "
                 + "how far to look (default auto-expands). Returns the actual "
-                + "number mined, which may be less than requested if the deposit "
+                + "number gathered, which may be less than requested if the deposit "
                 + "runs out. You must hold a tool that can harvest the target: "
                 + "mining a block your main-hand tool can't harvest fails up front "
                 + "and tells you the minimum tier required (e.g. iron_ore needs a "
@@ -87,7 +91,8 @@ public final class MineBlockTool implements AnimusTool {
                 "items", Map.of("type", "string"),
                 "minItems", 1));
         properties.put("count", Map.of("type", "integer",
-                "description", "How many blocks to gather.",
+                "description", "How many ITEMS to gather (not blocks) — a block may drop several, "
+                        + "and it counts only items gained on top of what you already hold.",
                 "minimum", 1, "maximum", MAX_COUNT));
         properties.put("radius", Map.of("type", "integer",
                 "description", "Optional max search radius in blocks (default auto-expands to "
