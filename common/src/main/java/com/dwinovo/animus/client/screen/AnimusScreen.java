@@ -364,10 +364,8 @@ public final class AnimusScreen extends Screen {
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
         super.extractRenderState(g, mouseX, mouseY, partial);
 
-        // BlockFrame "Cottage" panel: a hard offset shadow (outside the sprite) + the chrome GUI sprite
-        // (warm tan ground + dot-grid + sage band + thick warm-brown border), drawn the vanilla way.
-        int s = 4;
-        g.fill(left + s, top + s, left + PANEL_W + s, top + PANEL_H + s, BORDER);
+        // Cottage panel — 100% the GUI sprite (warm tan ground + dot-grid + sage band + warm-brown
+        // border), drawn the vanilla way. No procedural draw.
         g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
                 PANEL_SPRITE, left, top, PANEL_W, PANEL_H);
 
