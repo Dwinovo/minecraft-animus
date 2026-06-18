@@ -7,6 +7,9 @@ import com.dwinovo.animus.agent.provider.LlmToolCall;
 import com.dwinovo.animus.client.agent.AgentLoopRegistry;
 import com.dwinovo.animus.client.agent.ClientAnimusLookup;
 import com.dwinovo.animus.client.agent.EntityAgentLoop;
+import com.dwinovo.animus.client.data.ClientAnimusInventory;
+import com.dwinovo.animus.network.payload.RequestInventoryPayload;
+import com.dwinovo.animus.platform.Services;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -94,6 +97,10 @@ public final class AnimusScreen extends Screen {
     private boolean pinBottom = true;
     private int lastMaxScroll;
 
+    /** Re-request the backpack every ~1 s while the Items tab is open. */
+    private static final int INV_REFRESH_TICKS = 20;
+    private int tickCounter;
+
     private AnimusScreen(UUID uuid, String name) {
         super(Component.literal("Animus - " + name));
         this.uuid = uuid;
@@ -177,7 +184,21 @@ public final class AnimusScreen extends Screen {
         tab = t;
         scroll = 0;
         pinBottom = true;
+        if (t == Tab.ITEMS) requestInventory();
         rebuild();
+    }
+
+    @Override
+    public void tick() {
+        if (tab == Tab.ITEMS && ++tickCounter % INV_REFRESH_TICKS == 0) {
+            requestInventory();
+        }
+    }
+
+    private void requestInventory() {
+        if (Minecraft.getInstance().getConnection() != null) {
+            Services.NETWORK.sendToServer(new RequestInventoryPayload(uuid));
+        }
     }
 
     private void onSend() {
@@ -249,7 +270,7 @@ public final class AnimusScreen extends Screen {
 
         switch (tab) {
             case CHAT -> { renderVitals(g, mouseX, mouseY); renderChat(g); }
-            case ITEMS -> { renderVitals(g, mouseX, mouseY); renderItemsPlaceholder(g); }
+            case ITEMS -> { renderVitals(g, mouseX, mouseY); renderItems(g, mouseX, mouseY); }
             case SETTINGS -> { /* opened as a sub-screen */ }
         }
     }
@@ -469,10 +490,48 @@ public final class AnimusScreen extends Screen {
         return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : "";
     }
 
-    private void renderItemsPlaceholder(GuiGraphicsExtractor g) {
-        int y = top + HEADER_H + VITALS_H + 8;
-        g.text(font, Component.literal("Inventory"), left + PAD, y, TXT_MUTED);
-        g.text(font, Component.literal("(read-only view — coming next)"), left + PAD, y + 14, TXT_FAINT);
+    /** Read-only backpack grid (36 main slots) fetched via RequestInventoryPayload. Equipment is
+     *  in the header strip, so it isn't repeated here. */
+    private void renderItems(GuiGraphicsExtractor g, int mouseX, int mouseY) {
+        int y = top + HEADER_H + VITALS_H + 6;
+        g.text(font, Component.literal("Backpack (read-only)"), left + PAD, y, TXT_MUTED);
+
+        var snap = ClientAnimusInventory.get(uuid).orElse(null);
+        if (snap == null) {
+            g.text(font, Component.literal("loading…"), left + PAD, y + 16, TXT_FAINT);
+            return;
+        }
+        if (!snap.loaded() || snap.items().isEmpty()) {
+            g.text(font, Component.literal("asleep / out of view — chat to wake it."),
+                    left + PAD, y + 16, TXT_FAINT);
+            return;
+        }
+        List<ItemStack> items = snap.items();
+        int gx = left + (PANEL_W - 9 * 18) / 2;       // centre the 9-wide grid
+        int gy = y + 16;
+        // storage rows (slots 9..35), then the hotbar (0..8) below a small gap
+        for (int i = 9; i < 36; i++) {
+            int col = (i - 9) % 9, row = (i - 9) / 9;
+            drawSlot(g, items, i, gx + col * 18, gy + row * 18, mouseX, mouseY);
+        }
+        int hotbarY = gy + 3 * 18 + 6;
+        for (int i = 0; i < 9; i++) {
+            drawSlot(g, items, i, gx + i * 18, hotbarY, mouseX, mouseY);
+        }
+    }
+
+    private void drawSlot(GuiGraphicsExtractor g, List<ItemStack> items, int index,
+                          int x, int y, int mouseX, int mouseY) {
+        g.fill(x, y, x + 16, y + 16, 0x40000000);
+        g.outline(x, y, 16, 16, BORDER);
+        ItemStack st = index < items.size() ? items.get(index) : ItemStack.EMPTY;
+        if (!st.isEmpty()) {
+            g.item(st, x, y);
+            g.itemDecorations(font, st, x, y);
+            if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
+                g.setTooltipForNextFrame(font, st, mouseX, mouseY);
+            }
+        }
     }
 
     private static String fmt(float v) {

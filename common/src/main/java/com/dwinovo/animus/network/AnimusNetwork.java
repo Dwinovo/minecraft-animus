@@ -89,5 +89,17 @@ public final class AnimusNetwork {
         Services.NETWORK.registerServerToClient(
                 AnimusLocationsPayload.TYPE, AnimusLocationsPayload.STREAM_CODEC,
                 AnimusLocationsPayload::handle);
+
+        // C→S: the Items tab asks for a companion's backpack (not client-synced).
+        Services.NETWORK.registerClientToServer(
+                com.dwinovo.animus.network.payload.RequestInventoryPayload.TYPE,
+                com.dwinovo.animus.network.payload.RequestInventoryPayload.STREAM_CODEC,
+                com.dwinovo.animus.network.payload.RequestInventoryPayload::handle);
+
+        // S→C: the requested backpack contents.
+        Services.NETWORK.registerServerToClient(
+                com.dwinovo.animus.network.payload.AnimusInventoryPayload.TYPE,
+                com.dwinovo.animus.network.payload.AnimusInventoryPayload.STREAM_CODEC,
+                com.dwinovo.animus.network.payload.AnimusInventoryPayload::handle);
     }
 }

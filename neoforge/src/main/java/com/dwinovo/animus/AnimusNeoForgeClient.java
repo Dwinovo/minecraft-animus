@@ -38,6 +38,7 @@ public class AnimusNeoForgeClient {
     static void onLoggingOut(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
         // Drop every path overlay on disconnect so a frozen path can't survive a relog.
         com.dwinovo.animus.client.path.ClientPathViz.clearAll();
+        com.dwinovo.animus.client.data.ClientAnimusInventory.clear();
     }
 
     @SubscribeEvent

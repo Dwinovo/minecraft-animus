@@ -55,6 +55,9 @@ public class AnimusFabricClient implements ClientModInitializer {
         // Drop every path overlay on disconnect so a frozen path can't survive a
         // relog (the server can't send a clear to a player who's already gone).
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT
-                .register((handler, client) -> com.dwinovo.animus.client.path.ClientPathViz.clearAll());
+                .register((handler, client) -> {
+                    com.dwinovo.animus.client.path.ClientPathViz.clearAll();
+                    com.dwinovo.animus.client.data.ClientAnimusInventory.clear();
+                });
     }
 }
