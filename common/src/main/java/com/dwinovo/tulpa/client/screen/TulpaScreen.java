@@ -125,6 +125,7 @@ public final class TulpaScreen extends Screen {
     private EditBox modelInput;
     private EditBox baseUrlInput;
     private long savedFlashUntil;
+    private long warnUntil;        // transient "no API key" hint on the chat tab
 
     // Widgets are registered for EVENTS only (addWidget) and rendered MANUALLY at the end of the
     // frame, so they sit ON TOP of the panel background instead of being painted over by it (the
@@ -393,6 +394,7 @@ public final class TulpaScreen extends Screen {
         if (text.isEmpty()) return;
         if (!TulpaLlmClient.isConfigured()) {
             com.dwinovo.tulpa.Constants.LOG.warn("[tulpa-chat] no apiKey; open Settings.");
+            warnUntil = System.currentTimeMillis() + 4000;   // visible hint instead of a silent no-op
             return;
         }
         loop().submitPrompt(text);
@@ -516,6 +518,10 @@ public final class TulpaScreen extends Screen {
                 case SETTINGS -> renderSettings(g, mouseX, mouseY);   // global — works with no companion
                 case CHAT -> { if (uuid != null) renderChat(g); else emptyHint(g); }
                 case ITEMS -> { if (uuid != null) renderItems(g, mouseX, mouseY); else emptyHint(g); }
+            }
+            if (tab == Tab.CHAT && warnUntil > System.currentTimeMillis()) {   // no-API-key hint above the input
+                txt(g, Component.literal("⚠ No API key — open Settings to add one"),
+                        left + PAD, top + PANEL_H - INPUT_H - PAD - 11, FAIL);
             }
         }
 
