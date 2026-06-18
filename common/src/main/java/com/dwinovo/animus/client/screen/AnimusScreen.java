@@ -182,6 +182,16 @@ public final class AnimusScreen extends Screen {
         return w;
     }
 
+    // Shadowless text — BlockFrame is flat, and a drop shadow on DARK text over a LIGHT ground makes
+    // the glyph merge with its own shadow ("smudged" look). Light text on the band is fine flat too.
+    private void txt(GuiGraphicsExtractor g, Component c, int x, int y, int color) {
+        g.text(font, c, x, y, color, false);
+    }
+
+    private void txt(GuiGraphicsExtractor g, FormattedCharSequence c, int x, int y, int color) {
+        g.text(font, c, x, y, color, false);
+    }
+
     private void buildChatWidgets() {
         int inputY = top + PANEL_H - INPUT_H - PAD;
         int compactW = 26;
@@ -279,13 +289,13 @@ public final class AnimusScreen extends Screen {
         if (modelInput != null) modelInput.setHint(Component.literal(opt.defaultModel()));
         if (baseUrlInput != null) baseUrlInput.setHint(Component.literal(opt.defaultBaseUrl()));
 
-        g.text(font, Component.literal("Provider"), x, y, TXT_MUTED);
-        g.text(font, Component.literal("API Key"), x, y + 37, TXT_MUTED);
-        g.text(font, Component.literal("Model"), x, y + 74, TXT_MUTED);
-        g.text(font, Component.literal("Base URL"), x, y + 111, TXT_MUTED);
+        txt(g, Component.literal("Provider"), x, y, TXT_MUTED);
+        txt(g, Component.literal("API Key"), x, y + 37, TXT_MUTED);
+        txt(g, Component.literal("Model"), x, y + 74, TXT_MUTED);
+        txt(g, Component.literal("Base URL"), x, y + 111, TXT_MUTED);
 
         if (savedFlashUntil > System.currentTimeMillis()) {
-            g.text(font, Component.literal("✔ saved"), x, top + PANEL_H - PAD - 14, OK);
+            txt(g, Component.literal("✔ saved"), x, top + PANEL_H - PAD - 14, OK);
         }
         // the dropdown itself is rendered in extractRenderState, AFTER the widgets (open list on top)
     }
@@ -369,7 +379,7 @@ public final class AnimusScreen extends Screen {
         g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
                 PANEL_SPRITE, left, top, PANEL_W, PANEL_H);
 
-        g.text(font, Component.literal(name), left + PAD, top + 7, ON_BAND);   // name on the sage band
+        txt(g, Component.literal(name), left + PAD, top + 7, ON_BAND);   // name on the sage band
         renderTabs(g, mouseX, mouseY);
 
         if (compactButton != null) compactButton.active = loop().canCompact();
@@ -406,7 +416,7 @@ public final class AnimusScreen extends Screen {
             boolean hover = mouseX >= tabX[i] && mouseX < tabX[i] + tabW[i]
                     && mouseY >= top && mouseY < top + HEADER_H;
             int color = (active || hover) ? ON_BAND : (0x00FFFFFF & ON_BAND) | 0xA0000000;   // dim on band
-            g.text(font, Component.literal(labels[i]), tabX[i] + 5, top + 7, color);
+            txt(g, Component.literal(labels[i]), tabX[i] + 5, top + 7, color);
             if (active) {                                                                     // gold CTA underline
                 g.fill(tabX[i] + 3, top + HEADER_H - 4, tabX[i] + tabW[i] - 3, top + HEADER_H - 1, ACCENT);
             }
@@ -418,7 +428,7 @@ public final class AnimusScreen extends Screen {
         int y = top + HEADER_H + 4;
         AbstractClientPlayer e = ClientAnimusLookup.resolve(uuid);
         if (e == null) {
-            g.text(font, Component.literal("(body out of view)"), left + PAD, y + 4, TXT_FAINT);
+            txt(g, Component.literal("(body out of view)"), left + PAD, y + 4, TXT_FAINT);
             return;
         }
         renderHpBar(g, left + PAD, y, e.getHealth(), e.getMaxHealth());
@@ -426,7 +436,7 @@ public final class AnimusScreen extends Screen {
 
     private void renderHpBar(GuiGraphicsExtractor g, int x, int y, float hp, float max) {
         int barW = 96, barH = 5, barY = y + 8;
-        g.text(font, Component.literal("HP " + fmt(hp) + "/" + fmt(max)), x, y - 1, 0xFFFF8A8A);
+        txt(g, Component.literal("HP " + fmt(hp) + "/" + fmt(max)), x, y - 1, 0xFFFF8A8A);
         g.fill(x, barY, x + barW, barY + barH, 0xFF3A1414);
         int fill = (int) (barW * Math.clamp(hp / max, 0f, 1f));
         if (fill > 0) g.fill(x, barY, x + fill, barY + barH, 0xFFE0473C);
@@ -435,7 +445,7 @@ public final class AnimusScreen extends Screen {
 
     private void renderHungerBar(GuiGraphicsExtractor g, int x, int y, int food) {
         int barW = 96, barH = 5, barY = y + 8;
-        g.text(font, Component.literal("Food " + food + "/20"), x, y - 1, 0xFFD8B36A);
+        txt(g, Component.literal("Food " + food + "/20"), x, y - 1, 0xFFD8B36A);
         g.fill(x, barY, x + barW, barY + barH, 0xFF2E2410);
         int fill = (int) (barW * Math.clamp(food / 20f, 0f, 1f));
         if (fill > 0) g.fill(x, barY, x + fill, barY + barH, 0xFFC88A3A);
@@ -492,10 +502,10 @@ public final class AnimusScreen extends Screen {
                     boolean isFail = failed.contains(row.toolId);
                     String icon = isDone ? (isFail ? "✗" : "✔") : SPIN[(int) ((t / 120) % 4)];
                     int ic = isDone ? (isFail ? FAIL : OK) : RUN;
-                    g.text(font, Component.literal(icon), transX, y, ic);
-                    g.text(font, row.text, transX + 11, y, row.color);
+                    txt(g, Component.literal(icon), transX, y, ic);
+                    txt(g, row.text, transX + 11, y, row.color);
                 } else {
-                    g.text(font, row.text, transX, y, row.color);
+                    txt(g, row.text, transX, y, row.color);
                 }
             }
             y += LINE_H;
@@ -578,11 +588,11 @@ public final class AnimusScreen extends Screen {
 
     /** Right-side PLAN panel: the companion's latest {@code todowrite}, with status glyphs. */
     private void renderPlan(GuiGraphicsExtractor g, int x, int y, int bottom) {
-        g.text(font, Component.literal("PLAN"), x, y, TXT_MUTED);
+        txt(g, Component.literal("PLAN"), x, y, TXT_MUTED);
         int ly = y + 13;
         JsonArray todos = latestPlan();
         if (todos == null || todos.isEmpty()) {
-            g.text(font, Component.literal("no plan yet"), x, ly, TXT_FAINT);
+            txt(g, Component.literal("no plan yet"), x, ly, TXT_FAINT);
             return;
         }
         for (int i = 0; i < todos.size() && ly + LINE_H < bottom; i++) {
@@ -592,13 +602,13 @@ public final class AnimusScreen extends Screen {
             String content = str(it, "content");
             String glyph = switch (status) { case "completed" -> "✔"; case "in_progress" -> "▸"; default -> "○"; };
             int color = switch (status) { case "completed" -> OK; case "in_progress" -> RUN; default -> TXT_MUTED; };
-            g.text(font, Component.literal(glyph), x, ly, color);
+            txt(g, Component.literal(glyph), x, ly, color);
             // one wrapped line of the content beside the glyph
             List<FormattedCharSequence> lines = font.split(Component.literal(content), PLAN_W - 14);
             int sub = 0;
             for (FormattedCharSequence seq : lines) {
                 if (ly + LINE_H >= bottom) break;
-                g.text(font, seq, x + 10, ly, status.equals("pending") ? TXT_MUTED : TXT);
+                txt(g, seq, x + 10, ly, status.equals("pending") ? TXT_MUTED : TXT);
                 ly += LINE_H;
                 if (++sub >= 2) break;   // cap each item at 2 lines
             }
@@ -645,13 +655,13 @@ public final class AnimusScreen extends Screen {
 
         // -- backpack --
         int y = vy + 24;
-        g.text(font, Component.literal("Backpack (read-only)"), left + PAD, y, TXT_MUTED);
+        txt(g, Component.literal("Backpack (read-only)"), left + PAD, y, TXT_MUTED);
         if (snap == null) {
-            g.text(font, Component.literal("loading…"), left + PAD, y + 16, TXT_FAINT);
+            txt(g, Component.literal("loading…"), left + PAD, y + 16, TXT_FAINT);
             return;
         }
         if (!snap.loaded() || snap.items().isEmpty()) {
-            g.text(font, Component.literal("asleep / out of view — chat to wake it."),
+            txt(g, Component.literal("asleep / out of view — chat to wake it."),
                     left + PAD, y + 16, TXT_FAINT);
             return;
         }

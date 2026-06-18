@@ -44,8 +44,9 @@ public final class SimpleButton extends Button {
         graphics.fill(x, y + oy, x + w, y + h + oy, fill);
         thickBorder(graphics, x, y + oy, w, h, 2, border);
         net.minecraft.client.gui.Font font = net.minecraft.client.Minecraft.getInstance().font;
-        graphics.centeredText(font, getMessage(), x + w / 2, y + oy + (h - 8) / 2,
-                active ? t.text() : 0xFF6E5E48);
+        int color = active ? t.text() : 0xFF6E5E48;
+        int tw = font.width(getMessage());
+        graphics.text(font, getMessage(), x + (w - tw) / 2, y + oy + (h - 8) / 2, color, false);  // flat, no shadow
     }
 
     /** Square thick border = four filled edge rects (no rounded corners). */
