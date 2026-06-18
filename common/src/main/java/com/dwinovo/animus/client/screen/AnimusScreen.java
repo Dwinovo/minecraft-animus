@@ -87,9 +87,9 @@ public final class AnimusScreen extends Screen {
             net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, "panel");
 
     private static final String[] SPIN = {"|", "/", "-", "\\"};
-    private static final EquipmentSlot[] EQUIP = {
-            EquipmentSlot.MAINHAND, EquipmentSlot.OFFHAND, EquipmentSlot.HEAD,
-            EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
+    /** Armor column on the Items tab (top → bottom); offhand is drawn separately below it. */
+    private static final EquipmentSlot[] ARMOR = {
+            EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
 
     private final UUID uuid;
     private final String name;
@@ -441,40 +441,56 @@ public final class AnimusScreen extends Screen {
         }
     }
 
-    private void renderHpBar(GuiGraphicsExtractor g, int x, int y, float hp, float max) {
-        int barW = 96, barH = 5, barY = y + 8;
-        txt(g, Component.literal("HP " + fmt(hp) + "/" + fmt(max)), x, y - 1, 0xFFFF8A8A);
-        g.fill(x, barY, x + barW, barY + barH, 0xFF3A1414);
-        int fill = (int) (barW * Math.clamp(hp / max, 0f, 1f));
-        if (fill > 0) g.fill(x, barY, x + fill, barY + barH, 0xFFE0473C);
-        g.outline(x - 1, barY - 1, barW + 2, barH + 2, BORDER);
-    }
+    private static final int ICON = 9;        // native vitals-icon size
+    private static final int ICON_STEP = 9;   // touching = one chunky bar
 
-    private void renderHungerBar(GuiGraphicsExtractor g, int x, int y, int food) {
-        int barW = 96, barH = 5, barY = y + 8;
-        txt(g, Component.literal("Food " + food + "/20"), x, y - 1, 0xFFD8B36A);
-        g.fill(x, barY, x + barW, barY + barH, 0xFF2E2410);
-        int fill = (int) (barW * Math.clamp(food / 20f, 0f, 1f));
-        if (fill > 0) g.fill(x, barY, x + fill, barY + barH, 0xFFC88A3A);
-        g.outline(x - 1, barY - 1, barW + 2, barH + 2, BORDER);
-    }
-
-    /** The six equipment slots, read off the live client entity (equipment IS client-synced). */
-    private void renderEquipment(GuiGraphicsExtractor g, AbstractClientPlayer e, int x, int y,
-                                 int mouseX, int mouseY) {
-        for (EquipmentSlot slot : EQUIP) {
-            g.fill(x, y, x + 16, y + 16, 0x40000000);
-            g.outline(x, y, 16, 16, BORDER);
-            ItemStack st = e.getItemBySlot(slot);
-            if (!st.isEmpty()) {
-                g.item(st, x, y);
-                g.itemDecorations(font, st, x, y);
-                if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
-                    g.setTooltipForNextFrame(font, st, mouseX, mouseY);
-                }
-            }
-            x += 18;
+    /** A row of segmented icons for a 0..max stat (2 units per icon): empty sockets first, then
+     *  full / half overlaid. Used for hearts (HP) and drumsticks (hunger). */
+    private void renderStatRow(GuiGraphicsExtractor g, int x, int y, float value, float max,
+                               net.minecraft.resources.Identifier full,
+                               net.minecraft.resources.Identifier half,
+                               net.minecraft.resources.Identifier empty) {
+        var pipe = net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED;
+        int units = Math.max(1, (int) Math.ceil(max / 2f));
+        for (int i = 0; i < units; i++) {
+            int ix = x + i * ICON_STEP;
+            g.blitSprite(pipe, empty, ix, y, ICON, ICON);
+            float v = value - i * 2f;
+            if (v >= 2f)      g.blitSprite(pipe, full, ix, y, ICON, ICON);
+            else if (v >= 1f) g.blitSprite(pipe, half, ix, y, ICON, ICON);
         }
+    }
+
+    /** Live mouse-following 3D portrait of the companion — the body IS a client player entity, so the
+     *  vanilla player renderer draws it for free. Sits in a recessed socket (slot_alt stretched). */
+    private void renderPortrait(GuiGraphicsExtractor g, AbstractClientPlayer e,
+                                int x, int y, int w, int h, int mouseX, int mouseY) {
+        g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, SLOT_ALT, x, y, w, h);
+        if (e == null) return;
+        int scale = (int) (h * 0.45f);
+        net.minecraft.client.gui.screens.inventory.InventoryScreen.extractEntityInInventoryFollowsMouse(
+                g, x + 2, y + 2, x + w - 2, y + h - 2, scale, 0.0625f,
+                (float) mouseX, (float) mouseY, e);
+    }
+
+    private void slotBg(GuiGraphicsExtractor g, net.minecraft.resources.Identifier sprite, int x, int y) {
+        g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, sprite, x, y, 16, 16);
+    }
+
+    private void stackOn(GuiGraphicsExtractor g, ItemStack st, int x, int y, int mouseX, int mouseY) {
+        if (st == null || st.isEmpty()) return;
+        g.item(st, x, y);
+        g.itemDecorations(font, st, x, y);
+        if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
+            g.setTooltipForNextFrame(font, st, mouseX, mouseY);
+        }
+    }
+
+    /** One equipment/armor socket, read off the live client entity (equipment IS client-synced). */
+    private void drawEquip(GuiGraphicsExtractor g, AbstractClientPlayer e, EquipmentSlot slot,
+                           int x, int y, int mouseX, int mouseY) {
+        slotBg(g, SLOT_SPRITE, x, y);
+        if (e != null) stackOn(g, e.getItemBySlot(slot), x, y, mouseX, mouseY);
     }
 
     // ---- chat transcript + plan ----
@@ -646,67 +662,88 @@ public final class AnimusScreen extends Screen {
         return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : "";
     }
 
-    /** The Items tab: vitals (HP + hunger) + equipment + the read-only 36-slot backpack, all fetched
-     *  via RequestInventoryPayload (food + items) and the live entity (HP + equipment). */
+    /** The Items tab: a vanilla-inventory-style "companion sheet" — armor column + offhand, a live
+     *  mouse-following portrait, the synced 2×2 craft grid + result, segmented heart/drumstick vitals,
+     *  and the read-only checkerboard 3×9 storage + hotbar. Body data is fetched on demand via
+     *  RequestInventoryPayload (backpack + craft + food); HP + equipment come off the live client entity. */
     private void renderItems(GuiGraphicsExtractor g, int mouseX, int mouseY) {
         var snap = ClientAnimusInventory.get(uuid).orElse(null);
         AbstractClientPlayer e = ClientAnimusLookup.resolve(uuid);
+        List<ItemStack> craft = snap != null ? snap.craft() : List.of();
 
-        // -- vitals row: HP + hunger (left), equipment (right) --
-        int vy = top + HEADER_H + 6;
-        if (e != null) renderHpBar(g, left + PAD, vy, e.getHealth(), e.getMaxHealth());
-        if (snap != null && snap.loaded()) renderHungerBar(g, left + PAD + 110, vy, snap.foodLevel());
-        if (e != null) {
-            renderEquipment(g, e, left + PANEL_W - PAD - EQUIP.length * 18, vy + 1, mouseX, mouseY);
+        int cTop = top + HEADER_H + 8;
+
+        // -- armor column (left) + offhand below it --
+        int armorX = left + PAD;
+        for (int i = 0; i < ARMOR.length; i++) {
+            drawEquip(g, e, ARMOR[i], armorX, cTop + i * 18, mouseX, mouseY);
         }
+        int offY = cTop + ARMOR.length * 18 + 4;
+        drawEquip(g, e, EquipmentSlot.OFFHAND, armorX, offY, mouseX, mouseY);
 
-        // -- backpack --
-        int y = vy + 24;
-        txt(g, Component.literal("Backpack (read-only)"), left + PAD, y, TXT_MUTED);
+        // -- live 3D portrait socket (bottom aligned with the offhand slot) --
+        int portX = armorX + 18 + 6, portW = 52, portH = ARMOR.length * 18 + 4 + 16;
+        renderPortrait(g, e, portX, cTop, portW, portH, mouseX, mouseY);
+
+        // -- synced 2×2 craft grid (+ arrow + result) --
+        int craftX = portX + portW + 12, craftY = cTop + 4;
+        for (int i = 0; i < 4; i++) {
+            int cx = craftX + (i % 2) * 18, cy = craftY + (i / 2) * 18;
+            slotBg(g, SLOT_SPRITE, cx, cy);
+            stackOn(g, i < craft.size() ? craft.get(i) : ItemStack.EMPTY, cx, cy, mouseX, mouseY);
+        }
+        int resultX = craftX + 2 * 18 + 12, resultY = craftY + 9;
+        txt(g, Component.literal("→"), craftX + 2 * 18 + 2, resultY + 4, TXT_MUTED);
+        slotBg(g, SLOT_SPRITE, resultX, resultY);
+        stackOn(g, craft.size() > 4 ? craft.get(4) : ItemStack.EMPTY, resultX, resultY, mouseX, mouseY);
+
+        // -- vitals: segmented hearts + drumsticks, under the craft row --
+        int vx = craftX, vy = craftY + 2 * 18 + 6;
+        if (e != null) renderStatRow(g, vx, vy, e.getHealth(), e.getMaxHealth(),
+                HEART_FULL, HEART_HALF, HEART_EMPTY);
+        int food = (snap != null && snap.loaded()) ? snap.foodLevel() : 0;
+        renderStatRow(g, vx, vy + ICON + 3, food, 20, FOOD_FULL, FOOD_HALF, FOOD_EMPTY);
+
+        // -- backpack: checkerboard 3×9 storage + hotbar --
+        int sectionB = offY + 16 + 8;
+        int gx = left + (PANEL_W - 9 * 18) / 2;           // centre the 9-wide grid
         if (snap == null) {
-            txt(g, Component.literal("loading…"), left + PAD, y + 16, TXT_FAINT);
+            txt(g, Component.literal("loading…"), gx, sectionB + 4, TXT_FAINT);
             return;
         }
         if (!snap.loaded() || snap.items().isEmpty()) {
             txt(g, Component.literal("asleep / out of view — chat to wake it."),
-                    left + PAD, y + 16, TXT_FAINT);
+                    left + PAD, sectionB + 4, TXT_FAINT);
             return;
         }
         List<ItemStack> items = snap.items();
-        int gx = left + (PANEL_W - 9 * 18) / 2;       // centre the 9-wide grid
-        int gy = y + 16;
-        for (int i = 9; i < 36; i++) {                 // storage rows (slots 9..35)
+        for (int i = 9; i < 36; i++) {                     // storage rows (slots 9..35)
             int col = (i - 9) % 9, row = (i - 9) / 9;
-            drawSlot(g, items, i, gx + col * 18, gy + row * 18, mouseX, mouseY);
+            int x = gx + col * 18, y = sectionB + row * 18;
+            slotBg(g, ((col + row) & 1) == 0 ? SLOT_SPRITE : SLOT_ALT, x, y);
+            stackOn(g, items.get(i), x, y, mouseX, mouseY);
         }
-        int hotbarY = gy + 3 * 18 + 6;                 // hotbar (slots 0..8)
+        int hotbarY = sectionB + 3 * 18 + 6;               // hotbar (slots 0..8)
         for (int i = 0; i < 9; i++) {
-            drawSlot(g, items, i, gx + i * 18, hotbarY, mouseX, mouseY);
+            int x = gx + i * 18;
+            slotBg(g, (i & 1) == 0 ? SLOT_SPRITE : SLOT_ALT, x, hotbarY);
+            stackOn(g, items.get(i), x, hotbarY, mouseX, mouseY);
         }
     }
 
-    private static final net.minecraft.resources.Identifier SLOT_SPRITE =
-            net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, "slot");
+    private static net.minecraft.resources.Identifier spr(String name) {
+        return net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, name);
+    }
+    private static final net.minecraft.resources.Identifier SLOT_SPRITE = spr("slot");
+    private static final net.minecraft.resources.Identifier SLOT_ALT = spr("slot_alt");        // checkerboard
     /** Parchment frame (reuses the button sprite) behind text fields. */
-    private static final net.minecraft.resources.Identifier FIELD_SPRITE =
-            net.minecraft.resources.Identifier.fromNamespaceAndPath(com.dwinovo.animus.Constants.MOD_ID, "button");
-
-    private void drawSlot(GuiGraphicsExtractor g, List<ItemStack> items, int index,
-                          int x, int y, int mouseX, int mouseY) {
-        g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED, SLOT_SPRITE, x, y, 16, 16);
-        ItemStack st = index < items.size() ? items.get(index) : ItemStack.EMPTY;
-        if (!st.isEmpty()) {
-            g.item(st, x, y);
-            g.itemDecorations(font, st, x, y);
-            if (mouseX >= x && mouseX < x + 16 && mouseY >= y && mouseY < y + 16) {
-                g.setTooltipForNextFrame(font, st, mouseX, mouseY);
-            }
-        }
-    }
-
-    private static String fmt(float v) {
-        return v == Math.floor(v) ? String.valueOf((int) v) : String.format("%.1f", v);
-    }
+    private static final net.minecraft.resources.Identifier FIELD_SPRITE = spr("button");
+    private static final net.minecraft.resources.Identifier HEART_FULL = spr("heart_full");
+    private static final net.minecraft.resources.Identifier HEART_HALF = spr("heart_half");
+    private static final net.minecraft.resources.Identifier HEART_EMPTY = spr("heart_empty");
+    private static final net.minecraft.resources.Identifier FOOD_FULL = spr("food_full");
+    private static final net.minecraft.resources.Identifier FOOD_HALF = spr("food_half");
+    private static final net.minecraft.resources.Identifier FOOD_EMPTY = spr("food_empty");
 
     @Override
     public boolean isPauseScreen() {

@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="UTF-8"/>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:9px;height:9px;overflow:hidden;background:#00000000}
+.px{position:absolute;width:1px;height:1px}</style></head>
+<body><div id="root" data-composition-id="main" data-start="0" data-duration="1" data-width="9" data-height="9"
+style="position:relative;width:9px;height:9px;overflow:hidden">
+<div class="clip" data-start="0" data-duration="1" data-track-index="1" style="position:absolute;inset:0" id="grid"></div></div>
+<script>window.__timelines=window.__timelines||{};window.__timelines["main"]=gsap.timeline({paused:true});
+var PAL=@PAL@;var PAT=@PAT@;var grid=document.getElementById('grid');
+for(var y=0;y<PAT.length;y++){var row=PAT[y];for(var x=0;x<row.length;x++){var col=PAL[row[x]];if(col){var d=document.createElement('div');d.className='px';d.style.left=x+'px';d.style.top=y+'px';d.style.background=col;grid.appendChild(d);}}}
+</script></body></html>

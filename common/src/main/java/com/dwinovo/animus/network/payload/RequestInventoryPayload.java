@@ -45,7 +45,8 @@ public record RequestInventoryPayload(UUID uuid) implements CustomPacketPayload 
     public static void handle(RequestInventoryPayload p, ServerPlayer player) {
         AnimusPlayer animus = AnimusPlayer.findByUuid(player.level().getServer(), p.uuid());
         if (animus == null || !animus.isOwnedByPlayer(player.getUUID())) {
-            Services.NETWORK.sendToPlayer(player, new AnimusInventoryPayload(p.uuid(), false, List.of(), 0, 0f));
+            Services.NETWORK.sendToPlayer(player,
+                    new AnimusInventoryPayload(p.uuid(), false, List.of(), List.of(), 0, 0f));
             return;
         }
         Inventory inv = animus.getInventory();
@@ -53,7 +54,12 @@ public record RequestInventoryPayload(UUID uuid) implements CustomPacketPayload 
         for (int i = 0; i < MAIN_SLOTS; i++) {
             items.add(inv.getItem(i).copy());
         }
-        Services.NETWORK.sendToPlayer(player, new AnimusInventoryPayload(p.uuid(), true, items,
+        // The 2×2 crafting menu (vanilla InventoryMenu layout): slot 0 = result, slots 1-4 = grid.
+        // Packed as [grid0, grid1, grid2, grid3, result] for the Items tab to mirror.
+        List<ItemStack> craft = new ArrayList<>(5);
+        for (int i = 1; i <= 4; i++) craft.add(animus.inventoryMenu.getSlot(i).getItem().copy());
+        craft.add(animus.inventoryMenu.getSlot(0).getItem().copy());
+        Services.NETWORK.sendToPlayer(player, new AnimusInventoryPayload(p.uuid(), true, items, craft,
                 animus.getFoodData().getFoodLevel(), animus.getFoodData().getSaturationLevel()));
     }
 }

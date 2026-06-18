@@ -20,7 +20,7 @@ import java.util.UUID;
  * {@link ClientAnimusInventory} for the Items tab to render read-only.
  */
 public record AnimusInventoryPayload(UUID uuid, boolean loaded, List<ItemStack> items,
-                                    int foodLevel, float saturation)
+                                    List<ItemStack> craft, int foodLevel, float saturation)
         implements CustomPacketPayload {
 
     public static final Type<AnimusInventoryPayload> TYPE = new Type<>(
@@ -31,6 +31,7 @@ public record AnimusInventoryPayload(UUID uuid, boolean loaded, List<ItemStack> 
                     UUIDUtil.STREAM_CODEC, AnimusInventoryPayload::uuid,
                     ByteBufCodecs.BOOL, AnimusInventoryPayload::loaded,
                     ItemStack.OPTIONAL_LIST_STREAM_CODEC, AnimusInventoryPayload::items,
+                    ItemStack.OPTIONAL_LIST_STREAM_CODEC, AnimusInventoryPayload::craft,
                     ByteBufCodecs.VAR_INT, AnimusInventoryPayload::foodLevel,
                     ByteBufCodecs.FLOAT, AnimusInventoryPayload::saturation,
                     AnimusInventoryPayload::new);
@@ -43,6 +44,6 @@ public record AnimusInventoryPayload(UUID uuid, boolean loaded, List<ItemStack> 
     /** Client main thread. */
     public static void handle(AnimusInventoryPayload p) {
         ClientAnimusInventory.update(p.uuid(), new ClientAnimusInventory.Snapshot(
-                p.loaded(), p.items(), p.foodLevel(), p.saturation(), System.currentTimeMillis()));
+                p.loaded(), p.items(), p.craft(), p.foodLevel(), p.saturation(), System.currentTimeMillis()));
     }
 }
