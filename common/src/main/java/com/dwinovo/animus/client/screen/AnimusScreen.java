@@ -125,6 +125,8 @@ public final class AnimusScreen extends Screen {
     private int scroll;            // px scrolled down from the top of the content
     private boolean pinBottom = true;
     private int lastMaxScroll;
+    /** Completed tool-call groups the user clicked open (keyed by the group's first call id). */
+    private final Set<String> expandedGroups = new HashSet<>();
 
     /** Re-request the backpack every ~1 s while the Items tab is open. */
     private static final int INV_REFRESH_TICKS = 20;
@@ -373,8 +375,25 @@ public final class AnimusScreen extends Screen {
                     }
                 }
             }
+            if (tab == Tab.CHAT && toggleFoldAt((int) event.x(), my)) return true;
         }
         return super.mouseClicked(event, dbl);
+    }
+
+    /** If a chat fold-toggle row sits under (mx,my), flip its expanded state. Mirrors renderChat geometry. */
+    private boolean toggleFoldAt(int mx, int my) {
+        int bodyY = top + HEADER_H + 4;
+        int bodyBottom = top + PANEL_H - INPUT_H - PAD - 6;
+        int transX = left + PAD;
+        int transW = PANEL_W - PAD * 2 - PLAN_W - 8;
+        if (mx < transX || mx >= transX + transW || my < bodyY || my >= bodyBottom) return false;
+        List<Row> rows = buildRows(transW);
+        int idx = (my - (bodyY - scroll)) / LINE_H;
+        if (idx < 0 || idx >= rows.size()) return false;
+        String key = rows.get(idx).foldKey();
+        if (key == null) return false;
+        if (!expandedGroups.add(key)) expandedGroups.remove(key);   // toggle open/closed
+        return true;
     }
 
     @Override
@@ -522,7 +541,9 @@ public final class AnimusScreen extends Screen {
         Set<String> failed = failedIds();
         for (Row row : rows) {
             if (y + LINE_H > bodyY && y < bodyBottom) {
-                if (row.toolIds() != null) {
+                if (row.foldKey() != null) {                 // clickable fold toggle — glyph baked into text
+                    txt(g, row.text, transX, y, row.color);
+                } else if (row.toolIds() != null) {          // tool row — status icon + text
                     boolean anyRunning = row.toolIds().stream().anyMatch(id -> !done.contains(id));
                     boolean anyFail = row.toolIds().stream().anyMatch(failed::contains);
                     String icon = anyRunning ? SPIN[(int) ((t / 120) % 4)] : (anyFail ? "✗" : "✔");
@@ -552,17 +573,19 @@ public final class AnimusScreen extends Screen {
      *  matching tool call done (via {@link #doneIds()}); the call line shows the spinner/check. */
     private List<Row> buildRows(int width) {
         List<Row> out = new ArrayList<>();
-        List<LlmToolCall> group = new ArrayList<>();        // consecutive tool calls, folded into one row
+        Set<String> done = doneIds();
+        Set<String> failed = failedIds();
+        List<LlmToolCall> group = new ArrayList<>();        // a run of consecutive tool calls
         for (ConvoState.Msg msg : loop().convo().snapshot()) {
             switch (msg) {
                 case ConvoState.Msg.User u -> {
-                    flushTools(out, group, width);
+                    flushTools(out, group, done, failed, width);
                     wrapPlain(out, u.content(), YOU, width);     // user = teal body, no label
                 }
                 case ConvoState.Msg.Assistant a -> {
                     AssistantTurn turn = a.turn();
                     if (turn.content() != null && !turn.content().isBlank()) {
-                        flushTools(out, group, width);           // spoken reply breaks the fold
+                        flushTools(out, group, done, failed, width);   // spoken reply breaks the fold
                         addHeader(out, name, AI, width);         // bold name header on its OWN line
                         wrapPlain(out, turn.content(), AI, width);
                     }
@@ -571,7 +594,7 @@ public final class AnimusScreen extends Screen {
                 case ConvoState.Msg.Tool ignored -> { /* result drives done/fail, not a row */ }
             }
         }
-        flushTools(out, group, width);
+        flushTools(out, group, done, failed, width);
         if (loop().isCompacting()) {
             wrapPlain(out, "compacting history…", TXT_MUTED, width);
         }
@@ -581,23 +604,40 @@ public final class AnimusScreen extends Screen {
         return out;
     }
 
-    /** Collapse a run of consecutive tool calls into ONE muted row: a single call shows {@code name args};
-     *  many show "N steps · distinct names…". The row carries every call's id so its icon aggregates status. */
-    private void flushTools(List<Row> out, List<LlmToolCall> group, int width) {
+    /** Emit rows for a run of consecutive tool calls. A single call is always one plain row. A run of
+     *  many stays EXPANDED while any is still running (live per-tool spinners) and AUTO-FOLDS to a muted
+     *  "N steps · names" summary once all are done — unless the user clicked it open (keyed by the first
+     *  id in {@link #expandedGroups}), in which case it shows a "▾" header + the tool rows. */
+    private void flushTools(List<Row> out, List<LlmToolCall> group, Set<String> done, Set<String> failed, int width) {
         if (group.isEmpty()) return;
-        List<String> ids = new ArrayList<>();
-        for (LlmToolCall tc : group) ids.add(tc.id());
-        String summary;
-        if (group.size() == 1) {
-            summary = toolLine(group.get(0));
-        } else {
+        if (group.size() == 1) {                                  // single tool — never folds
+            addToolRow(out, group.get(0), width);
+            group.clear();
+            return;
+        }
+        String key = group.get(0).id();
+        boolean running = group.stream().anyMatch(tc -> !done.contains(tc.id()));
+        boolean expanded = running || expandedGroups.contains(key);
+        if (!expanded) {                                          // folded summary (click to expand)
             List<String> names = new ArrayList<>();
             for (LlmToolCall tc : group) if (!names.contains(tc.name())) names.add(tc.name());
-            summary = group.size() + " steps · " + String.join(" · ", names);
+            boolean anyFail = group.stream().anyMatch(tc -> failed.contains(tc.id()));
+            String summary = "▸ " + group.size() + " steps · " + String.join(" · ", names);
+            out.add(new Row(colored(fitOneLine(summary, width - 2), anyFail ? FAIL : TOOL).getVisualOrderText(),
+                    anyFail ? FAIL : TOOL, null, key));
+        } else {
+            if (!running) {                                       // manually expanded → collapsible header
+                String hdr = "▾ " + group.size() + " steps";
+                out.add(new Row(colored(hdr, TXT_MUTED).getVisualOrderText(), TXT_MUTED, null, key));
+            }
+            for (LlmToolCall tc : group) addToolRow(out, tc, width);
         }
-        FormattedCharSequence seq = colored(fitOneLine(summary, width - 2 - 11), TOOL).getVisualOrderText();
-        out.add(new Row(seq, TOOL, ids));
         group.clear();
+    }
+
+    private void addToolRow(List<Row> out, LlmToolCall tc, int width) {
+        FormattedCharSequence seq = colored(fitOneLine(toolLine(tc), width - 2 - 11), TOOL).getVisualOrderText();
+        out.add(new Row(seq, TOOL, List.of(tc.id()), null));
     }
 
     /** Trim a string with an ellipsis so it fits one line of the given pixel width. */
@@ -618,14 +658,14 @@ public final class AnimusScreen extends Screen {
         var tc = net.minecraft.network.chat.TextColor.fromRgb(color & 0xFFFFFF);
         Component c = Component.literal(label).withStyle(s -> s.withColor(tc).withBold(true));
         for (FormattedCharSequence seq : font.split(c, width - 2)) {
-            out.add(new Row(seq, color, null));
+            out.add(new Row(seq, color, null, null));
         }
     }
 
     /** A plain, regular-weight line (status hints) — colour baked into the style. */
     private void wrapPlain(List<Row> out, String text, int color, int width) {
         for (FormattedCharSequence seq : font.split(colored(text, color), width - 2)) {
-            out.add(new Row(seq, color, null));
+            out.add(new Row(seq, color, null, null));
         }
     }
 
@@ -796,7 +836,7 @@ public final class AnimusScreen extends Screen {
         return false;
     }
 
-    /** A rendered transcript line. {@code toolIds} non-null = a folded tool-call group whose icon shows
-     *  aggregate status (spinner if any still running, else ✔ / ✗); null = a plain text line. */
-    private record Row(FormattedCharSequence text, int color, List<String> toolIds) {}
+    /** A rendered transcript line. {@code toolIds} non-null = a tool row (status icon = spinner/✔/✗).
+     *  {@code foldKey} non-null = a clickable fold toggle (the group's first id); both null = plain text. */
+    private record Row(FormattedCharSequence text, int color, List<String> toolIds, String foldKey) {}
 }
