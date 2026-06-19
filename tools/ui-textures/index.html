@@ -1,14 +1,16 @@
 <!doctype html><html><head><meta charset="UTF-8"/>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:11px;height:6px;overflow:hidden;background:#00000000}
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:16px;height:16px;overflow:hidden;background:#00000000}
 .px{position:absolute;width:1px;height:1px}</style></head>
-<body><div id="root" data-composition-id="main" data-start="0" data-duration="1" data-width="11" data-height="6"
-style="position:relative;width:11px;height:6px;overflow:hidden">
+<body><div id="root" data-composition-id="main" data-start="0" data-duration="1" data-width="16" data-height="16"
+style="position:relative;width:16px;height:16px;overflow:hidden">
 <div class="clip" data-start="0" data-duration="1" data-track-index="1" style="position:absolute;inset:0" id="grid"></div></div>
 <script>window.__timelines=window.__timelines||{};window.__timelines["main"]=gsap.timeline({paused:true});
-// Down chevron, explicit pixel grid (tip.html technique): K=#352818 outline, A=#E3A23A amber fill.
-var PAL={".":null,"K":"#352818","A":"#E3A23A"};
-var PAT=["KKKKKKKKKKK",".KAAAAAAAK.","..KAAAAAK..","...KAAAK...","....KAK....",".....K....."];
-var grid=document.getElementById('grid');
-for(var y=0;y<PAT.length;y++){var row=PAT[y];for(var x=0;x<row.length;x++){var col=PAL[row[x]];if(col){var d=document.createElement('div');d.className='px';d.style.left=x+'px';d.style.top=y+'px';d.style.background=col;grid.appendChild(d);}}}
+// Square eye (hide/off) — bordered block + a 2px dark diagonal slash (pixel staircase, no AA, no pupil).
+var PAL={"K":"#352818","A":"#E3A23A"},grid=document.getElementById('grid');
+function px(x,y,c){var d=document.createElement('div');d.className='px';d.style.left=x+'px';d.style.top=y+'px';d.style.background=PAL[c];grid.appendChild(d);}
+for(var y=0;y<16;y++)for(var x=0;x<16;x++){var c=null;
+  if(y>=3&&y<=12){c=(y==3||y==12||x==0||x==15)?"K":"A";}
+  if(y>=4&&y<=11){var cx=Math.round(2+(11-y)*(12/7));if((x==cx||x==cx+1)&&x>=1&&x<=14)c="K";}   // slash
+  if(c)px(x,y,c);}
 </script></body></html>
