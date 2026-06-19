@@ -36,10 +36,12 @@ cp renders/<name>/frame_000001.png ../../common/src/main/resources/assets/tulpa/
 ## Rendered so far
 - `panel.png` — the TulpaScreen panel chrome (offwhite ground + dot-grid, blue header
   band, 4px black border, tilted yellow corner badge). → `assets/tulpa/textures/gui/panel.png`
-- `eye.png` / `eye_off.png` (`eye.html` / `eye_off.html`, 32×32) — the API-key reveal toggle in
-  the Cottage (WARM) UiTheme palette: a square amber block with a thick dark-brown border + square
-  pupil; eye_off adds a dark-brown diagonal slash. Rendered transparent via
-  `render --format png-sequence` (the slash needs a non-white AA edge). → `assets/tulpa/textures/gui/sprites/`
+- `eye.png` / `eye_off.png` / `chevron_up.png` / `chevron_down.png` (`eye.html` / `eye_off.html` /
+  `chevron.html`) — Cottage (WARM) palette icons: a square amber block + brown border + square pupil
+  (eye), a brown diagonal slash (eye_off), amber scroll triangles (chevron). **Explicit pixel grid**
+  (tip.html technique — 1px divs), rendered transparent via `render --format png-sequence`, then the
+  alpha is snapped to 0/255 and colours to the palette: **pixel art with NO antialias / gradient
+  edge** (a gradient on a low-res sprite looks awful). → `assets/tulpa/textures/gui/sprites/`
 
 ## To render next
 button (yellow CTA), tabs (label-pills), item-slot frame, toast card, dropdown.

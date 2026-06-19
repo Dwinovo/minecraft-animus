@@ -1,12 +1,16 @@
 <!doctype html><html><head><meta charset="UTF-8"/>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:32px;height:32px;overflow:hidden;background:#00000000}
-/* Square eye-off (Cottage WARM): block + a dark-brown diagonal slash. Transparent bg via
-   `hyperframes render --format png-sequence` — the slash antialiases to transparent, no white fringe. */
-.lens{position:absolute;left:3px;top:7px;width:26px;height:18px;background:#E3A23A;border:4px solid #352818}
-.slash{position:absolute;left:1px;top:13px;width:30px;height:5px;background:#352818;transform:rotate(38deg);transform-origin:center}</style></head>
-<body><div id="root" data-composition-id="main" data-start="0" data-duration="1" data-width="32" data-height="32"
-style="position:relative;width:32px;height:32px;overflow:hidden">
-<div class="clip" data-start="0" data-duration="1" data-track-index="1" style="position:absolute;inset:0">
-<div class="lens"></div><div class="slash"></div></div></div>
-<script>window.__timelines=window.__timelines||{};window.__timelines["main"]=gsap.timeline({paused:true})</script></body></html>
+<style>*{margin:0;padding:0;box-sizing:border-box}html,body{width:16px;height:16px;overflow:hidden;background:#00000000}
+.px{position:absolute;width:1px;height:1px}</style></head>
+<body><div id="root" data-composition-id="main" data-start="0" data-duration="1" data-width="16" data-height="16"
+style="position:relative;width:16px;height:16px;overflow:hidden">
+<div class="clip" data-start="0" data-duration="1" data-track-index="1" style="position:absolute;inset:0" id="grid"></div></div>
+<script>window.__timelines=window.__timelines||{};window.__timelines["main"]=gsap.timeline({paused:true});
+// Square eye (hide/off) — bordered block + a 2px dark diagonal slash (pixel staircase, no AA, no pupil).
+var PAL={"K":"#352818","A":"#E3A23A"},grid=document.getElementById('grid');
+function px(x,y,c){var d=document.createElement('div');d.className='px';d.style.left=x+'px';d.style.top=y+'px';d.style.background=PAL[c];grid.appendChild(d);}
+for(var y=0;y<16;y++)for(var x=0;x<16;x++){var c=null;
+  if(y>=3&&y<=12){c=(y==3||y==12||x==0||x==15)?"K":"A";}
+  if(y>=4&&y<=11){var cx=Math.round(2+(11-y)*(12/7));if((x==cx||x==cx+1)&&x>=1&&x<=14)c="K";}   // slash
+  if(c)px(x,y,c);}
+</script></body></html>
