@@ -45,6 +45,7 @@ public final class TulpaToasts {
     private static final int BUBBLE_GAP = 5;
     private static final int TIP_W = 6, TIP_H = 11;
     private static final int SLIVER_W = 3;       // collapsed gold edge
+    private static final int COLLAPSE_MAX = 5;   // more than this many companions → one shared slot
     private static final int LINE_H = 11;
     private static final int PADV = 5;
     private static final int INNER_W = W - 14;
@@ -128,28 +129,52 @@ public final class TulpaToasts {
         UiTheme th = UiTheme.current();
         long now = System.currentTimeMillis();
         int n = entries.size();
+
+        // Past COLLAPSE_MAX companions the stacked rail overflows the screen (and can't scroll), so
+        // collapse to a single centred slot that always shows whoever spoke / acted most recently —
+        // a new turn from any companion preempts the slot (latest wins).
+        if (n > COLLAPSE_MAX) {
+            renderOne(g, font, th, mostRecentlyActive(entries), (g.guiHeight() - AVATAR) / 2, now);
+            return;
+        }
+
         int startY = (g.guiHeight() - (n * AVATAR + (n - 1) * STACK_GAP)) / 2;
-
         for (int i = 0; i < n; i++) {
-            UUID uuid = entries.get(i).uuid();
-            int ay = startY + i * (AVATAR + STACK_GAP);
-            Status s = STATUS.get(uuid);
-            long sinceActive = s == null ? Long.MAX_VALUE : now - s.lastActivityMs;
+            renderOne(g, font, th, entries.get(i).uuid(), startY + i * (AVATAR + STACK_GAP), now);
+        }
+    }
 
-            if (s != null && sinceActive < AVATAR_LIFE_MS) {                 // stage 2/3 — avatar out
-                int ax = MARGIN - slideOut(now - s.activatedMs, MARGIN + AVATAR);
-                if (!s.lines.isEmpty()) drawBubble(g, font, ax, ay, s, now); // stage 3 — bubble too
+    /** Draw one companion's avatar (+ bubble) at row {@code ay}, through its idle→active→retract stages. */
+    private static void renderOne(GuiGraphics g, Font font, UiTheme th, UUID uuid, int ay, long now) {
+        Status s = STATUS.get(uuid);
+        long sinceActive = s == null ? Long.MAX_VALUE : now - s.lastActivityMs;
+
+        if (s != null && sinceActive < AVATAR_LIFE_MS) {                 // stage 2/3 — avatar out
+            int ax = MARGIN - slideOut(now - s.activatedMs, MARGIN + AVATAR);
+            if (!s.lines.isEmpty()) drawBubble(g, font, ax, ay, s, now); // stage 3 — bubble too
+            drawAvatar(g, uuid, ax, ay, th);
+        } else {
+            long collapseAge = s == null ? Long.MAX_VALUE : sinceActive - AVATAR_LIFE_MS;
+            if (collapseAge < SLIDE_MS) {                                // retracting off-screen
+                int ax = MARGIN - ((MARGIN + AVATAR) - slideOut(collapseAge, MARGIN + AVATAR));
                 drawAvatar(g, uuid, ax, ay, th);
-            } else {
-                long collapseAge = s == null ? Long.MAX_VALUE : sinceActive - AVATAR_LIFE_MS;
-                if (collapseAge < SLIDE_MS) {                                // retracting off-screen
-                    int ax = MARGIN - ((MARGIN + AVATAR) - slideOut(collapseAge, MARGIN + AVATAR));
-                    drawAvatar(g, uuid, ax, ay, th);
-                } else {                                                     // stage 1 — gold sliver only
-                    g.fill(0, ay + 2, SLIVER_W, ay + AVATAR - 2, th.cta());
-                }
+            } else {                                                     // stage 1 — gold sliver only
+                g.fill(0, ay + 2, SLIVER_W, ay + AVATAR - 2, th.cta());
             }
         }
+    }
+
+    /** The companion that spoke / acted most recently (latest {@code lastActivityMs}); the first entry
+     *  if none has any activity yet. Drives the collapsed single-slot HUD. */
+    private static UUID mostRecentlyActive(List<TulpaRoster.Entry> entries) {
+        UUID best = entries.get(0).uuid();
+        long bestT = Long.MIN_VALUE;
+        for (TulpaRoster.Entry e : entries) {
+            Status s = STATUS.get(e.uuid());
+            long t = s == null ? Long.MIN_VALUE : s.lastActivityMs;
+            if (t >= bestT) { bestT = t; best = e.uuid(); }
+        }
+        return best;
     }
 
     private static void drawAvatar(GuiGraphics g, UUID uuid, int x, int y, UiTheme th) {
