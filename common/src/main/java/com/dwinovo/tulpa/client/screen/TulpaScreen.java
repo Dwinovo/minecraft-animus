@@ -807,10 +807,13 @@ public final class TulpaScreen extends Screen {
                 g.fill(d, e2, d + 5, e2 + 5, statusColor(e.uuid()));
                 Nb.border(g, d, e2, 5, 5, 1, BORDER);
             }
-            // hover → a small ✕ badge (top-right) that starts the delete-confirm bar
-            if (dismissPending == null && mouseX >= ax && mouseX < ax + RAIL_AV
-                    && mouseY >= ay && mouseY < ay + RAIL_AV) {
-                int bx = ax + RAIL_AV - 9, by = ay - 1;
+            // hover → a small ✕ badge breaking OUT of the avatar's top-right corner (overhangs the frame).
+            // Show it while the cursor is over the avatar OR the badge itself (the badge sticks out, so
+            // moving onto it must not make it vanish).
+            int bx = ax + RAIL_AV - 3, by = ay - 5;
+            boolean overAvatar = mouseX >= ax && mouseX < ax + RAIL_AV && mouseY >= ay && mouseY < ay + RAIL_AV;
+            boolean overBadge = mouseX >= bx && mouseX < bx + 9 && mouseY >= by && mouseY < by + 9;
+            if (dismissPending == null && (overAvatar || overBadge)) {
                 g.fill(bx, by, bx + 9, by + 9, FAIL);
                 Nb.border(g, bx, by, 9, 9, 1, BORDER);
                 txt(g, Component.literal("✕"), bx + 2, by + 1, ON_BAND);
@@ -867,7 +870,7 @@ public final class TulpaScreen extends Screen {
         for (int i = first; i < entries.size(); i++) {
             int ay = startY + (i - first) * RAIL_SLOT;
             if (ay + RAIL_AV > railBottomEdge()) break;
-            int bx = ax + RAIL_AV - 9, by = ay - 1;
+            int bx = ax + RAIL_AV - 3, by = ay - 5;   // overhanging top-right badge (matches renderRail)
             if (mx >= bx && mx < bx + 9 && my >= by && my < by + 9) return entries.get(i).uuid();
         }
         return null;
