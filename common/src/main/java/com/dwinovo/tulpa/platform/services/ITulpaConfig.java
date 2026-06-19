@@ -55,6 +55,9 @@ public interface ITulpaConfig {
      */
     String getProvider();
 
+    /** Optional HTTP proxy for LLM calls as {@code host:port} (empty = direct). For users behind a firewall. */
+    String getProxy();
+
     /**
      * System prompt prepended to every conversation. Empty string for none.
      * The agent layer adds tool-use guidance automatically on top of this.
@@ -74,6 +77,8 @@ public interface ITulpaConfig {
     void setModel(String value);
 
     void setProvider(String value);
+
+    void setProxy(String value);
 
     void setSystemPrompt(String value);
 

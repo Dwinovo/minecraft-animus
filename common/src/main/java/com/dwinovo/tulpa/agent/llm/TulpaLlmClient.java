@@ -54,7 +54,7 @@ public final class TulpaLlmClient {
 
     private static volatile TulpaLlmClient instance;
 
-    private final HttpLlmTransport transport = new HttpLlmTransport();
+    private final HttpLlmTransport transport;
     private final LlmProvider provider;
     private final String fullUrl;
     private final String apiKey;
@@ -64,6 +64,8 @@ public final class TulpaLlmClient {
         this.provider = pickProvider(config.getProvider());
         this.fullUrl = composeUrl(config.getBaseUrl(), provider);
         this.apiKey = config.getApiKey();
+        this.transport = new HttpLlmTransport(config.getProxy(),
+                com.dwinovo.tulpa.agent.model.ModelRegistry.headers(config.getProvider()));
         String configured = config.getModel();
         this.model = (configured == null || configured.isBlank()) ? "gpt-5-2-mini" : configured;
         Constants.LOG.info("[tulpa-llm] client initialised: provider={}, model={}, url={}, streaming={}",

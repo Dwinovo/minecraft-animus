@@ -154,6 +154,9 @@ public final class FabricTulpaConfig implements ITulpaConfig {
     @Override
     public String getProvider() { return data.provider == null ? "openai" : data.provider; }
 
+    @Override
+    public String getProxy() { return data.proxy == null ? "" : data.proxy; }
+
     // ---- mutations ----
 
     @Override
@@ -167,6 +170,9 @@ public final class FabricTulpaConfig implements ITulpaConfig {
 
     @Override
     public void setProvider(String value) { data.provider = value == null ? "openai" : value; }
+
+    @Override
+    public void setProxy(String value) { data.proxy = value == null ? "" : value; }
 
     @Override
     public void setSystemPrompt(String value) { data.systemPrompt = value == null ? "" : value; }
@@ -202,6 +208,7 @@ public final class FabricTulpaConfig implements ITulpaConfig {
         public String baseUrl = "";
         public String model = "gpt-5-2-mini";
         public String provider = "openai";
+        public String proxy = "";   // optional host:port HTTP proxy for LLM calls
         // Deliberately short. The planning behaviour (use todowrite for
         // multi-step tasks, load_skill to fetch detailed workflows) emerges
         // entirely from those tools' own descriptions plus the runtime-injected
@@ -220,6 +227,7 @@ public final class FabricTulpaConfig implements ITulpaConfig {
             if (baseUrl == null) baseUrl = d.baseUrl;
             if (model == null || model.isBlank()) model = d.model;
             if (provider == null || provider.isBlank()) provider = d.provider;
+            if (proxy == null) proxy = d.proxy;
             if (systemPrompt == null) systemPrompt = d.systemPrompt;
             return this;
         }

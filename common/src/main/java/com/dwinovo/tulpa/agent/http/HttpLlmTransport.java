@@ -56,12 +56,36 @@ public final class HttpLlmTransport {
     private static final AtomicInteger REQUEST_ID_SOURCE = new AtomicInteger();
 
     private final HttpClient client;
+    private final java.util.Map<String, String> extraHeaders;
 
-    public HttpLlmTransport() {
-        this.client = HttpClient.newBuilder()
+    public HttpLlmTransport(String proxy, java.util.Map<String, String> extraHeaders) {
+        this.extraHeaders = extraHeaders == null ? java.util.Map.of() : extraHeaders;
+        HttpClient.Builder b = HttpClient.newBuilder()
                 .connectTimeout(CONNECT_TIMEOUT)
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
+                .followRedirects(HttpClient.Redirect.NORMAL);
+        java.net.ProxySelector ps = proxySelector(proxy);
+        if (ps != null) b.proxy(ps);
+        this.client = b.build();
+    }
+
+    /** Parse a {@code host:port} (scheme optional) proxy into a selector, or null if blank/invalid. */
+    private static java.net.ProxySelector proxySelector(String proxy) {
+        if (proxy == null || proxy.isBlank()) return null;
+        try {
+            String s = proxy.trim();
+            int scheme = s.indexOf("://");
+            if (scheme >= 0) s = s.substring(scheme + 3);
+            s = s.replaceAll("/.*$", "");
+            int colon = s.lastIndexOf(':');
+            if (colon < 0) return null;
+            String host = s.substring(0, colon);
+            int port = Integer.parseInt(s.substring(colon + 1));
+            Constants.LOG.info("[tulpa-http] routing LLM calls through proxy {}:{}", host, port);
+            return java.net.ProxySelector.of(new java.net.InetSocketAddress(host, port));
+        } catch (Exception e) {
+            Constants.LOG.warn("[tulpa-http] invalid proxy '{}' (expected host:port) — going direct", proxy);
+            return null;
+        }
     }
 
     /**
@@ -130,10 +154,11 @@ public final class HttpLlmTransport {
     // ---- internals ----
 
     private HttpRequest baseRequest(String url, String apiKey, String accept, String body) {
-        return HttpRequest.newBuilder()
+        HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .timeout(REQUEST_TIMEOUT)
-                .header("Authorization", "Bearer " + apiKey)
+                .timeout(REQUEST_TIMEOUT);
+        extraHeaders.forEach(b::header);   // per-site headers (e.g. OpenRouter Referer / Title)
+        return b.header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json; charset=utf-8")
                 .header("Accept", accept)
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))

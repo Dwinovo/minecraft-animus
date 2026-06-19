@@ -25,6 +25,7 @@ public final class NeoForgeTulpaConfig implements ITulpaConfig {
     public static final ModConfigSpec.ConfigValue<String> BASE_URL;
     public static final ModConfigSpec.ConfigValue<String> MODEL;
     public static final ModConfigSpec.ConfigValue<String> PROVIDER;
+    public static final ModConfigSpec.ConfigValue<String> PROXY;
     public static final ModConfigSpec.ConfigValue<String> SYSTEM_PROMPT;
     public static final ModConfigSpec SPEC;
 
@@ -51,6 +52,8 @@ public final class NeoForgeTulpaConfig implements ITulpaConfig {
                 "  (aliases: qwen, tongyi, aliyun)",
                 "Override 'base_url' below to use a different host (proxy / region split).")
                 .define("provider", "openai");
+        PROXY = b.comment("Optional HTTP proxy for LLM calls as host:port (empty = direct).")
+                .define("proxy", "");
 
         b.pop();
         b.comment("Behaviour tuning.").push("agent");
@@ -97,6 +100,11 @@ public final class NeoForgeTulpaConfig implements ITulpaConfig {
         return s.isEmpty() ? "openai" : s;
     }
 
+    @Override
+    public String getProxy() {
+        return safe(PROXY);
+    }
+
     // ---- mutations ----
 
     @Override
@@ -117,6 +125,11 @@ public final class NeoForgeTulpaConfig implements ITulpaConfig {
     @Override
     public void setProvider(String value) {
         PROVIDER.set(value == null ? "openai" : value);
+    }
+
+    @Override
+    public void setProxy(String value) {
+        PROXY.set(value == null ? "" : value);
     }
 
     @Override
