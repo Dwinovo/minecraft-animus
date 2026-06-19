@@ -25,9 +25,18 @@ public final class SimpleButton extends Button {
         return Identifier.fromNamespaceAndPath(Constants.MOD_ID, name);
     }
 
+    /** Optional centered icon sprite; when set it replaces the text label (e.g. the eye toggle). */
+    private Identifier icon;
+
     public SimpleButton(int x, int y, int width, int height, Component message, Button.OnPress onPress) {
         super(x, y, width, height, message, onPress,
                 defaultNarrationSupplier -> defaultNarrationSupplier.get());
+    }
+
+    /** Draw a centered icon sprite instead of a text label. Returns {@code this} for chaining. */
+    public SimpleButton icon(Identifier icon) {
+        this.icon = icon;
+        return this;
     }
 
     @Override
@@ -36,6 +45,12 @@ public final class SimpleButton extends Button {
         boolean hovered = active && isHoveredOrFocused();
         Identifier sprite = !active ? DISABLED : (hovered ? HOVER : IDLE);
         g.blitSprite(RenderPipelines.GUI_TEXTURED, sprite, x, y, w, h);
+
+        if (icon != null) {   // icon button: a centered square sprite, no text label
+            int s = Math.min(w - 4, h - 2);
+            g.blitSprite(RenderPipelines.GUI_TEXTURED, icon, x + (w - s) / 2, y + (h - s) / 2, s, s);
+            return;
+        }
 
         Font font = Minecraft.getInstance().font;
         int color = active ? UiTheme.current().text() : 0xFF6E5E48;
