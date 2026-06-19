@@ -101,6 +101,9 @@ public final class TulpaScreen extends Screen {
     private static final net.minecraft.resources.Identifier AVATAR_FRAME_ACTIVE = railSpr("avatar_frame_active");
     private static final net.minecraft.resources.Identifier SUMMON_SPRITE = railSpr("summon");
     private static final net.minecraft.resources.Identifier SUMMON_ACTIVE = railSpr("summon_active");
+    /** API-key reveal toggle icons: open eye = "click to show", slashed eye = "click to hide". */
+    private static final net.minecraft.resources.Identifier EYE = railSpr("eye");
+    private static final net.minecraft.resources.Identifier EYE_OFF = railSpr("eye_off");
 
     private static final String[] SPIN = {"|", "/", "-", "\\"};
     /** Armor column on the Items tab (top → bottom); offhand is drawn separately below it. */
@@ -373,8 +376,10 @@ public final class TulpaScreen extends Screen {
         apiKeyInput.addFormatter((text, idx) -> showKey
                 ? FormattedCharSequence.forward(text, net.minecraft.network.chat.Style.EMPTY)
                 : FormattedCharSequence.forward("•".repeat(text.length()), net.minecraft.network.chat.Style.EMPTY));
-        add(new SimpleButton(x + w - eyeW, y, eyeW, 18, Component.literal(showKey ? "隐" : "见"),
-                b -> { showKey = !showKey; b.setMessage(Component.literal(showKey ? "隐" : "见")); }));
+        // Eye icon instead of a 见/隐 glyph: open eye when masked (click to show), slashed when shown.
+        add(new SimpleButton(x + w - eyeW, y, eyeW, 18, Component.empty(),
+                b -> { showKey = !showKey; ((SimpleButton) b).icon(showKey ? EYE_OFF : EYE); })
+                .icon(showKey ? EYE_OFF : EYE));
     }
 
     /** Model row: a preset dropdown for the provider's known models, or a free-text box (custom mode)
