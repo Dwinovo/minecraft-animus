@@ -349,12 +349,10 @@ public final class TulpaScreen extends Screen {
         if (addingSite) {
             // row0: site name + cancel
             siteNameInput = field(x, y0 + 11, w - 20, 64, wSiteName);
-            siteNameInput.setHint(Component.literal("e.g. My Proxy"));
             add(new SimpleButton(x + w - 18, y0 + 11, 18, 18, Component.literal("✕"),
                     b -> { addingSite = false; rebuild(); }));
             buildApiKeyRow(x, y0 + SET_SP + 11, w);
             modelInput = field(x, y0 + 2 * SET_SP + 11, w, 128, wModel);
-            modelInput.setHint(Component.literal("model id"));
             baseUrlInput = field(x, y0 + 3 * SET_SP + 11, w, 256, wBaseUrl);
         } else {
             providerDropdown = new ProviderDropdown(wProvider, true);   // live + "+ 添加站点"
@@ -473,8 +471,6 @@ public final class TulpaScreen extends Screen {
             txt(g, Component.literal("Model"), x, y0 + 2 * SET_SP, TXT_MUTED);
             txt(g, Component.literal("Base URL"), x, y0 + 3 * SET_SP, TXT_MUTED);
         } else {
-            if (modelInput != null) modelInput.setHint(Component.literal(   // custom mode only
-                    LlmProviders.byId(providerDropdown.selectedId()).defaultModel()));
             txt(g, Component.literal("Provider"), x, y0, TXT_MUTED);
             txt(g, Component.literal("API Key"), x, y0 + SET_SP, TXT_MUTED);
             txt(g, Component.literal("Model"), x, y0 + 2 * SET_SP, TXT_MUTED);
@@ -688,6 +684,11 @@ public final class TulpaScreen extends Screen {
                     : LlmProviders.byId(providerDropdown.selectedId()).defaultBaseUrl();
             placeholder(g, baseUrlInput, urlPh);
             placeholder(g, proxyInput, "host:port (optional)");
+            // Model + site-name placeholders, also shadowless (these EditBoxes are null outside
+            // custom-model / add-site mode, and placeholder() no-ops on null/non-empty/focused).
+            placeholder(g, modelInput, addingSite ? "model id"
+                    : LlmProviders.byId(providerDropdown.selectedId()).defaultModel());
+            if (addingSite) placeholder(g, siteNameInput, "e.g. My Proxy");
         }
         // The provider dropdown's open list must sit above even the fields.
         if (tab == Tab.SETTINGS) {
