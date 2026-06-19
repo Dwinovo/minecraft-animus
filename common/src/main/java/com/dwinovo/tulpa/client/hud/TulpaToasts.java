@@ -7,7 +7,6 @@ import com.dwinovo.tulpa.client.agent.TulpaRoster;
 import com.dwinovo.tulpa.client.agent.ClientTulpaLookup;
 import com.dwinovo.tulpa.client.screen.TulpaScreen;
 import com.dwinovo.tulpa.client.screen.Nb;
-import com.dwinovo.tulpa.client.screen.RosterScreen;
 import com.dwinovo.tulpa.client.screen.UiTheme;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -121,7 +120,7 @@ public final class TulpaToasts {
 
     public static void render(GuiGraphicsExtractor g) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.screen instanceof TulpaScreen || mc.screen instanceof RosterScreen) return;
+        if (mc.screen instanceof TulpaScreen) return;
         List<TulpaRoster.Entry> entries = new ArrayList<>(TulpaRoster.instance().entries());
         if (entries.isEmpty()) return;
 
