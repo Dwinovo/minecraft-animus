@@ -21,7 +21,9 @@ import java.util.Set;
  * sibling of {@code hunt}. The LLM declares <em>what</em> entity type(s) to
  * destroy and <em>how many</em>; the entity finds the nearest, closes to within
  * bow range + line of sight with the pathfinder, and looses arrows until it's
- * down, repeating until the count is met.
+ * down, repeating until the count is met. Unlike {@code hunt}, it does NOT sweep
+ * up drops afterward — ranged kills scatter their loot, so the LLM follows up
+ * with {@code collect_items} when it wants the spoils.
  *
  * <h2>Schema</h2>
  * <pre>
@@ -62,7 +64,9 @@ public final class ShootTool implements TulpaTool {
                 + "at range) and for blazes. REQUIRES a bow or crossbow in your main "
                 + "hand (equip_item) and matching ammo in your inventory — fails up "
                 + "front if either is missing. Optional radius (default auto-expands). "
-                + "Returns the actual number destroyed.";
+                + "Returns the actual number destroyed. Unlike hunt, shoot does NOT "
+                + "pick up drops — ranged kills scatter their loot away from you, so "
+                + "call collect_items afterward if you want it.";
     }
 
     @Override
