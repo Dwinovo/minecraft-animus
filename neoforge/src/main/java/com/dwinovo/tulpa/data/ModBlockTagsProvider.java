@@ -20,6 +20,11 @@ public final class ModBlockTagsProvider extends BlockTagsProvider {
 
     @Override
     protected void addTags(HolderLookup.Provider provider) {
-        ModBlockTagData.addBlockTags(this::tag);
+        // 1.21.5: vanilla tag(TagKey<T>) returns the protected IntrinsicTagAppender<T>
+        // (add(T)); common can't name it, so wrap it as the neutral Appender here.
+        ModBlockTagData.addBlockTags(key -> {
+            var b = tag(key);
+            return ModItemTagData.appender(v -> b.add(v));
+        });
     }
 }

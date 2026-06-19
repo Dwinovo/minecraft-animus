@@ -51,8 +51,8 @@ public class TulpaFabricClient implements ClientModInitializer {
                 });
 
         // HUD: advancement-style activity toasts (top-right) when not watching a panel.
-        net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry.addLast(
-                ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "tulpa_toasts"),
+        // 1.21.5 predates the HudElementRegistry layer API; use the classic HudRenderCallback.
+        net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register(
                 (g, delta) -> com.dwinovo.tulpa.client.hud.TulpaToasts.render(g));
 
         // In-world path overlay for every companion (Baritone PathRenderer port),

@@ -30,7 +30,11 @@ public class TulpaNeoForgeClient {
     }
 
     @SubscribeEvent
-    static void onRenderLevel(net.neoforged.neoforge.client.event.RenderLevelStageEvent.AfterTranslucentBlocks event) {
+    static void onRenderLevel(net.neoforged.neoforge.client.event.RenderLevelStageEvent event) {
+        // 1.21.5 predates the per-stage AfterTranslucentBlocks event subclass; gate on the Stage enum.
+        if (event.getStage() != net.neoforged.neoforge.client.event.RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
+            return;
+        }
         // In-world path overlay for every companion (Baritone PathRenderer port).
         com.dwinovo.tulpa.client.path.PathVizRenderer.render(event.getPoseStack());
     }

@@ -1,10 +1,11 @@
 package com.dwinovo.tulpa.data;
 
 import com.dwinovo.tulpa.init.InitTag;
-import net.minecraft.data.tags.TagAppender;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
+
+import java.util.function.Consumer;
 
 /**
  * Single source of truth for every item tag the mod emits. Mirrors
@@ -26,13 +27,35 @@ public final class ModItemTagData {
 
     /**
      * Loader-agnostic adapter: each loader's tag provider implements this to
-     * return its own {@code TagAppender} for a given key. The signature
-     * matches Mojang's {@code valueLookupBuilder} so adapter classes can
-     * pass {@code this::valueLookupBuilder} directly.
+     * return an {@link Appender} for a given key. On 1.21.5 the only MC appender
+     * with a {@code add(T)} sink ({@code IntrinsicHolderTagsProvider.IntrinsicTagAppender})
+     * is {@code protected}, and the public {@code TagsProvider.TagAppender} only
+     * takes {@code ResourceKey}s — and the 1.21.6+ two-param {@code TagAppender} /
+     * {@code valueLookupBuilder} alias doesn't exist yet. So common defines its own
+     * neutral sink and each loader wraps its native builder via {@link #appender}.
      */
     @FunctionalInterface
     public interface TagAppenderProvider<T> {
-        TagAppender<T, T> tag(TagKey<T> key);
+        Appender<T> tag(TagKey<T> key);
+    }
+
+    /** Minimal fluent sink — only the {@code .add(T)} chaining the tag lists use. */
+    @FunctionalInterface
+    public interface Appender<T> {
+        Appender<T> add(T value);
+    }
+
+    /** Adapt a native MC tag builder's {@code add} to an {@link Appender}; loaders pass
+     *  {@code v -> nativeBuilder.add(v)} (an explicit lambda, not a method ref, to dodge
+     *  the {@code add(T)} vs {@code add(T...)} overload ambiguity). */
+    public static <T> Appender<T> appender(Consumer<T> add) {
+        return new Appender<>() {
+            @Override
+            public Appender<T> add(T value) {
+                add.accept(value);
+                return this;
+            }
+        };
     }
 
     /**

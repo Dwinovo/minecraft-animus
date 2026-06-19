@@ -19,6 +19,11 @@ public final class FabricModItemTagsProvider extends FabricTagProvider.ItemTagPr
 
     @Override
     protected void addTags(HolderLookup.Provider provider) {
-        ModItemTagData.addItemTags(this::valueLookupBuilder);
+        // 1.21.5 has no valueLookupBuilder/TagAppender<T,T>; wrap Fabric's
+        // getOrCreateTagBuilder (FabricTagBuilder.add(T)) as the neutral Appender.
+        ModItemTagData.addItemTags(key -> {
+            var b = getOrCreateTagBuilder(key);
+            return ModItemTagData.appender(v -> b.add(v));
+        });
     }
 }

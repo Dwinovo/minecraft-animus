@@ -1,6 +1,6 @@
 package com.dwinovo.tulpa.entity;
 
-import io.netty.channel.ChannelFutureListener;
+import net.minecraft.network.PacketSendListener;
 import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.network.Connection;
 import net.minecraft.network.DisconnectionDetails;
@@ -50,7 +50,7 @@ public final class FakeConnection extends Connection {
     /** Discard every outbound packet — there is no client to receive it.
      *  The 1-arg and 2-arg {@code send} overloads route through this one. */
     @Override
-    public void send(Packet<?> packet, ChannelFutureListener listener, boolean flush) {
+    public void send(Packet<?> packet, PacketSendListener listener, boolean flush) {
         // no-op: drop it on the floor (no channel, no pendingActions growth)
     }
 

@@ -6,6 +6,7 @@ import com.dwinovo.tulpa.task.TaskRecord;
 import com.dwinovo.tulpa.task.TaskState;
 import com.mojang.authlib.GameProfile;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
@@ -13,8 +14,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.storage.ValueInput;
-import net.minecraft.world.level.storage.ValueOutput;
 
 import java.util.UUID;
 
@@ -185,7 +184,7 @@ public final class TulpaPlayer extends ServerPlayer {
     }
 
     @Override
-    protected void addAdditionalSaveData(ValueOutput output) {
+    public void addAdditionalSaveData(CompoundTag output) {
         super.addAdditionalSaveData(output);
         if (ownerUuid != null) {
             output.store(NBT_KEY_OWNER, UUIDUtil.CODEC, ownerUuid);
@@ -193,7 +192,7 @@ public final class TulpaPlayer extends ServerPlayer {
     }
 
     @Override
-    protected void readAdditionalSaveData(ValueInput input) {
+    public void readAdditionalSaveData(CompoundTag input) {
         super.readAdditionalSaveData(input);
         input.read(NBT_KEY_OWNER, UUIDUtil.CODEC).ifPresent(uuid -> this.ownerUuid = uuid);
     }

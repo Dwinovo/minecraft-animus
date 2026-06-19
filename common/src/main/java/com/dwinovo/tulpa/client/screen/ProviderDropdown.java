@@ -54,7 +54,7 @@ public final class ProviderDropdown {
 
     public void render(GuiGraphics g, Font font, int mouseX, int mouseY) {
         UiTheme th = UiTheme.current();
-        var pipe = net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED;
+        java.util.function.Function<net.minecraft.resources.ResourceLocation, net.minecraft.client.renderer.RenderType> pipe = net.minecraft.client.renderer.RenderType::guiTextured;
         g.blitSprite(pipe, FRAME, x, y, w, h);
         int ty = y + (h - 8) / 2;
         Nb.text(g, font, selectedLabel(), x + 6, ty, th.text());

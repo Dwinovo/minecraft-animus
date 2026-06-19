@@ -1,32 +1,35 @@
 package com.dwinovo.tulpa.data;
 
-import com.dwinovo.tulpa.Constants;
 import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.data.PackOutput;
-import net.neoforged.neoforge.common.data.ItemTagsProvider;
+import net.minecraft.data.tags.ItemTagsProvider;
+import net.minecraft.data.tags.TagsProvider;
 
 /**
  * NeoForge-side item tag provider. Forwards to {@link ModItemTagData} so tag
  * content stays loader-agnostic in {@code common/}. Mirrors
- * {@code FabricModItemTagsProvider} in the fabric subproject (use of {@code @code}
- * over {@code @link} because that class lives outside this subproject's
- * javadoc classpath).
+ * {@code FabricModItemTagsProvider} in the fabric subproject.
+ *
+ * <p>1.21.5 has no {@code net.neoforged.neoforge.common.data.ItemTagsProvider}
+ * (only {@code BlockTagsProvider}), so we extend the vanilla
+ * {@link net.minecraft.data.tags.ItemTagsProvider}. It can copy block tags into
+ * item tags via a block-tag lookup; we copy none, so an empty lookup is fed.
  */
 public final class ModItemTagsProvider extends ItemTagsProvider {
 
     public ModItemTagsProvider(PackOutput output,
                                CompletableFuture<HolderLookup.Provider> lookupProvider) {
-        super(output, lookupProvider, Constants.MOD_ID);
+        super(output, lookupProvider, CompletableFuture.completedFuture(TagsProvider.TagLookup.empty()));
     }
 
     @Override
     protected void addTags(HolderLookup.Provider provider) {
-        // Vanilla MC's protected `tag(TagKey<T>)` returns TagAppender<T, T>,
-        // matching ModItemTagData.TagAppenderProvider's signature. Fabric
-        // exposes the same thing under the alias `valueLookupBuilder`; we
-        // call the vanilla name here so the NeoForge code path doesn't
-        // depend on any Fabric-specific extension.
-        ModItemTagData.addItemTags(this::tag);
+        // 1.21.5: vanilla tag(TagKey<T>) returns the protected IntrinsicTagAppender<T>
+        // (add(T)); common can't name it, so wrap it as the neutral Appender here.
+        ModItemTagData.addItemTags(key -> {
+            var b = tag(key);
+            return ModItemTagData.appender(v -> b.add(v));
+        });
     }
 }
