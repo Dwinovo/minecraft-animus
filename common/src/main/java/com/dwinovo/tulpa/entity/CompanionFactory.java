@@ -6,6 +6,7 @@ import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.storage.TagValueInput;
 import net.minecraft.world.phys.Vec3;
 
@@ -45,6 +46,11 @@ public final class CompanionFactory {
         // it ourselves (Carpet's model): position, inventory, health, owner from
         // disk. Without this a respawned companion spawns at 0,0,0 with no items.
         loadPlayerData(server, player);
+        // Companions are always survival, whatever the world's default game type — their whole design
+        // (gather/drops, real combat, recoverable death) is survival-shaped, and placeNewPlayer would
+        // otherwise hand a creative world's body instabuild (no block drops, breaks auto_mine). Forced
+        // here after the .dat restore so a stale saved game type can't override it.
+        player.setGameMode(GameType.SURVIVAL);
         // First spawn has no .dat to restore the owner from; set it explicitly.
         if (player.getOwnerUuid() == null) {
             player.setOwnerUuid(ownerUuid);
