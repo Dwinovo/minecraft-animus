@@ -1,6 +1,7 @@
 package com.dwinovo.tulpa.task.tasks;
 
 import com.dwinovo.tulpa.entity.TulpaPlayer;
+import com.dwinovo.tulpa.pathing.calc.NavGoal;
 import com.dwinovo.tulpa.pathing.exec.InputDriver;
 import com.dwinovo.tulpa.pathing.exec.Interaction;
 import com.dwinovo.tulpa.pathing.exec.PlayerNav;
@@ -10,13 +11,16 @@ import com.dwinovo.tulpa.task.TaskState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -28,7 +32,7 @@ import java.util.Set;
  */
 public final class HuntCompanionTask implements CompanionTask {
 
-    private enum Phase { SCAN, ENGAGE }
+    private enum Phase { SCAN, ENGAGE, COLLECT }
 
     private static final int INITIAL_RADIUS = 24;
     private static final int RADIUS_STEP = 16;
@@ -36,13 +40,19 @@ public final class HuntCompanionTask implements CompanionTask {
     /** Melee strike range — vanilla player entity-interaction reach ≈ 3 blocks. */
     private static final double ATTACK_REACH = 3.0;
     private static final double ATTACK_REACH_SQR = ATTACK_REACH * ATTACK_REACH;
+    /** Post-hunt loot sweep: radius scanned for mob drops, and a tick budget so it can't stall. */
+    private static final int COLLECT_RADIUS = 24;
+    private static final int MAX_COLLECT_TICKS = 300;   // ~15 s
 
     private final TulpaPlayer player;
     private final HuntTaskRecord r;
     private final Set<Integer> skipped = new HashSet<>();
+    /** Drops A* can't reach — skipped so the sweep doesn't retry the same one forever. */
+    private final Set<BlockPos> dropBlacklist = new HashSet<>();
 
     private Phase phase = Phase.SCAN;
     private int currentRadius;
+    private int collectTicks;
     private LivingEntity target;
     private PlayerNav nav;
     private String doneReason = "done";
@@ -67,6 +77,7 @@ public final class HuntCompanionTask implements CompanionTask {
         switch (phase) {
             case SCAN -> tickScan();
             case ENGAGE -> tickEngage();
+            case COLLECT -> tickCollect();
         }
         return r.getState();
     }
@@ -74,7 +85,7 @@ public final class HuntCompanionTask implements CompanionTask {
     private void tickScan() {
         if (r.getKilled() >= r.count) {
             doneReason = "hunted all requested";
-            r.setState(TaskState.SUCCESS);
+            beginCollect();
             return;
         }
         LivingEntity best = nearestTarget();
@@ -83,10 +94,13 @@ public final class HuntCompanionTask implements CompanionTask {
                 currentRadius = Math.min(currentRadius + RADIUS_STEP, r.maxRadius);
                 return;
             }
-            doneReason = r.getKilled() > 0
-                    ? "only killed " + r.getKilled() + "/" + r.count + " within " + r.maxRadius + " blocks"
-                    : "no " + r.label + " found within " + r.maxRadius + " blocks";
-            r.setState(r.getKilled() > 0 ? TaskState.SUCCESS : TaskState.FAILED);
+            if (r.getKilled() > 0) {
+                doneReason = "only killed " + r.getKilled() + "/" + r.count + " within " + r.maxRadius + " blocks";
+                beginCollect();   // sweep the battlefield for loot before finishing
+            } else {
+                doneReason = "no " + r.label + " found within " + r.maxRadius + " blocks";
+                r.setState(TaskState.FAILED);
+            }
             return;
         }
         target = best;
@@ -120,6 +134,64 @@ public final class HuntCompanionTask implements CompanionTask {
                 phase = Phase.SCAN;
             }
         }
+    }
+
+    /** Done fighting — switch to a post-hunt loot sweep. Mirrors auto_mine's drop collection
+     *  (scan nearby item drops, walk over them so native player pickup grabs them) so a finished
+     *  hunt leaves loot in the pack instead of on the ground. */
+    private void beginCollect() {
+        stopNav();
+        collectTicks = 0;
+        phase = Phase.COLLECT;
+    }
+
+    private void tickCollect() {
+        if (nearbyDrops().isEmpty() || ++collectTicks > MAX_COLLECT_TICKS) {
+            stopNav();
+            r.setState(TaskState.SUCCESS);
+            return;
+        }
+        if (nav == null) {
+            nav = PlayerNav.toGoal(player, this::collectGoal, CHASE_SPEED, () -> nearbyDrops().isEmpty());
+        }
+        switch (nav.tick()) {
+            case RUNNING -> { /* walking onto the next drop; native pickup collects it */ }
+            case ARRIVED -> { stopNav(); r.setState(TaskState.SUCCESS); }   // nothing left in range
+            case FAILED -> {                                               // nearest drop unreachable —
+                blacklistNearestDrop();                                    // skip it and retry the rest
+                stopNav();
+            }
+        }
+    }
+
+    /** Nearby dropped items to sweep up after the fight (auto_mine's droppedItemsScan, with a wider
+     *  radius because mobs die spread across the engagement). Unreachable (blacklisted) ones excluded. */
+    private List<BlockPos> nearbyDrops() {
+        AABB box = player.getBoundingBox().inflate(COLLECT_RADIUS);
+        List<BlockPos> out = new ArrayList<>();
+        for (ItemEntity ie : player.level().getEntitiesOfClass(ItemEntity.class, box)) {
+            if (ie.isRemoved()) continue;
+            BlockPos p = ie.blockPosition();
+            if (dropBlacklist.contains(p)) continue;
+            out.add(p);
+        }
+        return out;
+    }
+
+    /** GoalComposite over every nearby drop — one A* heads for the closest reachable (auto_mine pattern). */
+    private NavGoal collectGoal() {
+        List<BlockPos> drops = nearbyDrops();
+        if (drops.isEmpty()) return NavGoal.exact(player.blockPosition());
+        List<NavGoal> goals = new ArrayList<>(drops.size());
+        for (BlockPos d : drops) goals.add(NavGoal.near(d, 1.0));   // walk over it; native pickup grabs it
+        return NavGoal.composite(goals);
+    }
+
+    private void blacklistNearestDrop() {
+        BlockPos feet = player.blockPosition();
+        nearbyDrops().stream()
+                .min(java.util.Comparator.comparingDouble(feet::distSqr))
+                .ifPresent(dropBlacklist::add);
     }
 
     /** Native melee swing: aim, fire one crosshair raytrace, and only strike when it actually
