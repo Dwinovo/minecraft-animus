@@ -60,6 +60,7 @@ public final class TulpaToasts {
     }
     private static final net.minecraft.resources.Identifier BUBBLE_SPRITE = spr("bubble");
     private static final net.minecraft.resources.Identifier TIP_SPRITE = spr("bubble_tip");
+    private static final net.minecraft.resources.Identifier AVATAR_FRAME = spr("avatar_frame");
 
     private static final Map<UUID, Integer> SEEN = new HashMap<>();
     private static final Map<UUID, Status> STATUS = new HashMap<>();
@@ -153,8 +154,10 @@ public final class TulpaToasts {
     }
 
     private static void drawAvatar(GuiGraphicsExtractor g, UUID uuid, int x, int y, UiTheme th) {
+        // textured socket behind the head (same sprite as the panel rail), face on top covering the centre
+        g.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+                AVATAR_FRAME, x - 2, y - 2, AVATAR + 4, AVATAR + 4);
         PlayerFaceExtractor.extractRenderState(g, skinFor(uuid), x, y, AVATAR);
-        Nb.border(g, x, y, AVATAR, AVATAR, 2, th.border());
     }
 
 

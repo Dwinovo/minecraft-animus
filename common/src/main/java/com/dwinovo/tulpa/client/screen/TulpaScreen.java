@@ -356,7 +356,6 @@ public final class TulpaScreen extends Screen {
             modelInput = field(x, y0 + 2 * SET_SP + 11, w, 128, wModel);
             modelInput.setHint(Component.literal("model id"));
             baseUrlInput = field(x, y0 + 3 * SET_SP + 11, w, 256, wBaseUrl);
-            baseUrlInput.setHint(Component.literal("https://… (OpenAI-compatible)"));
         } else {
             providerDropdown = new ProviderDropdown(wProvider, true);   // live + "+ 添加站点"
             providerDropdown.setBounds(x, y0 + 11, w, 18);
@@ -364,7 +363,6 @@ public final class TulpaScreen extends Screen {
             buildModelRow(x, y0 + 2 * SET_SP + 11, w);
             baseUrlInput = field(x, y0 + 3 * SET_SP + 11, w, 256, wBaseUrl);
             proxyInput = field(x, y0 + 4 * SET_SP + 11, w, 128, wProxy);
-            proxyInput.setHint(Component.literal("host:port (optional)"));
         }
 
         add(new SimpleButton(left + PANEL_W - PAD - 64, top + PANEL_H - PAD - 18,
@@ -409,6 +407,13 @@ public final class TulpaScreen extends Screen {
         if (mp != null) for (ModelRegistry.Model m : mp.models()) items.add(new Dropdown.Item(m.id(), m.id()));
         items.add(new Dropdown.Item(CUSTOM_MODEL, "自定义…"));
         return items;
+    }
+
+    /** Shadowless placeholder for an empty, unfocused field — the EditBox's own hint renders with a shadow. */
+    private void placeholder(GuiGraphicsExtractor g, EditBox f, String text) {
+        if (f != null && f.getValue().isEmpty() && !f.isFocused() && text != null && !text.isEmpty()) {
+            txt(g, Component.literal(text), f.getX(), f.getY(), TXT_FAINT);
+        }
     }
 
     private EditBox field(int x, int y, int w, int max, String value) {
@@ -468,9 +473,8 @@ public final class TulpaScreen extends Screen {
             txt(g, Component.literal("Model"), x, y0 + 2 * SET_SP, TXT_MUTED);
             txt(g, Component.literal("Base URL"), x, y0 + 3 * SET_SP, TXT_MUTED);
         } else {
-            LlmProviders.Option opt = LlmProviders.byId(providerDropdown.selectedId());
-            if (modelInput != null) modelInput.setHint(Component.literal(opt.defaultModel()));   // custom mode only
-            if (baseUrlInput != null) baseUrlInput.setHint(Component.literal(opt.defaultBaseUrl()));
+            if (modelInput != null) modelInput.setHint(Component.literal(   // custom mode only
+                    LlmProviders.byId(providerDropdown.selectedId()).defaultModel()));
             txt(g, Component.literal("Provider"), x, y0, TXT_MUTED);
             txt(g, Component.literal("API Key"), x, y0 + SET_SP, TXT_MUTED);
             txt(g, Component.literal("Model"), x, y0 + 2 * SET_SP, TXT_MUTED);
@@ -678,6 +682,13 @@ public final class TulpaScreen extends Screen {
         for (AbstractWidget w : overlay) {
             w.extractRenderState(g, mouseX, mouseY, partial);
         }
+        // Base URL / Proxy placeholders, drawn shadowless by us (the EditBox hint renders with a shadow).
+        if (tab == Tab.SETTINGS) {
+            String urlPh = addingSite ? "https://… (OpenAI-compatible)"
+                    : LlmProviders.byId(providerDropdown.selectedId()).defaultBaseUrl();
+            placeholder(g, baseUrlInput, urlPh);
+            placeholder(g, proxyInput, "host:port (optional)");
+        }
         // The provider dropdown's open list must sit above even the fields.
         if (tab == Tab.SETTINGS) {
             // render the non-open one first so the open list draws on top
@@ -873,14 +884,15 @@ public final class TulpaScreen extends Screen {
         }
         g.disableScissor();
 
-        // scrollbar thumb
+        // scrollbar — Cottage track + thumb sprites (was off-theme white fills)
         if (lastMaxScroll > 0) {
             int trackH = viewH;
             int thumbH = Math.max(12, trackH * viewH / (viewH + lastMaxScroll));
             int thumbY = bodyY + (trackH - thumbH) * scroll / lastMaxScroll;
-            int sbX = transX + transW - 2;
-            g.fill(sbX, bodyY, sbX + 2, bodyBottom, 0x30FFFFFF);
-            g.fill(sbX, thumbY, sbX + 2, thumbY + thumbH, 0x80FFFFFF);
+            int sbX = transX + transW - 4;
+            var pipe = net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED;
+            g.blitSprite(pipe, SCROLL_TRACK, sbX, bodyY, 4, viewH);
+            g.blitSprite(pipe, SCROLL_THUMB, sbX, thumbY, 4, thumbH);
         }
     }
 
@@ -1145,6 +1157,8 @@ public final class TulpaScreen extends Screen {
     private static final net.minecraft.resources.Identifier FOOD_FULL = spr("food_full");
     private static final net.minecraft.resources.Identifier FOOD_HALF = spr("food_half");
     private static final net.minecraft.resources.Identifier FOOD_EMPTY = spr("food_empty");
+    private static final net.minecraft.resources.Identifier SCROLL_TRACK = spr("scroll_track");
+    private static final net.minecraft.resources.Identifier SCROLL_THUMB = spr("scroll_thumb");
 
     @Override
     public boolean isPauseScreen() {
