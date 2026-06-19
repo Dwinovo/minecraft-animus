@@ -20,9 +20,10 @@ import java.util.Set;
  * The {@code hunt} tool — intent-level combat gathering, the {@code auto_mine}
  * of mobs. The LLM declares <em>what</em> mob type(s) to kill and <em>how
  * many</em>; the entity finds the nearest, chases it with the full terrain
- * pathfinder (bridging / digging / jumping), melees it to death, picks up drops
- * within reach, and repeats. No coordinates, no entity ids, no manual
- * scan/attack composition.
+ * pathfinder (bridging / digging / jumping), melees it to death — auto-selecting
+ * the strongest weapon it carries before each swing, like mining's best-tool
+ * switch — repeats, then sweeps up the mob drops once the fight ends. No
+ * coordinates, no entity ids, no manual scan/attack composition.
  *
  * <h2>Schema</h2>
  * <pre>
@@ -56,16 +57,19 @@ public final class HuntTool implements TulpaTool {
         return "Hunt mobs by type and quantity. Give the entity id(s) and how many "
                 + "to kill — the entity finds the nearest, chases it with the full "
                 + "pathfinder (bridging gaps, digging through cover, jumping to "
-                + "close in), melees it to death, picks up drops within reach, and "
-                + "repeats until the count is met or none remain nearby. You do NOT "
-                + "provide coordinates or entity ids — give TYPES (e.g. "
-                + "minecraft:zombie). Optional radius caps how far to look (default "
-                + "auto-expands). Returns the actual number killed, which may be "
-                + "less if the area runs dry. Equip a weapon first (equip_item) for "
-                + "faster kills; check get_self_status for your main hand. For "
-                + "scattered drops afterward, use collect_items. If HP runs low "
-                + "mid-fight you auto-eat from your inventory; the result reports "
-                + "your post-fight HP and anything eaten.";
+                + "close in), and melees it to death, repeating until the count is "
+                + "met or none remain nearby. It AUTO-SELECTS the strongest melee "
+                + "weapon in its inventory before every swing (no need to equip_item "
+                + "first — but it can only wield what it carries, so keep a good "
+                + "sword/axe in its pack for real damage), and once the fight ends "
+                + "it AUTO-COLLECTS the mob drops around the battlefield (loot ends "
+                + "up in its pack — only reach for collect_items for drops flung far "
+                + "away). You do NOT provide coordinates or entity ids — give TYPES "
+                + "(e.g. minecraft:zombie). Optional radius caps how far to look "
+                + "(default auto-expands). Returns the actual number killed, which "
+                + "may be less if the area runs dry. If HP runs low mid-fight you "
+                + "auto-eat from your inventory; the result reports your post-fight "
+                + "HP and anything eaten.";
     }
 
     @Override
