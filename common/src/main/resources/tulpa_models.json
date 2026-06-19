@@ -1,21 +1,22 @@
 {
-  "_comment": "Tulpa LLM sites (OpenAI-compatible). Per site: base URL + optional custom headers + known models with their context window (tokens, fed into auto-compaction). Model lists refreshed from litellm's model_prices_and_context_window.json. USER-EDITABLE: this is copied to config/tulpa/models.json on first run; edit that file to add your own sites/models or override URLs. Every model field also accepts a custom id via the settings 'custom' escape hatch.",
+  "_comment": "Tulpa LLM sites (OpenAI-compatible). Per site: base URL + optional custom headers + known models with their context window (tokens, fed into auto-compaction). Model lists refreshed from each provider's own docs (2026-06); ids/context windows are best-effort and may drift — USER-EDITABLE: this is copied to config/tulpa/models.json on first run; edit that file to add your own sites/models or override URLs. Every model field also accepts a custom id via the settings 'custom' escape hatch.",
   "providers": [
     {
       "id": "openai", "name": "OpenAI", "baseUrl": "https://api.openai.com/v1",
       "models": [
-        { "id": "gpt-5.4-mini", "ctx": 272000 },
+        { "id": "gpt-5.5", "ctx": 1000000 },
         { "id": "gpt-5.4", "ctx": 1050000 },
-        { "id": "gpt-5.2", "ctx": 272000 },
-        { "id": "gpt-5-mini", "ctx": 272000 }
+        { "id": "gpt-5.4-mini", "ctx": 272000 },
+        { "id": "gpt-5.2", "ctx": 272000 }
       ]
     },
     {
       "id": "deepseek", "name": "DeepSeek", "baseUrl": "https://api.deepseek.com/beta",
       "models": [
-        { "id": "deepseek-chat", "ctx": 128000 },
-        { "id": "deepseek-reasoner", "ctx": 128000, "reasoning": true },
-        { "id": "deepseek-v3.2", "ctx": 160000 }
+        { "id": "deepseek-v4-pro", "ctx": 1000000 },
+        { "id": "deepseek-v4-flash", "ctx": 1000000 },
+        { "id": "deepseek-reasoner", "ctx": 1000000, "reasoning": true },
+        { "id": "deepseek-chat", "ctx": 1000000 }
       ]
     },
     {
@@ -30,45 +31,44 @@
     {
       "id": "zhipu", "name": "智谱 GLM", "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
       "models": [
-        { "id": "glm-4.6", "ctx": 200000 },
+        { "id": "glm-5.2", "ctx": 1000000 },
+        { "id": "glm-5", "ctx": 256000 },
         { "id": "glm-4.7", "ctx": 200000 },
-        { "id": "glm-5", "ctx": 200000 },
-        { "id": "glm-4.5-air", "ctx": 128000 }
+        { "id": "glm-4.6", "ctx": 200000 }
       ]
     },
     {
       "id": "siliconflow", "name": "硅基流动", "baseUrl": "https://api.siliconflow.cn/v1",
       "models": [
-        { "id": "deepseek-ai/DeepSeek-V3.2", "ctx": 160000 },
-        { "id": "zai-org/GLM-4.6", "ctx": 200000 },
-        { "id": "moonshotai/Kimi-K2.5", "ctx": 256000 },
-        { "id": "Qwen/Qwen3.5-397B-A17B", "ctx": 256000 }
+        { "id": "deepseek-ai/DeepSeek-V4-Pro", "ctx": 1000000 },
+        { "id": "zai-org/GLM-5", "ctx": 200000 },
+        { "id": "moonshotai/Kimi-K2.6", "ctx": 256000 },
+        { "id": "Qwen/Qwen3.6-35B-A3B", "ctx": 256000 }
       ]
     },
     {
       "id": "minimax", "name": "MiniMax", "baseUrl": "https://api.minimax.io/v1",
       "models": [
-        { "id": "MiniMax-M2.5", "ctx": 1000000 },
-        { "id": "MiniMax-M3", "ctx": 512000 },
-        { "id": "MiniMax-M2.1", "ctx": 1000000 },
-        { "id": "MiniMax-M2", "ctx": 200000 }
+        { "id": "MiniMax-M3", "ctx": 1048576 },
+        { "id": "MiniMax-M2.5", "ctx": 204800 },
+        { "id": "MiniMax-M2.1", "ctx": 204800 }
       ]
     },
     {
       "id": "volcengine", "name": "Doubao", "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
       "models": [
         { "id": "doubao-seed-2-0-pro-260215", "ctx": 256000 },
-        { "id": "doubao-seed-2-0-lite-260215", "ctx": 256000 },
-        { "id": "doubao-seed-2-0-mini-260215", "ctx": 256000 }
+        { "id": "doubao-seed-2-0-mini-260215", "ctx": 256000 },
+        { "id": "doubao-seed-2-0-code-preview-260215", "ctx": 256000 }
       ]
     },
     {
       "id": "dashscope", "name": "Qwen", "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "models": [
-        { "id": "qwen3.5-plus", "ctx": 990000 },
+        { "id": "qwen3.6-plus", "ctx": 1000000 },
+        { "id": "qwen3.5-plus", "ctx": 1000000 },
         { "id": "qwen3-max", "ctx": 256000 },
-        { "id": "qwen-plus", "ctx": 128000 },
-        { "id": "qwen-flash", "ctx": 990000 }
+        { "id": "qwen-flash", "ctx": 1000000 }
       ]
     },
     {
@@ -78,19 +78,19 @@
         "X-Title": "Tulpa (Minecraft)"
       },
       "models": [
-        { "id": "deepseek/deepseek-v3.2", "ctx": 160000 },
-        { "id": "z-ai/glm-5", "ctx": 200000 },
-        { "id": "qwen/qwen3.6-plus", "ctx": 1000000 },
-        { "id": "moonshotai/kimi-k2.5", "ctx": 256000 },
-        { "id": "x-ai/grok-4.3", "ctx": 1000000 }
+        { "id": "deepseek/deepseek-v4-pro", "ctx": 1000000 },
+        { "id": "openai/gpt-5.5", "ctx": 1000000 },
+        { "id": "z-ai/glm-5.2", "ctx": 1000000 },
+        { "id": "x-ai/grok-4.3", "ctx": 1000000 },
+        { "id": "moonshotai/kimi-k2.6", "ctx": 256000 }
       ]
     },
     {
       "id": "gemini", "name": "Gemini", "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
       "models": [
-        { "id": "gemini-2.5-flash", "ctx": 1000000 },
-        { "id": "gemini-3-flash-preview", "ctx": 1000000 },
+        { "id": "gemini-3.5-flash", "ctx": 1000000 },
         { "id": "gemini-3.1-pro-preview", "ctx": 1000000 },
+        { "id": "gemini-3-flash", "ctx": 1000000 },
         { "id": "gemini-2.5-pro", "ctx": 1000000 }
       ]
     },
