@@ -11,6 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
@@ -173,6 +174,7 @@ public final class ShootCompanionTask implements CompanionTask {
     private void fireAtTarget() {
         InputDriver.halt(player);   // stand still through the draw/charge instead of drifting
         InputDriver.lookAt(player, Ballistics.aimPoint(player.getEyePosition(), centerOf(target), launchV, ARROW_G));
+        holdRangedWeapon();   // the pathfinder may have swapped a scaffold block into the hand while closing in
         if (shot == null) {
             shot = new Shot();
         }
@@ -290,6 +292,22 @@ public final class ShootCompanionTask implements CompanionTask {
             }
         }
         return null;
+    }
+
+    /** Make sure a ranged weapon is in the main hand before drawing — the pathfinder selects a scaffold
+     *  block to bridge and doesn't restore the hand, which would otherwise leave the body "firing" a
+     *  cobblestone (no projectile → misfire). Only acts when the hand ISN'T already a ranged weapon, so
+     *  it keeps whichever bow/crossbow the owner equipped rather than second-guessing the choice. */
+    private void holdRangedWeapon() {
+        Inventory inv = player.getInventory();
+        if (inv.getItem(inv.getSelectedSlot()).getItem() instanceof ProjectileWeaponItem) return;
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            if (inv.getItem(i).getItem() instanceof ProjectileWeaponItem) {
+                player.holdInHand(i);
+                return;
+            }
+        }
+        // no ranged weapon left in the pack — leave the hand; the ammo / misfire checks report the failure
     }
 
     private void abortShot() {
