@@ -16,9 +16,19 @@ Requires Node ≥22 + FFmpeg + a headless browser (all auto-resolved by `npx`).
 ```bash
 cd tools/ui-textures
 # edit index.html (one composition; data-width/height = the texture's pixel size)
-npx hyperframes snapshot --at 0            # -> snapshots/frame-00-at-0.0s.png
+npx hyperframes snapshot --at 0            # -> snapshots/frame-00-at-0.0s.png (OPAQUE white bg)
 # eyeball it, iterate, then copy the final into the mod assets:
 cp snapshots/frame-00-at-0.0s.png ../../common/src/main/resources/assets/tulpa/textures/gui/<name>.png
+```
+
+**Transparent glyph sprites** (icons that sit ON a button/panel, e.g. the eye toggle): `snapshot`
+bakes an opaque white background, so use `render --format png-sequence` instead — it writes **RGBA**
+frames, preserving the transparent body (`background:#00000000`). Antialiased edges then blend to
+transparent (not white), so rotated/curved shapes don't get a white fringe:
+
+```bash
+npx hyperframes render --format png-sequence --fps 1 -o renders/<name>
+cp renders/<name>/frame_000001.png ../../common/src/main/resources/assets/tulpa/textures/gui/sprites/<name>.png
 ```
 
 `npx hyperframes doctor --json | jq .ok` checks the render environment.
@@ -26,6 +36,10 @@ cp snapshots/frame-00-at-0.0s.png ../../common/src/main/resources/assets/tulpa/t
 ## Rendered so far
 - `panel.png` — the TulpaScreen panel chrome (offwhite ground + dot-grid, blue header
   band, 4px black border, tilted yellow corner badge). → `assets/tulpa/textures/gui/panel.png`
+- `eye.png` / `eye_off.png` (`eye.html` / `eye_off.html`, 32×32) — the API-key reveal toggle in
+  the Cottage (WARM) UiTheme palette: a square amber block with a thick dark-brown border + square
+  pupil; eye_off adds a dark-brown diagonal slash. Rendered transparent via
+  `render --format png-sequence` (the slash needs a non-white AA edge). → `assets/tulpa/textures/gui/sprites/`
 
 ## To render next
 button (yellow CTA), tabs (label-pills), item-slot frame, toast card, dropdown.
