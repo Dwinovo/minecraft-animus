@@ -1,6 +1,6 @@
 plugins {
     // see https://fabricmc.net/develop/ for new versions
-    // 1.21.8 is an obfuscated MC version → use the -remap loom variant (the plain
+    // 1.21.5 is an obfuscated MC version → use the -remap loom variant (the plain
     // net.fabricmc.fabric-loom is the unobf path used on 26.1+). Same 1.14.x line.
     id 'net.fabricmc.fabric-loom-remap' version '1.14.10' apply false
     // see https://projects.neoforged.net/neoforged/moddevgradle for new versions
