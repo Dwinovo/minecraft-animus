@@ -1,10 +1,13 @@
 package com.dwinovo.tulpa.client.screen;
 
+import com.dwinovo.tulpa.Constants;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.renderer.RenderType;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 
@@ -26,7 +29,9 @@ import java.util.function.BiFunction;
  */
 public class FlatEditBox extends EditBox {
 
-    private static final int CURSOR_COLOR = 0xFFD0D0D0;
+    /** Cottage-style caret sprite (brown-capped amber bar, HyperFrames pixel art, native 3x10). */
+    private static final ResourceLocation CARET = ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "caret");
+    private static final int CARET_W = 3, CARET_H = 10;
     private static final int SELECT_COLOR = 0x804E7480;   // translucent reply-teal
     private static final long BLINK_MS = 300L;
 
@@ -99,11 +104,12 @@ public class FlatEditBox extends EditBox {
             g.drawString(font, fmt.apply(visible, scroll), textX, textY, color, false);
         }
 
-        // Caret: a thin fill bar (no "_" glyph → no shadow), blinking on focus.
+        // Caret: the Cottage pixel-art bar sprite (no "_" glyph → no shadow), blinking on focus,
+        // centred on the cursor column and blitted at its native 3x10 (crisp, no scaling).
         boolean blink = isFocused() && ((System.currentTimeMillis() - focusTime) / BLINK_MS) % 2 == 0;
         if (blink && cursor >= scroll && cursor <= visEnd) {
             int cx = textX + font.width(value.substring(scroll, cursor));
-            g.fill(cx, textY - 1, cx + 1, textY + 9, CURSOR_COLOR);
+            g.blitSprite(RenderType::guiTextured, CARET, cx - 1, textY - 1, CARET_W, CARET_H);
         }
     }
 }

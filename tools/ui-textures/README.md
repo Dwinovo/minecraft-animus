@@ -42,6 +42,10 @@ cp renders/<name>/frame_000001.png ../../common/src/main/resources/assets/tulpa/
   (tip.html technique — 1px divs), rendered transparent via `render --format png-sequence`, then the
   alpha is snapped to 0/255 and colours to the palette: **pixel art with NO antialias / gradient
   edge** (a gradient on a low-res sprite looks awful). → `assets/tulpa/textures/gui/sprites/`
+- `caret.png` (`caret.html`) — the text-field insertion caret: a brown-capped (`#352818`) amber
+  (`#E3A23A`) vertical bar, native 3×10, blitted by `FlatEditBox` in place of the vanilla shadowed
+  `"_"`. Rendered with `render -c caret.html --format png-sequence` (solid bar, no transparent
+  pixels, so RGB is fine). → `assets/tulpa/textures/gui/sprites/caret.png`
 
 ## To render next
 button (yellow CTA), tabs (label-pills), item-slot frame, toast card, dropdown.
