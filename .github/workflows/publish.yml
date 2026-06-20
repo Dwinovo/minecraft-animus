@@ -1,0 +1,205 @@
+name: Publish Mod
+
+# Fires when you push a version tag (e.g. v26.1.2.0-beta, v1.21.11.0-beta, v1.20.1.0-beta).
+# The tag is only the trigger — the published mod version comes from gradle.properties `version`,
+# so keep them in sync. A `-alpha` / `-beta` suffix on the tag flips the release channel (and marks
+# the GitHub release as a prerelease).
+#
+# Tag the branch you want to ship: tag a commit on 26.1.2 to publish the MC 26.1.2 build, or a commit
+# on 1.20.1 to publish the MC 1.20.1 build. Per branch the workflow auto-detects everything from that
+# branch's tree:
+#   * the JDK   — from gradle.properties `java_version` (26.1.2 -> 25, 1.21.x -> 21, 1.20.x -> 17)
+#   * the second loader — `neoforge/` (1.21.x + 1.20.6) or `forge/` (1.20.4 / 1.20.2 / 1.20.1);
+#     Fabric is always present. The right datagen / build / publish tasks follow.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read build properties
+        id: props
+        shell: bash
+        run: |
+          echo "java_version=$(grep -E '^java_version=' gradle.properties | head -n1 | cut -d= -f2-)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java ${{ steps.props.outputs.java_version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ steps.props.outputs.java_version }}
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      # Fabric is always present; the second loader is whichever subproject this branch ships.
+      # NeoForge (1.21.x + 1.20.6) uses NeoGradle/moddev (runData); Forge (1.20.4/1.20.2/1.20.1)
+      # uses ForgeGradle, whose data run is the literal task name `Data`.
+      - name: Detect second loader
+        id: loader
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d neoforge ]; then
+            echo "name=neoforge"             >> "$GITHUB_OUTPUT"
+            echo "datagen=:neoforge:runData" >> "$GITHUB_OUTPUT"
+            echo "build=:neoforge:build"     >> "$GITHUB_OUTPUT"
+          elif [ -d forge ]; then
+            echo "name=forge"          >> "$GITHUB_OUTPUT"
+            echo "datagen=:forge:Data" >> "$GITHUB_OUTPUT"
+            echo "build=:forge:build"  >> "$GITHUB_OUTPUT"
+          else
+            echo "No forge/ or neoforge/ subproject found on this branch" >&2
+            exit 1
+          fi
+
+      - name: Run data generation
+        run: ./gradlew :fabric:runDatagen ${{ steps.loader.outputs.datagen }} --no-daemon
+
+      - name: Build with Gradle
+        run: ./gradlew :fabric:build ${{ steps.loader.outputs.build }} --no-daemon
+
+      - name: Prepare publish metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          read_prop() {
+            local key="$1"
+            grep -E "^${key}=" gradle.properties | head -n1 | cut -d= -f2-
+          }
+
+          mod_id="$(read_prop mod_id)"
+          mod_version="$(read_prop version)"
+          minecraft_version="$(read_prop minecraft_version)"
+          second_loader="${{ steps.loader.outputs.name }}"
+
+          if [ -z "${mod_id}" ] || [ -z "${mod_version}" ] || [ -z "${minecraft_version}" ]; then
+            echo "Failed to read required properties from gradle.properties"
+            exit 1
+          fi
+
+          channel="release"
+          if [[ "${GITHUB_REF_NAME}" == *"-alpha"* ]]; then
+            channel="alpha"
+          elif [[ "${GITHUB_REF_NAME}" == *"-beta"* ]]; then
+            channel="beta"
+          fi
+
+          prerelease="false"
+          if [ "${channel}" != "release" ]; then
+            prerelease="true"
+          fi
+
+          find_loader_jar() {
+            local module="$1"
+            if [ ! -d "${module}/build/libs" ]; then
+              return 0
+            fi
+            find "${module}/build/libs" -maxdepth 1 -type f -name '*.jar' \
+              ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-dev.jar' \
+              | LC_ALL=C sort | head -n1
+          }
+
+          fabric_file="$(find_loader_jar fabric)"
+          second_file="$(find_loader_jar "${second_loader}")"
+
+          if [ -z "${fabric_file}" ] && [ -z "${second_file}" ]; then
+            echo "No publishable loader jars found"
+            exit 1
+          fi
+
+          fabric_name="${mod_id}-${mod_version}-${channel}-fabric-${minecraft_version}"
+          second_name="${mod_id}-${mod_version}-${channel}-${second_loader}-${minecraft_version}"
+          fabric_version_base="${mod_version}-${channel}-fabric-${minecraft_version}"
+          second_version_base="${mod_version}-${channel}-${second_loader}-${minecraft_version}"
+
+          # Modrinth version_number has a strict length limit; keep deterministic uniqueness if truncated.
+          make_version_number() {
+            local base="$1"
+            local max_len=32
+            if [ "${#base}" -le "${max_len}" ]; then
+              echo "${base}"
+              return 0
+            fi
+            local hash
+            hash="$(printf '%s' "${base}" | sha1sum | cut -c1-6)"
+            local keep_len=$((max_len - 1 - ${#hash}))
+            echo "${base:0:${keep_len}}-${hash}"
+          }
+
+          fabric_version="$(make_version_number "${fabric_version_base}")"
+          second_version="$(make_version_number "${second_version_base}")"
+
+          {
+            echo "version_type=${channel}"
+            echo "github_prerelease=${prerelease}"
+            echo "minecraft_version=${minecraft_version}"
+            echo "second_loader=${second_loader}"
+            echo "fabric_file=${fabric_file}"
+            echo "second_file=${second_file}"
+            echo "fabric_name=${fabric_name}"
+            echo "second_name=${second_name}"
+            echo "fabric_version=${fabric_version}"
+            echo "second_version=${second_version}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish Fabric to Modrinth and CurseForge
+        continue-on-error: true
+        if: ${{ steps.meta.outputs.fabric_file != '' }}
+        uses: Kira-NT/mc-publish@v3.3.0
+        with:
+          files: ${{ steps.meta.outputs.fabric_file }}
+          loaders: fabric
+          name: ${{ steps.meta.outputs.fabric_name }}
+          version: ${{ steps.meta.outputs.fabric_version }}
+          game-versions: ${{ steps.meta.outputs.minecraft_version }}
+          game-version-filter: none
+          version-type: ${{ steps.meta.outputs.version_type }}
+          github-prerelease: ${{ steps.meta.outputs.github_prerelease }}
+
+          # TODO: Tulpa's CurseForge numeric project id (delete the two curseforge-* lines to skip it).
+          curseforge-id: 1581109
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+
+          # TODO: Tulpa's Modrinth project id/slug.
+          modrinth-id: b1E5VR0g
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish ${{ steps.meta.outputs.second_loader }} to Modrinth and CurseForge
+        if: ${{ steps.meta.outputs.second_file != '' }}
+        uses: Kira-NT/mc-publish@v3.3.0
+        with:
+          files: ${{ steps.meta.outputs.second_file }}
+          loaders: ${{ steps.meta.outputs.second_loader }}
+          name: ${{ steps.meta.outputs.second_name }}
+          version: ${{ steps.meta.outputs.second_version }}
+          game-versions: ${{ steps.meta.outputs.minecraft_version }}
+          game-version-filter: none
+          version-type: ${{ steps.meta.outputs.version_type }}
+          github-prerelease: ${{ steps.meta.outputs.github_prerelease }}
+
+          # TODO: same CurseForge project id as the Fabric step.
+          curseforge-id: 1581109
+          curseforge-token: ${{ secrets.CURSEFORGE_TOKEN }}
+
+          # TODO: same Modrinth project id/slug as the Fabric step.
+          modrinth-id: b1E5VR0g
+          modrinth-token: ${{ secrets.MODRINTH_TOKEN }}
+
+          github-token: ${{ secrets.GITHUB_TOKEN }}
