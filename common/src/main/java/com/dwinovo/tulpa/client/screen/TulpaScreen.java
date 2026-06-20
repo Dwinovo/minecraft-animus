@@ -415,8 +415,8 @@ public final class TulpaScreen extends Screen {
         int eyeW = 22;
         apiKeyInput = field(x, y, w - eyeW - 2, 512, wApiKey);
         apiKeyInput.setFormatter((text, idx) -> showKey
-                ? FormattedCharSequence.forward(text, net.minecraft.network.chat.Style.EMPTY)
-                : FormattedCharSequence.forward("•".repeat(text.length()), net.minecraft.network.chat.Style.EMPTY));
+                ? FormattedCharSequence.forward(text, Nb.FLAT)
+                : FormattedCharSequence.forward("•".repeat(text.length()), Nb.FLAT));
         // Eye icon instead of a 见/隐 glyph: open eye when masked (click to show), slashed when shown.
         add(new SimpleButton(x + w - eyeW, y, eyeW, 18, Component.empty(),
                 b -> { showKey = !showKey; ((SimpleButton) b).icon(showKey ? EYE_OFF : EYE); })

@@ -7,8 +7,7 @@
     "MenuDataSlotsAccessor"
   ],
   "client": [
-    "MixinMinecraft",
-    "MixinEditBox"
+    "MixinMinecraft"
   ],
   "server": [],
   "injectors": {
