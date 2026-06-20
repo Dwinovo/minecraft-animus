@@ -20,7 +20,7 @@ neoForge {
             gameDirectory = this.mkdir(this.file("runs/client"))
         }
         data {
-            clientData()
+            data() // 1.20.6 has a single combined data run (no client/server split)
             gameDirectory = this.mkdir(this.file("runs/data"))
             // DataGen can be run by - "./gradlew :neoforge:runData" in Terminal.
             // Specify the modid for data generation, where to output the resulting resource, and where to look for existing resources.
