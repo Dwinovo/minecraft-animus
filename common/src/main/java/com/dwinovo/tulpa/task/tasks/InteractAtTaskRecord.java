@@ -53,7 +53,7 @@ public final class InteractAtTaskRecord extends TaskRecord {
         if (item == null) {
             return null;
         }
-        if (item.components().has(DataComponents.CONSUMABLE)) {
+        if (item.components().has(DataComponents.FOOD)) {
             return BuiltInRegistries.ITEM.getKey(item).getPath()
                     + " is a consumable — use eat_item (using it through the world body wouldn't heal you).";
         }

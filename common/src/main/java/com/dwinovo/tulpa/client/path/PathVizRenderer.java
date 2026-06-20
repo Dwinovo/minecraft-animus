@@ -142,7 +142,7 @@ public final class PathVizRenderer {
         Vector3f n = new Vector3f((float) (x2 - x1), (float) (y2 - y1), (float) (z2 - z1));
         if (n.lengthSquared() > 1.0e-6F) n.normalize();
         else n.set(0.0F, 1.0F, 0.0F);
-        vc.addVertex(pose, (float) x1, (float) y1, (float) z1).setColor(color).setNormal(pose, n);
-        vc.addVertex(pose, (float) x2, (float) y2, (float) z2).setColor(color).setNormal(pose, n);
+        vc.addVertex(pose, (float) x1, (float) y1, (float) z1).setColor(color).setNormal(pose, n.x(), n.y(), n.z());
+        vc.addVertex(pose, (float) x2, (float) y2, (float) z2).setColor(color).setNormal(pose, n.x(), n.y(), n.z());
     }
 }

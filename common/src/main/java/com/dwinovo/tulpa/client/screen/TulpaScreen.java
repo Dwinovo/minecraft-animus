@@ -693,7 +693,7 @@ public final class TulpaScreen extends Screen {
         super.render(g, mouseX, mouseY, partial);
 
         // ONE merged Cottage sprite: left rail column + panel, continuous header, no gap.
-        g.blitSprite(net.minecraft.client.renderer.RenderType::guiTextured,
+        g.blitSprite(
                 WORKSPACE_SPRITE, railX, top, RAIL_W + PANEL_W, PANEL_H);
         renderRail(g, mouseX, mouseY);   // avatars + status + summon tile on the rail column
 
@@ -735,7 +735,7 @@ public final class TulpaScreen extends Screen {
         // a parchment field background + border behind each before it renders its text.
         for (AbstractWidget w : overlay) {
             if (w instanceof EditBox eb) {                          // parchment frame, inflated past the inset text
-                g.blitSprite(net.minecraft.client.renderer.RenderType::guiTextured,
+                g.blitSprite(
                         FIELD_SPRITE, eb.getX() - FIELD_INSET_X, eb.getY() - FIELD_INSET_Y,
                         eb.getWidth() + FIELD_INSET_X * 2, eb.getHeight() + FIELD_INSET_Y * 2);
             }
@@ -775,7 +775,6 @@ public final class TulpaScreen extends Screen {
     /** The folded-in roster (on the merged sprite's rail column): one avatar head per companion below the
      *  green header, active one framed gold, a status dot each, + tile at the bottom. */
     private void renderRail(GuiGraphics g, int mouseX, int mouseY) {
-        java.util.function.Function<net.minecraft.resources.ResourceLocation, net.minecraft.client.renderer.RenderType> pipe = net.minecraft.client.renderer.RenderType::guiTextured;
         List<TulpaRoster.Entry> entries = TulpaRoster.instance().entries();
         int ax = railX + (RAIL_W - RAIL_AV) / 2;
         railScroll = Math.clamp(railScroll, 0, maxRailScroll());     // keep valid as the roster grows/shrinks
@@ -787,7 +786,7 @@ public final class TulpaScreen extends Screen {
             TulpaRoster.Entry e = entries.get(i);
             boolean active = e.uuid().equals(uuid);
             // textured socket behind the head (gold-bordered when active), then the avatar, then a status LED
-            g.blitSprite(pipe, active ? AVATAR_FRAME_ACTIVE : AVATAR_FRAME, ax - 2, ay - 2, RAIL_AV + 4, RAIL_AV + 4);
+            g.blitSprite(active ? AVATAR_FRAME_ACTIVE : AVATAR_FRAME, ax - 2, ay - 2, RAIL_AV + 4, RAIL_AV + 4);
             PlayerFaceRenderer.draw(g, skinFor(e.uuid()), ax, ay, RAIL_AV);
             if (ClientDeaths.isDead(e.uuid())) {                      // dead — dim veil + respawn countdown
                 g.fill(ax, ay, ax + RAIL_AV, ay + RAIL_AV, 0xB0101010);
@@ -819,13 +818,13 @@ public final class TulpaScreen extends Screen {
         int cx = ax + RAIL_AV / 2;
         if (railScroll > 0) chevron(g, cx, top + 1, true);
         if (railScroll < maxRailScroll()) chevron(g, cx, py - 9, false);
-        g.blitSprite(pipe, summoning ? SUMMON_ACTIVE : SUMMON_SPRITE, ax, py, RAIL_AV, RAIL_AV);
+        g.blitSprite(summoning ? SUMMON_ACTIVE : SUMMON_SPRITE, ax, py, RAIL_AV, RAIL_AV);
     }
 
     /** Scroll-affordance chevron sprite (amber pixel-art triangle, up = more above / down = more below).
      *  Blitted at its native 11×6 so the pixels stay crisp (no scaling, no AA). */
     private void chevron(GuiGraphics g, int cx, int y, boolean up) {
-        g.blitSprite(net.minecraft.client.renderer.RenderType::guiTextured,
+        g.blitSprite(
                 up ? CHEVRON_UP : CHEVRON_DOWN, cx - 5, y, 11, 6);
     }
 
@@ -933,14 +932,13 @@ public final class TulpaScreen extends Screen {
                                net.minecraft.resources.ResourceLocation full,
                                net.minecraft.resources.ResourceLocation half,
                                net.minecraft.resources.ResourceLocation empty) {
-        java.util.function.Function<net.minecraft.resources.ResourceLocation, net.minecraft.client.renderer.RenderType> pipe = net.minecraft.client.renderer.RenderType::guiTextured;
         int units = Math.max(1, (int) Math.ceil(max / 2f));
         for (int i = 0; i < units; i++) {
             int ix = x + i * ICON_STEP;
-            g.blitSprite(pipe, empty, ix, y, ICON, ICON);
+            g.blitSprite(empty, ix, y, ICON, ICON);
             float v = value - i * 2f;
-            if (v >= 2f)      g.blitSprite(pipe, full, ix, y, ICON, ICON);
-            else if (v >= 1f) g.blitSprite(pipe, half, ix, y, ICON, ICON);
+            if (v >= 2f)      g.blitSprite(full, ix, y, ICON, ICON);
+            else if (v >= 1f) g.blitSprite(half, ix, y, ICON, ICON);
         }
     }
 
@@ -948,7 +946,7 @@ public final class TulpaScreen extends Screen {
      *  vanilla player renderer draws it for free. Sits in a recessed socket (slot_alt stretched). */
     private void renderPortrait(GuiGraphics g, AbstractClientPlayer e,
                                 int x, int y, int w, int h, int mouseX, int mouseY) {
-        g.blitSprite(net.minecraft.client.renderer.RenderType::guiTextured, SLOT_ALT, x, y, w, h);
+        g.blitSprite(SLOT_ALT, x, y, w, h);
         if (e == null) return;
         int scale = (int) (h * 0.45f);
         net.minecraft.client.gui.screens.inventory.InventoryScreen.renderEntityInInventoryFollowsMouse(
@@ -957,7 +955,7 @@ public final class TulpaScreen extends Screen {
     }
 
     private void slotBg(GuiGraphics g, net.minecraft.resources.ResourceLocation sprite, int x, int y) {
-        g.blitSprite(net.minecraft.client.renderer.RenderType::guiTextured, sprite, x, y, 16, 16);
+        g.blitSprite(sprite, x, y, 16, 16);
     }
 
     private void stackOn(GuiGraphics g, ItemStack st, int x, int y, int mouseX, int mouseY) {
@@ -1026,9 +1024,8 @@ public final class TulpaScreen extends Screen {
             int thumbH = Math.max(12, trackH * viewH / (viewH + lastMaxScroll));
             int thumbY = bodyY + (trackH - thumbH) * scroll / lastMaxScroll;
             int sbX = transX + transW - 4;
-            java.util.function.Function<net.minecraft.resources.ResourceLocation, net.minecraft.client.renderer.RenderType> pipe = net.minecraft.client.renderer.RenderType::guiTextured;
-            g.blitSprite(pipe, SCROLL_TRACK, sbX, bodyY, 4, viewH);
-            g.blitSprite(pipe, SCROLL_THUMB, sbX, thumbY, 4, thumbH);
+            g.blitSprite(SCROLL_TRACK, sbX, bodyY, 4, viewH);
+            g.blitSprite(SCROLL_THUMB, sbX, thumbY, 4, thumbH);
         }
     }
 

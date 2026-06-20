@@ -117,7 +117,7 @@ public class FlatEditBox extends EditBox {
      *  so it sits on top of the text/placeholder; centred on column x, native 3x10 (crisp, no scale). */
     private void caret(GuiGraphics g, int x, int textY) {
         if (isFocused() && ((System.currentTimeMillis() - focusTime) / BLINK_MS) % 2 == 0) {
-            g.blitSprite(RenderType::guiTextured, CARET, x - 1, textY - 1, CARET_W, CARET_H);
+            g.blitSprite(CARET, x - 1, textY - 1, CARET_W, CARET_H);
         }
     }
 }

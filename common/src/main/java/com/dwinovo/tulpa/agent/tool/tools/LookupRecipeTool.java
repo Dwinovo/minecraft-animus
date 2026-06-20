@@ -13,7 +13,6 @@ import net.minecraft.world.item.crafting.AbstractCookingRecipe;
 import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.PlacementInfo;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
@@ -94,15 +93,16 @@ public final class LookupRecipeTool implements TulpaTool {
         String name = BuiltInRegistries.ITEM.getKey(target).getPath();
 
         List<String> recipes = new ArrayList<>();
-        for (RecipeHolder<?> holder : level.recipeAccess().getRecipes()) {
+        for (RecipeHolder<?> holder : level.getRecipeManager().getRecipes()) {
             if (recipes.size() >= MAX_RECIPES) {
                 break;
             }
             Recipe<?> r = holder.value();
             if (r instanceof CraftingRecipe cr) {
-                PlacementInfo info = cr.placementInfo();
-                if (info.isImpossibleToPlace() || info.ingredients().isEmpty()) {
-                    continue;   // special / no static ingredient list (firework, map-clone, …)
+                // 1.21.1 has no PlacementInfo; a special recipe (firework, map-clone, …) has no
+                // static ingredient list — an empty list, or all-empty cells.
+                if (cr.getIngredients().isEmpty() || cr.getIngredients().stream().allMatch(Ingredient::isEmpty)) {
+                    continue;
                 }
                 ItemStack result;
                 try {
@@ -135,7 +135,7 @@ public final class LookupRecipeTool implements TulpaTool {
                 if (result.isEmpty() || result.getItem() != target) {
                     continue;
                 }
-                recipes.add("[stonecutter] " + describeIngredient(sc.input())
+                recipes.add("[stonecutter] " + describeIngredient(sc.getIngredients().get(0))
                         + " -> makes " + result.getCount());
             } else if (r instanceof SmithingRecipe sm) {
                 ItemStack result;
@@ -177,13 +177,13 @@ public final class LookupRecipeTool implements TulpaTool {
         if (recipe instanceof ShapedRecipe shaped) {
             int w = shaped.getWidth();
             int h = shaped.getHeight();
-            List<Optional<Ingredient>> cells = shaped.getIngredients();   // row-major, gaps = empty
+            var cells = shaped.getIngredients();   // 1.21.1: NonNullList<Ingredient>, gaps = Ingredient.EMPTY
             StringBuilder sb = new StringBuilder("shaped " + w + "x" + h + ", makes " + count + ":");
             for (int r = 0; r < h; r++) {
                 sb.append("\n  ");
                 for (int c = 0; c < w; c++) {
-                    Optional<Ingredient> ing = cells.get(r * w + c);
-                    sb.append(ing.map(LookupRecipeTool::describeIngredient).orElse("."));
+                    Ingredient ing = cells.get(r * w + c);
+                    sb.append(ing.isEmpty() ? "." : describeIngredient(ing));
                     if (c < w - 1) {
                         sb.append(" | ");
                     }
@@ -193,7 +193,8 @@ public final class LookupRecipeTool implements TulpaTool {
         }
         // Shapeless: order doesn't matter, place anywhere.
         Map<String, Integer> counts = new LinkedHashMap<>();
-        for (Ingredient ing : recipe.placementInfo().ingredients()) {
+        for (Ingredient ing : recipe.getIngredients()) {
+            if (ing.isEmpty()) continue;
             counts.merge(describeIngredient(ing), 1, Integer::sum);
         }
         String list = counts.entrySet().stream()
@@ -209,25 +210,21 @@ public final class LookupRecipeTool implements TulpaTool {
                 : type == RecipeType.SMOKING ? "smoking (smoker)"
                 : type == RecipeType.CAMPFIRE_COOKING ? "campfire"
                 : "smelting (furnace)";
-        return "[" + station + "] " + describeIngredient(recipe.input()) + " -> makes "
-                + result.getCount() + " (" + recipe.cookingTime() + " ticks)";
+        return "[" + station + "] " + describeIngredient(recipe.getIngredients().get(0)) + " -> makes "
+                + result.getCount() + " (" + recipe.getCookingTime() + " ticks)";
     }
 
-    /** A smithing recipe (smithing table): base + addition, plus an optional template. */
+    /** A smithing recipe (smithing table). 1.21.1's SmithingRecipe exposes only is*Ingredient(stack)
+     *  tests — no ingredient getters — so we can't enumerate the inputs; describe the station + result. */
     private static String formatSmithing(SmithingRecipe recipe, ItemStack result) {
-        StringBuilder sb = new StringBuilder("[smithing] base "
-                + recipe.baseIngredient().map(b -> describeIngredient(b)).orElse("(any)"));   // 1.21.4: Optional
-        recipe.additionIngredient().ifPresent(a -> sb.append(" + addition ").append(describeIngredient(a)));
-        recipe.templateIngredient().ifPresent(t -> sb.append(" + template ").append(describeIngredient(t)));
-        return sb.append(" -> makes ").append(result.getCount()).toString();
+        return "[smithing] (smithing table: template + base + addition) -> makes " + result.getCount();
     }
 
     /** Name an ingredient: a single item directly, a shared-suffix tag as "planks (any)", else a few
      *  members — so a category ingredient doesn't mislead the model into one specific item. */
-    @SuppressWarnings("deprecation")   // Ingredient.items() is the only stable item enumeration
     private static String describeIngredient(Ingredient ing) {
-        List<String> paths = ing.items()
-                .map(h -> BuiltInRegistries.ITEM.getKey(h.value()).getPath())
+        List<String> paths = java.util.Arrays.stream(ing.getItems())   // 1.21.1: getItems() -> ItemStack[]
+                .map(s -> BuiltInRegistries.ITEM.getKey(s.getItem()).getPath())
                 .distinct()
                 .toList();
         if (paths.isEmpty()) {
@@ -263,7 +260,7 @@ public final class LookupRecipeTool implements TulpaTool {
         if (rl == null) {
             throw new IllegalArgumentException("not a valid item id: " + id);
         }
-        Item item = BuiltInRegistries.ITEM.getValue(rl);
+        Item item = BuiltInRegistries.ITEM.get(rl);
         if (item == null || item == Items.AIR) {
             throw new IllegalArgumentException("unknown item: " + id);
         }

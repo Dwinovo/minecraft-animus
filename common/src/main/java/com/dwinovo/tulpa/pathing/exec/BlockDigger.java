@@ -108,7 +108,7 @@ public final class BlockDigger {
         if (!started) {
             started = true;
             player.gameMode.handleBlockBreakAction(pos,
-                    ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, side, level.getMaxY(), -1);
+                    ServerboundPlayerActionPacket.Action.START_DESTROY_BLOCK, side, level.getMaxBuildHeight(), -1);
             player.swing(InteractionHand.MAIN_HAND);
             if (player.getAbilities().instabuild) {
                 blockHitDelay = BLOCK_HIT_DELAY;
@@ -134,7 +134,7 @@ public final class BlockDigger {
             // STOP → server destroys. Do NOT clear the crack: the block vanishing
             // removes it (no intact-for-a-frame flicker). Carpet-exact.
             player.gameMode.handleBlockBreakAction(pos,
-                    ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, side, level.getMaxY(), -1);
+                    ServerboundPlayerActionPacket.Action.STOP_DESTROY_BLOCK, side, level.getMaxBuildHeight(), -1);
             blockHitDelay = BLOCK_HIT_DELAY;
             reset();
             return targetBreak;
@@ -180,7 +180,7 @@ public final class BlockDigger {
             if (started) {
                 player.gameMode.handleBlockBreakAction(pos,
                         ServerboundPlayerActionPacket.Action.ABORT_DESTROY_BLOCK,
-                        Direction.DOWN, player.level().getMaxY(), -1);
+                        Direction.DOWN, player.level().getMaxBuildHeight(), -1);
             }
             player.level().destroyBlockProgress(CRACK_ID, pos, -1);   // clear the crack
         }

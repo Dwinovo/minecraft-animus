@@ -94,7 +94,7 @@ public final class LocateBiomeTaskGoal implements CompanionTask {
         biomeSource = sl.getChunkSource().getGenerator().getBiomeSource();
         sampler = sl.getChunkSource().randomState().sampler();
         yBlocks = Mth.outFromOrigin(player.getBlockY(),
-                sl.getMinY() + 1, sl.getMaxY(), Y_STEP_BLOCKS).toArray();
+                sl.getMinBuildHeight() + 1, sl.getMaxBuildHeight(), Y_STEP_BLOCKS).toArray();
         centerX = player.getBlockX();
         centerZ = player.getBlockZ();
     }

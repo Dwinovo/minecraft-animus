@@ -46,7 +46,7 @@ public final class EatCompanionTask implements CompanionTask {
             return;
         }
         // Native "is this consumable?" — covers food, potions, milk, and modded consumables alike.
-        if (new ItemStack(r.item).get(DataComponents.CONSUMABLE) == null) {
+        if (new ItemStack(r.item).get(DataComponents.FOOD) == null) {
             fail(r.label + " can't be eaten or drunk");
             return;
         }

@@ -169,7 +169,7 @@ public final class ScanBlocksTool implements TulpaTool {
             if (el == null || el.isJsonNull()) continue;
             ResourceLocation id = ResourceLocation.tryParse(el.getAsString());
             if (id == null) continue;
-            Block b = BuiltInRegistries.BLOCK.getValue(id);
+            Block b = BuiltInRegistries.BLOCK.get(id);
             if (b != null && b != Blocks.AIR) out.add(b);
         }
         return out;

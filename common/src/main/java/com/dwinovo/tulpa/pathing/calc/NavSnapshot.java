@@ -65,7 +65,7 @@ public final class NavSnapshot implements BlockGetter, com.dwinovo.tulpa.pathing
     }
 
     @Override
-    public int getMinY() {
-        return level.getMinY();
+    public int getMinBuildHeight() {
+        return level.getMinBuildHeight();
     }
 }

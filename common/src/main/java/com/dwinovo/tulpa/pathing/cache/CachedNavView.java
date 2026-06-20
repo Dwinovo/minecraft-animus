@@ -46,7 +46,7 @@ public final class CachedNavView implements BlockGetter, BlockEntityAware {
     }
 
     private BlockState read(int x, int y, int z) {
-        if (y < level.getMinY() || y >= level.getMinY() + level.getHeight()) {
+        if (y < level.getMinBuildHeight() || y >= level.getMinBuildHeight() + level.getHeight()) {
             return AIR;
         }
         LevelChunk chunk = loaded.at(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z));
@@ -91,7 +91,7 @@ public final class CachedNavView implements BlockGetter, BlockEntityAware {
     }
 
     @Override
-    public int getMinY() {
-        return level.getMinY();
+    public int getMinBuildHeight() {
+        return level.getMinBuildHeight();
     }
 }

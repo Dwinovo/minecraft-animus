@@ -133,7 +133,7 @@ public final class HuntTool implements TulpaTool {
             if (el == null || el.isJsonNull()) continue;
             ResourceLocation id = ResourceLocation.tryParse(el.getAsString());
             if (id == null) continue;
-            EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(id);
+            EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.get(id);
             // getValue returns the PIG default for unknown ids in some registries;
             // guard by requiring the registry to actually contain the key.
             if (type != null && BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {

@@ -122,7 +122,7 @@ public final class PlaceBlockTool implements TulpaTool {
         if (id == null) {
             throw new IllegalArgumentException("block_id is not a valid id: " + args.get("block_id"));
         }
-        Item item = BuiltInRegistries.ITEM.getValue(id);
+        Item item = BuiltInRegistries.ITEM.get(id);
         if (item == null || item == Items.AIR) {
             throw new IllegalArgumentException("unknown item: " + id);
         }

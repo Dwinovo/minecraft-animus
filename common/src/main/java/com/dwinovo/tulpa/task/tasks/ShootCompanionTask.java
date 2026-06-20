@@ -15,7 +15,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.ItemUseAnimation;
+import net.minecraft.world.item.UseAnim;
 import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -205,7 +205,7 @@ public final class ShootCompanionTask implements CompanionTask {
 
         Shot() {
             ItemStack weapon = player.getMainHandItem();
-            this.loadStyle = weapon.getUseAnimation() == ItemUseAnimation.CROSSBOW;
+            this.loadStyle = weapon.getUseAnimation() == UseAnim.CROSSBOW;
             this.before = ownedProjectileIds();
             // Begin the action: a pre-loaded crossbow or an instant weapon fires now; a bow/crossbow
             // starts its draw/charge. Aim was set by the caller this same tick.

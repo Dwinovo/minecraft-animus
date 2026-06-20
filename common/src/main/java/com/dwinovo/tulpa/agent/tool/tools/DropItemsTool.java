@@ -79,7 +79,7 @@ public final class DropItemsTool implements TulpaTool {
                 throw new IllegalArgumentException("missing required argument: " + key);
             }
             ResourceLocation id = ResourceLocation.tryParse(args.get(key).getAsString());
-            Item item = id == null ? null : BuiltInRegistries.ITEM.getValue(id);
+            Item item = id == null ? null : BuiltInRegistries.ITEM.get(id);
             if (item == null || item == Items.AIR) {
                 throw new IllegalArgumentException("unknown item: " + args.get(key).getAsString());
             }

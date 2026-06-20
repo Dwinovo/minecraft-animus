@@ -8,7 +8,7 @@ import net.minecraft.server.packs.resources.ResourceManagerReloadListener;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
-import net.neoforged.neoforge.client.event.AddClientReloadListenersEvent;
+import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent;
 import net.neoforged.neoforge.common.NeoForge;
 
 import java.nio.file.Path;
@@ -68,16 +68,16 @@ public class TulpaNeoForgeClient {
                 (g, delta) -> com.dwinovo.tulpa.client.hud.TulpaToasts.render(g));
     }
 
-    static void registerReloadListeners(AddClientReloadListenersEvent event) {
+    static void registerReloadListeners(RegisterClientReloadListenersEvent event) {
+        // 1.21.1 uses RegisterClientReloadListenersEvent.registerReloadListener(listener) — no
+        // ResourceLocation key (that's the 1.21.4 AddClientReloadListenersEvent API).
         Path tulpaConfigRoot = Minecraft.getInstance().gameDirectory.toPath()
                 .resolve("config").resolve(Constants.MOD_ID);
         Path skillsDir = tulpaConfigRoot.resolve("skills");
 
-        event.addListener(
-                ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "skill_loader"),
-                (ResourceManagerReloadListener) rm -> {
-                    BuiltinSkillBootstrap.bootstrap(tulpaConfigRoot, skillsDir);
-                    SkillRegistry.instance().scan(skillsDir);
-                });
+        event.registerReloadListener((ResourceManagerReloadListener) rm -> {
+            BuiltinSkillBootstrap.bootstrap(tulpaConfigRoot, skillsDir);
+            SkillRegistry.instance().scan(skillsDir);
+        });
     }
 }

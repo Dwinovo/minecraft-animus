@@ -41,15 +41,14 @@ public final class Dropdown {
 
     public void render(GuiGraphics g, Font font, int mouseX, int mouseY) {
         UiTheme th = UiTheme.current();
-        java.util.function.Function<net.minecraft.resources.ResourceLocation, net.minecraft.client.renderer.RenderType> pipe = net.minecraft.client.renderer.RenderType::guiTextured;
-        g.blitSprite(pipe, FRAME, x, y, w, h);
+        g.blitSprite(FRAME, x, y, w, h);
         int ty = y + (h - 8) / 2;
         Nb.text(g, font, labelOf(selectedId), x + 6, ty, th.text());
         Nb.text(g, font, open ? "▴" : "▾", x + w - 12, ty, th.textDim());
 
         if (open) {
             int oy = y + h - 2;
-            g.blitSprite(pipe, FRAME, x, oy, w, items.size() * ROW + 4);
+            g.blitSprite(FRAME, x, oy, w, items.size() * ROW + 4);
             for (int i = 0; i < items.size(); i++) {
                 Item it = items.get(i);
                 int ry = oy + 2 + i * ROW;

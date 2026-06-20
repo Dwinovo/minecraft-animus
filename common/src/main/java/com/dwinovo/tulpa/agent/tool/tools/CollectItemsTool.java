@@ -101,7 +101,7 @@ public final class CollectItemsTool implements TulpaTool {
             ResourceLocation id = ResourceLocation.tryParse(el.getAsString());
             if (id == null) continue;
             if (BuiltInRegistries.ITEM.containsKey(id)) {
-                out.add(BuiltInRegistries.ITEM.getValue(id));
+                out.add(BuiltInRegistries.ITEM.get(id));
             }
         }
         return out;

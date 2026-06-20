@@ -179,7 +179,7 @@ public final class TulpaToasts {
 
     private static void drawAvatar(GuiGraphics g, UUID uuid, int x, int y, UiTheme th) {
         // textured socket behind the head (same sprite as the panel rail), face on top covering the centre
-        g.blitSprite(net.minecraft.client.renderer.RenderType::guiTextured,
+        g.blitSprite(
                 AVATAR_FRAME, x - 2, y - 2, AVATAR + 4, AVATAR + 4);
         PlayerFaceRenderer.draw(g, skinFor(uuid), x, y, AVATAR);
     }
@@ -190,9 +190,8 @@ public final class TulpaToasts {
         int targetX = ax + AVATAR + BUBBLE_GAP;
         int bx = targetX - slideOut(now - s.bubbleBornMs, AVATAR + BUBBLE_GAP);
         int by = ay + AVATAR / 2 - h / 2;
-        java.util.function.Function<net.minecraft.resources.ResourceLocation, net.minecraft.client.renderer.RenderType> pipe = net.minecraft.client.renderer.RenderType::guiTextured;
-        g.blitSprite(pipe, TIP_SPRITE, bx - TIP_W + 1, ay + AVATAR / 2 - TIP_H / 2, TIP_W, TIP_H);
-        g.blitSprite(pipe, BUBBLE_SPRITE, bx, by, W, h);
+        g.blitSprite(TIP_SPRITE, bx - TIP_W + 1, ay + AVATAR / 2 - TIP_H / 2, TIP_W, TIP_H);
+        g.blitSprite(BUBBLE_SPRITE, bx, by, W, h);
         int ly = by + PADV;
         for (Line line : s.lines) {
             Nb.text(g, font, line.text(), bx + 7, ly, line.color());

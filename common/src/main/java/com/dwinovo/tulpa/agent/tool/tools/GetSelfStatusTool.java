@@ -96,7 +96,7 @@ public final class GetSelfStatusTool implements TulpaTool {
         // Structures whose bounding box contains us right now (e.g. village, mineshaft).
         JsonArray structures = new JsonArray();
         if (entity.level() instanceof ServerLevel sl) {
-            Registry<Structure> reg = sl.registryAccess().lookupOrThrow(Registries.STRUCTURE);
+            Registry<Structure> reg = sl.registryAccess().registryOrThrow(Registries.STRUCTURE);
             for (Structure s : sl.structureManager().getAllStructuresAt(entity.blockPosition()).keySet()) {
                 ResourceLocation key = reg.getKey(s);
                 if (key != null) structures.add(key.toString());

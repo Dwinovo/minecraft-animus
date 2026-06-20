@@ -104,7 +104,7 @@ public final class EquipCompanionTask implements CompanionTask {
         if (!previous.isEmpty()) {
             inv.add(previous);                              // mutates `previous` down by what fit
             if (!previous.isEmpty() && player.level() instanceof ServerLevel sl) {
-                player.spawnAtLocation(sl, previous);       // overflow → drop
+                player.spawnAtLocation(previous);       // overflow → drop
             }
         }
         inv.setChanged();
@@ -123,7 +123,7 @@ public final class EquipCompanionTask implements CompanionTask {
     private EquipmentSlot resolveSlot(ItemStack stack) {
         if (r.slot == null) return player.getEquipmentSlotForItem(stack);
         if (r.slot == EquipmentSlot.MAINHAND || r.slot == EquipmentSlot.OFFHAND) return r.slot;
-        return player.isEquippableInSlot(stack, r.slot) ? r.slot : null;
+        return player.getEquipmentSlotForItem(stack) == r.slot ? r.slot : null;
     }
 
     /** After a right-click equip, find which vanilla armor/off-hand slot now holds the item (null = a

@@ -131,7 +131,7 @@ public final class ShootTool implements TulpaTool {
             ResourceLocation id = ResourceLocation.tryParse(el.getAsString());
             if (id == null) continue;
             if (BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {
-                out.add(BuiltInRegistries.ENTITY_TYPE.getValue(id));
+                out.add(BuiltInRegistries.ENTITY_TYPE.get(id));
             }
         }
         return out;
