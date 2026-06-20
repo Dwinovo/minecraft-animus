@@ -44,11 +44,11 @@ public final class SimpleButton extends Button {
         int x = getX(), y = getY(), w = getWidth(), h = getHeight();
         boolean hovered = active && isHoveredOrFocused();
         ResourceLocation sprite = !active ? DISABLED : (hovered ? HOVER : IDLE);
-        g.blitSprite(sprite, x, y, w, h);
+        GuiCompat.blitSprite(g, sprite, x, y, w, h);
 
         if (icon != null) {   // icon button: a centered square sprite, no text label
             int s = Math.min(w - 4, h - 2);
-            g.blitSprite(icon, x + (w - s) / 2, y + (h - s) / 2, s, s);
+            GuiCompat.blitSprite(g, icon, x + (w - s) / 2, y + (h - s) / 2, s, s);
             return;
         }
 

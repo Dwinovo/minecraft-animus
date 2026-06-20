@@ -1,5 +1,6 @@
 package com.dwinovo.tulpa.client.hud;
 
+import com.dwinovo.tulpa.client.screen.GuiCompat;
 import com.dwinovo.tulpa.agent.llm.ConvoState;
 import com.dwinovo.tulpa.agent.provider.AssistantTurn;
 import com.dwinovo.tulpa.client.agent.AgentLoopRegistry;
@@ -14,7 +15,6 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.resources.DefaultPlayerSkin;
-import net.minecraft.client.resources.PlayerSkin;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -179,7 +179,7 @@ public final class TulpaToasts {
 
     private static void drawAvatar(GuiGraphics g, UUID uuid, int x, int y, UiTheme th) {
         // textured socket behind the head (same sprite as the panel rail), face on top covering the centre
-        g.blitSprite(
+        GuiCompat.blitSprite(g, 
                 AVATAR_FRAME, x - 2, y - 2, AVATAR + 4, AVATAR + 4);
         PlayerFaceRenderer.draw(g, skinFor(uuid), x, y, AVATAR);
     }
@@ -190,8 +190,8 @@ public final class TulpaToasts {
         int targetX = ax + AVATAR + BUBBLE_GAP;
         int bx = targetX - slideOut(now - s.bubbleBornMs, AVATAR + BUBBLE_GAP);
         int by = ay + AVATAR / 2 - h / 2;
-        g.blitSprite(TIP_SPRITE, bx - TIP_W + 1, ay + AVATAR / 2 - TIP_H / 2, TIP_W, TIP_H);
-        g.blitSprite(BUBBLE_SPRITE, bx, by, W, h);
+        GuiCompat.blitSprite(g, TIP_SPRITE, bx - TIP_W + 1, ay + AVATAR / 2 - TIP_H / 2, TIP_W, TIP_H);
+        GuiCompat.blitSprite(g, BUBBLE_SPRITE, bx, by, W, h);
         int ly = by + PADV;
         for (Line line : s.lines) {
             Nb.text(g, font, line.text(), bx + 7, ly, line.color());
@@ -199,9 +199,10 @@ public final class TulpaToasts {
         }
     }
 
-    private static PlayerSkin skinFor(UUID uuid) {
+    private static net.minecraft.resources.ResourceLocation skinFor(UUID uuid) {
         AbstractClientPlayer e = ClientTulpaLookup.resolve(uuid);
-        return e != null ? e.getSkin() : DefaultPlayerSkin.get(uuid);
+        // 1.20.1: skins are a ResourceLocation, not a PlayerSkin record.
+        return e != null ? e.getSkinTextureLocation() : DefaultPlayerSkin.getDefaultSkin(uuid);
     }
 
     /** Eased slide: {@code dist} px → 0 over {@link #SLIDE_MS}. */

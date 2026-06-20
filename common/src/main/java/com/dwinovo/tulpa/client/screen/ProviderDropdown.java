@@ -54,7 +54,7 @@ public final class ProviderDropdown {
 
     public void render(GuiGraphics g, Font font, int mouseX, int mouseY) {
         UiTheme th = UiTheme.current();
-        g.blitSprite(FRAME, x, y, w, h);
+        GuiCompat.blitSprite(g, FRAME, x, y, w, h);
         int ty = y + (h - 8) / 2;
         Nb.text(g, font, selectedLabel(), x + 6, ty, th.text());
         Nb.text(g, font, open ? "▴" : "▾", x + w - 12, ty, th.textDim());
@@ -62,7 +62,7 @@ public final class ProviderDropdown {
         if (open) {
             int oy = y + h - 2;
             int n = rowCount();
-            g.blitSprite(FRAME, x, oy, w, n * ROW + 4);
+            GuiCompat.blitSprite(g, FRAME, x, oy, w, n * ROW + 4);
             for (int i = 0; i < n; i++) {
                 int ry = oy + 2 + i * ROW;
                 if (mouseX >= x && mouseX < x + w && mouseY >= ry && mouseY < ry + ROW) {

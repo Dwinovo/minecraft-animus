@@ -27,7 +27,6 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.resources.DefaultPlayerSkin;
-import net.minecraft.client.resources.PlayerSkin;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -675,18 +674,18 @@ public final class TulpaScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+    public boolean mouseScrolled(double mx, double my, double delta) {   // 1.20.1: single scroll delta (no horizontal axis)
         // Wheel over the left rail column scrolls the roster (works on any tab).
-        if (sy != 0 && mx >= railX && mx < railX + RAIL_W && maxRailScroll() > 0) {
-            railScroll = (int) Mth.clamp((long) (railScroll - sy), 0L, (long) maxRailScroll());
+        if (delta != 0 && mx >= railX && mx < railX + RAIL_W && maxRailScroll() > 0) {
+            railScroll = (int) Mth.clamp((long) (railScroll - delta), 0L, (long) maxRailScroll());
             return true;
         }
-        if (tab == Tab.CHAT && sy != 0) {
-            scroll = (int) Mth.clamp((long) (scroll - sy * LINE_H * 3), 0L, (long) lastMaxScroll);
+        if (tab == Tab.CHAT && delta != 0) {
+            scroll = (int) Mth.clamp((long) (scroll - delta * LINE_H * 3), 0L, (long) lastMaxScroll);
             pinBottom = scroll >= lastMaxScroll;
             return true;
         }
-        return super.mouseScrolled(mx, my, sx, sy);
+        return super.mouseScrolled(mx, my, delta);
     }
 
     // ---- render ----
@@ -696,7 +695,7 @@ public final class TulpaScreen extends Screen {
         super.render(g, mouseX, mouseY, partial);
 
         // ONE merged Cottage sprite: left rail column + panel, continuous header, no gap.
-        g.blitSprite(
+        GuiCompat.blitSprite(g, 
                 WORKSPACE_SPRITE, railX, top, RAIL_W + PANEL_W, PANEL_H);
         renderRail(g, mouseX, mouseY);   // avatars + status + summon tile on the rail column
 
@@ -738,7 +737,7 @@ public final class TulpaScreen extends Screen {
         // a parchment field background + border behind each before it renders its text.
         for (AbstractWidget w : overlay) {
             if (w instanceof EditBox eb) {                          // parchment frame, inflated past the inset text
-                g.blitSprite(
+                GuiCompat.blitSprite(g, 
                         FIELD_SPRITE, eb.getX() - FIELD_INSET_X, eb.getY() - FIELD_INSET_Y,
                         eb.getWidth() + FIELD_INSET_X * 2, eb.getHeight() + FIELD_INSET_Y * 2);
             }
@@ -789,7 +788,7 @@ public final class TulpaScreen extends Screen {
             TulpaRoster.Entry e = entries.get(i);
             boolean active = e.uuid().equals(uuid);
             // textured socket behind the head (gold-bordered when active), then the avatar, then a status LED
-            g.blitSprite(active ? AVATAR_FRAME_ACTIVE : AVATAR_FRAME, ax - 2, ay - 2, RAIL_AV + 4, RAIL_AV + 4);
+            GuiCompat.blitSprite(g, active ? AVATAR_FRAME_ACTIVE : AVATAR_FRAME, ax - 2, ay - 2, RAIL_AV + 4, RAIL_AV + 4);
             PlayerFaceRenderer.draw(g, skinFor(e.uuid()), ax, ay, RAIL_AV);
             if (ClientDeaths.isDead(e.uuid())) {                      // dead — dim veil + respawn countdown
                 g.fill(ax, ay, ax + RAIL_AV, ay + RAIL_AV, 0xB0101010);
@@ -821,13 +820,13 @@ public final class TulpaScreen extends Screen {
         int cx = ax + RAIL_AV / 2;
         if (railScroll > 0) chevron(g, cx, top + 1, true);
         if (railScroll < maxRailScroll()) chevron(g, cx, py - 9, false);
-        g.blitSprite(summoning ? SUMMON_ACTIVE : SUMMON_SPRITE, ax, py, RAIL_AV, RAIL_AV);
+        GuiCompat.blitSprite(g, summoning ? SUMMON_ACTIVE : SUMMON_SPRITE, ax, py, RAIL_AV, RAIL_AV);
     }
 
     /** Scroll-affordance chevron sprite (amber pixel-art triangle, up = more above / down = more below).
      *  Blitted at its native 11×6 so the pixels stay crisp (no scaling, no AA). */
     private void chevron(GuiGraphics g, int cx, int y, boolean up) {
-        g.blitSprite(
+        GuiCompat.blitSprite(g, 
                 up ? CHEVRON_UP : CHEVRON_DOWN, cx - 5, y, 11, 6);
     }
 
@@ -887,9 +886,10 @@ public final class TulpaScreen extends Screen {
         }).orElse(TXT_FAINT);
     }
 
-    private static PlayerSkin skinFor(UUID u) {
+    private static net.minecraft.resources.ResourceLocation skinFor(UUID u) {
         AbstractClientPlayer e = ClientTulpaLookup.resolve(u);
-        return e != null ? e.getSkin() : DefaultPlayerSkin.get(u);
+        // 1.20.1: skins are a ResourceLocation, not a PlayerSkin record.
+        return e != null ? e.getSkinTextureLocation() : DefaultPlayerSkin.getDefaultSkin(u);
     }
 
     /** Roster index of the avatar under (mx,my), or -1. */
@@ -938,10 +938,10 @@ public final class TulpaScreen extends Screen {
         int units = Math.max(1, (int) Math.ceil(max / 2f));
         for (int i = 0; i < units; i++) {
             int ix = x + i * ICON_STEP;
-            g.blitSprite(empty, ix, y, ICON, ICON);
+            GuiCompat.blitSprite(g, empty, ix, y, ICON, ICON);
             float v = value - i * 2f;
-            if (v >= 2f)      g.blitSprite(full, ix, y, ICON, ICON);
-            else if (v >= 1f) g.blitSprite(half, ix, y, ICON, ICON);
+            if (v >= 2f)      GuiCompat.blitSprite(g, full, ix, y, ICON, ICON);
+            else if (v >= 1f) GuiCompat.blitSprite(g, half, ix, y, ICON, ICON);
         }
     }
 
@@ -949,16 +949,20 @@ public final class TulpaScreen extends Screen {
      *  vanilla player renderer draws it for free. Sits in a recessed socket (slot_alt stretched). */
     private void renderPortrait(GuiGraphics g, AbstractClientPlayer e,
                                 int x, int y, int w, int h, int mouseX, int mouseY) {
-        g.blitSprite(SLOT_ALT, x, y, w, h);
+        GuiCompat.blitSprite(g, SLOT_ALT, x, y, w, h);
         if (e == null) return;
         int scale = (int) (h * 0.45f);
+        // 1.20.1: anchor-point form — (posX, posY, scale, relMouseX, relMouseY, entity). Anchor at the
+        // box's bottom-centre; the relative mouse offsets make the portrait track the cursor.
+        int posX = x + w / 2;
+        int posY = y + h - 4;
         net.minecraft.client.gui.screens.inventory.InventoryScreen.renderEntityInInventoryFollowsMouse(
-                g, x + 2, y + 2, x + w - 2, y + h - 2, scale, 0.0625f,
-                (float) mouseX, (float) mouseY, e);
+                g, posX, posY, scale,
+                (float) posX - mouseX, (float) (posY - h * 0.6f) - mouseY, e);
     }
 
     private void slotBg(GuiGraphics g, net.minecraft.resources.ResourceLocation sprite, int x, int y) {
-        g.blitSprite(sprite, x, y, 16, 16);
+        GuiCompat.blitSprite(g, sprite, x, y, 16, 16);
     }
 
     private void stackOn(GuiGraphics g, ItemStack st, int x, int y, int mouseX, int mouseY) {
@@ -1027,8 +1031,8 @@ public final class TulpaScreen extends Screen {
             int thumbH = Math.max(12, trackH * viewH / (viewH + lastMaxScroll));
             int thumbY = bodyY + (trackH - thumbH) * scroll / lastMaxScroll;
             int sbX = transX + transW - 4;
-            g.blitSprite(SCROLL_TRACK, sbX, bodyY, 4, viewH);
-            g.blitSprite(SCROLL_THUMB, sbX, thumbY, 4, thumbH);
+            GuiCompat.blitSprite(g, SCROLL_TRACK, sbX, bodyY, 4, viewH);
+            GuiCompat.blitSprite(g, SCROLL_THUMB, sbX, thumbY, 4, thumbH);
         }
     }
 

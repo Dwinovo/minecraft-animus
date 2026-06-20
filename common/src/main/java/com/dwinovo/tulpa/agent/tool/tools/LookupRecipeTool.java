@@ -13,7 +13,6 @@ import net.minecraft.world.item.crafting.AbstractCookingRecipe;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
-import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.world.item.crafting.SmithingRecipe;
@@ -90,11 +89,10 @@ public final class LookupRecipeTool implements TulpaTool {
         String name = BuiltInRegistries.ITEM.getKey(target).getPath();
 
         List<String> recipes = new ArrayList<>();
-        for (RecipeHolder<?> holder : level.getRecipeManager().getRecipes()) {
+        for (Recipe<?> r : level.getRecipeManager().getRecipes()) {   // 1.20.1: getRecipes() -> Recipe<?>, no RecipeHolder
             if (recipes.size() >= MAX_RECIPES) {
                 break;
             }
-            Recipe<?> r = holder.value();
             if (r instanceof CraftingRecipe cr) {
                 // 1.21.1 has no PlacementInfo; a special recipe (firework, map-clone, …) has no
                 // static ingredient list — an empty list, or all-empty cells.

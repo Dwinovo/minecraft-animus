@@ -56,12 +56,8 @@ public final class CompanionRegistry extends SavedData {
                     .xmap(CompanionRegistry::new, d -> d.entries)
                     .fieldOf("companions").codec();
 
-    // 1.20.4 predates the HolderLookup-aware save/load; the SavedData.Factory deserializer is a
-    // single-arg Function<CompoundTag, T>, and we (de)serialise through CODEC ourselves.
-    private static final SavedData.Factory<CompanionRegistry> FACTORY = new SavedData.Factory<>(
-            CompanionRegistry::new, CompanionRegistry::load,
-            net.minecraft.util.datafix.DataFixTypes.SAVED_DATA_RANDOM_SEQUENCES);
-
+    // 1.20.1 predates SavedData.Factory and the HolderLookup-aware save/load; register via the
+    // classic computeIfAbsent(loadFn, factory, name) and (de)serialise through CODEC ourselves.
     @Override
     public CompoundTag save(CompoundTag tag) {
         CODEC.encodeStart(NbtOps.INSTANCE, this).result()
@@ -84,7 +80,8 @@ public final class CompanionRegistry extends SavedData {
     }
 
     public static CompanionRegistry get(MinecraftServer server) {
-        return server.overworld().getDataStorage().computeIfAbsent(FACTORY, "tulpa_companions");
+        return server.overworld().getDataStorage()
+                .computeIfAbsent(CompanionRegistry::load, CompanionRegistry::new, "tulpa_companions");
     }
 
     /** Add or update a companion's catalog entry. */

@@ -4,41 +4,38 @@ import com.dwinovo.tulpa.platform.services.INetworkChannel;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraftforge.network.ChannelBuilder;
 import net.minecraftforge.network.NetworkDirection;
+import net.minecraftforge.network.NetworkEvent;
+import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.PacketDistributor;
-import net.minecraftforge.network.SimpleChannel;
+import net.minecraftforge.network.simple.SimpleChannel;
 
+import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
- * Forge 1.20.4 implementation of {@link INetworkChannel}, built on a single
- * {@link SimpleChannel}. Each payload is registered as a message keyed by an
- * incrementing {@code int} discriminator; Forge maps an outbound payload back to
- * its registration by the message's runtime class, so {@code TulpaNetwork} can
- * keep sending plain payload instances via {@link #sendToServer} /
- * {@link #sendToPlayer}.
- *
- * <p>Unlike NeoForge there is no deferred "register during an event" window:
- * Forge accepts message registration immediately, so {@code register*} applies
- * straight to the channel (no pending queue / flush machinery).
+ * Forge 1.20.1 implementation of {@link INetworkChannel}, built on a single classic
+ * {@link SimpleChannel} (Forge 47.x predates the {@code ChannelBuilder} API). Each payload is
+ * registered as a message keyed by an incrementing {@code int} discriminator and a fixed
+ * {@link NetworkDirection}; Forge maps an outbound payload back to its registration by the
+ * message's runtime class, so {@code TulpaNetwork} keeps sending plain payload instances.
  *
  * <h2>Threading</h2>
- * {@code consumerMainThread} hands the message to the consumer on the receiving
- * side's main thread (server-main for C→S, client-main for S→C), so common
- * handlers don't need to reschedule — matching the interface contract.
+ * The classic API dispatches the handler on the network thread; we hop to the receiving side's
+ * main thread with {@link NetworkEvent.Context#enqueueWork} (server-main for C→S, client-main for
+ * S→C), matching the interface's threading contract.
  */
 public final class ForgeNetworkChannel implements INetworkChannel {
 
-    private static final int PROTOCOL_VERSION = 1;
+    private static final String PROTOCOL_VERSION = "1";
 
-    private static final SimpleChannel CHANNEL = ChannelBuilder
-            .named(new ResourceLocation("tulpa", "main"))
-            .networkProtocolVersion(PROTOCOL_VERSION)
-            .acceptedVersions((status, version) -> true)
-            .simpleChannel();
+    private static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
+            new ResourceLocation("tulpa", "main"),
+            () -> PROTOCOL_VERSION,
+            PROTOCOL_VERSION::equals,
+            PROTOCOL_VERSION::equals);
 
     /** Monotonic discriminator for each registered message. */
     private int nextId = 0;
@@ -51,15 +48,13 @@ public final class ForgeNetworkChannel implements INetworkChannel {
             ResourceLocation id, Class<T> type,
             BiConsumer<T, FriendlyByteBuf> encoder, Function<FriendlyByteBuf, T> decoder,
             BiConsumer<T, ServerPlayer> handler) {
-        CHANNEL.messageBuilder(type, nextId++, NetworkDirection.PLAY_TO_SERVER)
-                .encoder(encoder)
-                .decoder(decoder)
-                .consumerMainThread((msg, ctx) -> {
-                    // getSender() is the ServerPlayer the C→S packet came from.
-                    handler.accept(msg, ctx.getSender());
+        CHANNEL.registerMessage(nextId++, type, encoder, decoder,
+                (msg, ctxSupplier) -> {
+                    NetworkEvent.Context ctx = ctxSupplier.get();
+                    ctx.enqueueWork(() -> handler.accept(msg, ctx.getSender()));   // server main thread
                     ctx.setPacketHandled(true);
-                })
-                .add();
+                },
+                Optional.of(NetworkDirection.PLAY_TO_SERVER));
     }
 
     @Override
@@ -67,25 +62,24 @@ public final class ForgeNetworkChannel implements INetworkChannel {
             ResourceLocation id, Class<T> type,
             BiConsumer<T, FriendlyByteBuf> encoder, Function<FriendlyByteBuf, T> decoder,
             Consumer<T> handler) {
-        CHANNEL.messageBuilder(type, nextId++, NetworkDirection.PLAY_TO_CLIENT)
-                .encoder(encoder)
-                .decoder(decoder)
-                .consumerMainThread((msg, ctx) -> {
-                    // Runs only on the receiving (client) side, so the handler may
-                    // safely touch client-only classes — they lazy-load here.
-                    handler.accept(msg);
+        CHANNEL.registerMessage(nextId++, type, encoder, decoder,
+                (msg, ctxSupplier) -> {
+                    NetworkEvent.Context ctx = ctxSupplier.get();
+                    // Runs only on the receiving (client) side, so the handler may safely touch
+                    // client-only classes — they lazy-load inside the enqueued task.
+                    ctx.enqueueWork(() -> handler.accept(msg));
                     ctx.setPacketHandled(true);
-                })
-                .add();
+                },
+                Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     @Override
     public void sendToServer(Object payload) {
-        CHANNEL.send(payload, PacketDistributor.SERVER.noArg());
+        CHANNEL.sendToServer(payload);
     }
 
     @Override
     public void sendToPlayer(ServerPlayer player, Object payload) {
-        CHANNEL.send(payload, PacketDistributor.PLAYER.with(player));
+        CHANNEL.send(PacketDistributor.PLAYER.with(() -> player), payload);
     }
 }

@@ -3,9 +3,7 @@ package com.dwinovo.tulpa.entity;
 import com.mojang.authlib.GameProfile;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 
@@ -37,10 +35,10 @@ public final class CompanionFactory {
     public static TulpaPlayer spawn(MinecraftServer server, UUID companionUuid, String name,
                                      UUID ownerUuid, ServerLevel level, Vec3 pos) {
         GameProfile profile = new GameProfile(companionUuid, name);
-        TulpaPlayer player = new TulpaPlayer(server, level, profile, ClientInformation.createDefault());
+        TulpaPlayer player = new TulpaPlayer(server, level, profile);
         FakeConnection connection = new FakeConnection();
-        server.getPlayerList().placeNewPlayer(connection, player,
-                CommonListenerCookie.createInitial(profile));   // 1.20.4: single-arg (no 'transferred' flag)
+        // 1.20.1: placeNewPlayer is 2-arg (no CommonListenerCookie — pre-configuration-phase).
+        server.getPlayerList().placeNewPlayer(connection, player);
         // placeNewPlayer does NOT load a hand-built fake player's .dat, so restore
         // it ourselves (Carpet's model): position, inventory, health, owner from
         // disk. Without this a respawned companion spawns at 0,0,0 with no items.
