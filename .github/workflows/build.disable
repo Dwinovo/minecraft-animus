@@ -1,0 +1,40 @@
+name: Build
+
+# CI: compile both loaders on every push / PR so breakage is caught before a release tag.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      # The build's target JDK differs per branch (26.1.2 -> 25, 1.21.11 -> 21);
+      # read it from gradle.properties so this one workflow fits every branch.
+      - name: Read build properties
+        id: props
+        shell: bash
+        run: |
+          echo "java_version=$(grep -E '^java_version=' gradle.properties | head -n1 | cut -d= -f2-)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java ${{ steps.props.outputs.java_version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ steps.props.outputs.java_version }}
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build --no-daemon
