@@ -753,10 +753,13 @@ public final class TulpaScreen extends Screen {
             if (addingSite) placeholder(g, siteNameInput, "e.g. My Proxy");
         }
         // Chat input placeholder — shadowless, shown whenever empty (the input is focus-by-default,
-        // so placeholder()'s unfocused-only gate won't fire here).
+        // so placeholder()'s unfocused-only gate won't fire here). This is drawn AFTER the field
+        // widget, so when focused (caret blinking at the left edge) nudge it past the caret (~5px)
+        // so the placeholder doesn't paint over it.
         if (tab == Tab.CHAT && input != null && input.getValue().isEmpty()) {
+            int phX = input.getX() + (input.isFocused() ? 5 : 0);
             txt(g, Component.literal("Talk to " + (name == null ? "" : name) + "…"),
-                    input.getX(), input.getY(), TXT_FAINT);
+                    phX, input.getY(), TXT_FAINT);
         }
         // The provider dropdown's open list must sit above even the fields.
         if (tab == Tab.SETTINGS) {
