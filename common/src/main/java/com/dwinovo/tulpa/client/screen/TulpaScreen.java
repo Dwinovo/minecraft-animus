@@ -335,7 +335,10 @@ public final class TulpaScreen extends Screen {
         input.setMaxLength(MAX_PROMPT);
         input.setBordered(false);
         input.setTextColor(TXT);
-        // No setHint — the EditBox hint renders with a drop shadow; we draw a shadowless one in render().
+        // FlatEditBox draws the hint shadowless and UNDER the caret (same widget pass), so use it
+        // directly — no separate screen-side placeholder that would paint over the blinking caret.
+        // Faint colour is baked into the Component's Style.
+        input.setHint(Nb.colored("Talk to " + (name == null ? "" : name) + "…", TXT_FAINT));
         if (!savedInput.isEmpty()) { input.setValue(savedInput); savedInput = ""; }
         add(input);
         setInitialFocus(input);
@@ -752,15 +755,8 @@ public final class TulpaScreen extends Screen {
                     : LlmProviders.byId(providerDropdown.selectedId()).defaultModel());
             if (addingSite) placeholder(g, siteNameInput, "e.g. My Proxy");
         }
-        // Chat input placeholder — shadowless, shown whenever empty (the input is focus-by-default,
-        // so placeholder()'s unfocused-only gate won't fire here). This is drawn AFTER the field
-        // widget, so when focused (caret blinking at the left edge) nudge it past the caret (~5px)
-        // so the placeholder doesn't paint over it.
-        if (tab == Tab.CHAT && input != null && input.getValue().isEmpty()) {
-            int phX = input.getX() + (input.isFocused() ? 5 : 0);
-            txt(g, Component.literal("Talk to " + (name == null ? "" : name) + "…"),
-                    phX, input.getY(), TXT_FAINT);
-        }
+        // (Chat-input placeholder is the FlatEditBox hint now — drawn shadowless and under the
+        // caret in the widget pass, so it can't paint over the caret like a screen-side draw did.)
         // The provider dropdown's open list must sit above even the fields.
         if (tab == Tab.SETTINGS) {
             // render the non-open one first so the open list draws on top

@@ -69,10 +69,13 @@ public class FlatEditBox extends EditBox {
         int textY = getY();                               // borderless: top-aligned (matches vanilla)
         int cursor = getCursorPosition();
 
-        // Empty + unfocused: the box's own hint (the mod usually draws its own placeholder
-        // via Nb instead, in which case no hint is set and nothing is drawn here).
-        if (value.isEmpty() && !isFocused()) {
+        // Empty: draw the hint (placeholder) FIRST, then the caret ON TOP — both inside this
+        // widget pass, so the placeholder can't be painted over the caret the way a separate,
+        // later screen-side draw did. The hint shows even when focused (the chat input is
+        // focus-by-default); its colour comes from the hint Component's own Style.
+        if (value.isEmpty()) {
             if (hint != null) g.drawString(font, hint, textX, textY, color, false);
+            caret(g, textX, textY);
             return;
         }
 
@@ -104,12 +107,17 @@ public class FlatEditBox extends EditBox {
             g.drawString(font, fmt.apply(visible, scroll), textX, textY, color, false);
         }
 
-        // Caret: the Cottage pixel-art bar sprite (no "_" glyph → no shadow), blinking on focus,
-        // centred on the cursor column and blitted at its native 3x10 (crisp, no scaling).
-        boolean blink = isFocused() && ((System.currentTimeMillis() - focusTime) / BLINK_MS) % 2 == 0;
-        if (blink && cursor >= scroll && cursor <= visEnd) {
-            int cx = textX + font.width(value.substring(scroll, cursor));
-            g.blitSprite(RenderType::guiTextured, CARET, cx - 1, textY - 1, CARET_W, CARET_H);
+        // Caret on top of the text.
+        if (cursor >= scroll && cursor <= visEnd) {
+            caret(g, textX + font.width(value.substring(scroll, cursor)), textY);
+        }
+    }
+
+    /** The Cottage pixel-art caret sprite (no "_" glyph → no shadow), blinking on focus, drawn LAST
+     *  so it sits on top of the text/placeholder; centred on column x, native 3x10 (crisp, no scale). */
+    private void caret(GuiGraphics g, int x, int textY) {
+        if (isFocused() && ((System.currentTimeMillis() - focusTime) / BLINK_MS) % 2 == 0) {
+            g.blitSprite(RenderType::guiTextured, CARET, x - 1, textY - 1, CARET_W, CARET_H);
         }
     }
 }
