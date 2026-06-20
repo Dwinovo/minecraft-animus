@@ -244,12 +244,11 @@ public final class TulpaScreen extends Screen {
 
     private void buildSummonField() {
         int y = top + HEADER_H + 24;
-        summonInput = new EditBox(font, left + PAD + FIELD_INSET_X, y + FIELD_INSET_Y,
+        summonInput = new FlatEditBox(font, left + PAD + FIELD_INSET_X, y + FIELD_INSET_Y,
                 PANEL_W - PAD * 2 - FIELD_INSET_X * 2, 18 - FIELD_INSET_Y * 2, Component.literal(""));
         summonInput.setMaxLength(com.dwinovo.tulpa.network.payload.SummonRequestPayload.MAX_NAME);
         summonInput.setBordered(false);
         summonInput.setTextColor(TXT);
-        Nb.noTextShadow(summonInput);
         summonInput.setHint(Component.literal("New companion name…"));
         add(summonInput);
         setInitialFocus(summonInput);
@@ -331,12 +330,11 @@ public final class TulpaScreen extends Screen {
                 Component.literal("⤬"), b -> loop().requestCompact()));
         compactButton.active = loop().canCompact();
 
-        input = new EditBox(font, inX + FIELD_INSET_X, inputY + FIELD_INSET_Y,
+        input = new FlatEditBox(font, inX + FIELD_INSET_X, inputY + FIELD_INSET_Y,
                 inW - FIELD_INSET_X * 2, INPUT_H - FIELD_INSET_Y * 2, Component.literal("tulpa.chat.input"));
         input.setMaxLength(MAX_PROMPT);
         input.setBordered(false);
         input.setTextColor(TXT);
-        Nb.noTextShadow(input);
         // No setHint — the EditBox hint renders with a drop shadow; we draw a shadowless one in render().
         if (!savedInput.isEmpty()) { input.setValue(savedInput); savedInput = ""; }
         add(input);
@@ -415,8 +413,8 @@ public final class TulpaScreen extends Screen {
         int eyeW = 22;
         apiKeyInput = field(x, y, w - eyeW - 2, 512, wApiKey);
         apiKeyInput.setFormatter((text, idx) -> showKey
-                ? FormattedCharSequence.forward(text, Nb.FLAT)
-                : FormattedCharSequence.forward("•".repeat(text.length()), Nb.FLAT));
+                ? FormattedCharSequence.forward(text, net.minecraft.network.chat.Style.EMPTY)
+                : FormattedCharSequence.forward("•".repeat(text.length()), net.minecraft.network.chat.Style.EMPTY));
         // Eye icon instead of a 见/隐 glyph: open eye when masked (click to show), slashed when shown.
         add(new SimpleButton(x + w - eyeW, y, eyeW, 18, Component.empty(),
                 b -> { showKey = !showKey; ((SimpleButton) b).icon(showKey ? EYE_OFF : EYE); })
@@ -461,13 +459,12 @@ public final class TulpaScreen extends Screen {
     }
 
     private EditBox field(int x, int y, int w, int max, String value) {
-        EditBox e = new EditBox(font, x + FIELD_INSET_X, y + FIELD_INSET_Y,
+        EditBox e = new FlatEditBox(font, x + FIELD_INSET_X, y + FIELD_INSET_Y,
                 w - FIELD_INSET_X * 2, 18 - FIELD_INSET_Y * 2, Component.literal(""));
         e.setMaxLength(max);
         e.setValue(value == null ? "" : value);
         e.setBordered(false);
         e.setTextColor(TXT);
-        Nb.noTextShadow(e);
         add(e);
         return e;
     }

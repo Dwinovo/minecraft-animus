@@ -2,11 +2,8 @@ package com.dwinovo.tulpa.client.screen;
 
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
-import net.minecraft.util.FormattedCharSequence;
 
 /**
  * Shared BlockFrame ("neobrutalist") drawing helpers for the Tulpa GUI.
@@ -31,17 +28,6 @@ public final class Nb {
 
     public static void text(GuiGraphics g, Font font, Component c, int x, int y, int color) {
         g.drawString(font, c.copy().withStyle(st -> st.withColor(TextColor.fromRgb(color & 0xFFFFFF))), x, y, -1, false);
-    }
-
-    /** Transparent shadow colour — the per-glyph {@code shadow_color} text feature (1.21.5+).
-     *  EditBox always draws its text WITH shadow (no setTextShadow before 1.21.6), but an
-     *  alpha-0 shadow colour renders nothing, so the box reads flat. */
-    public static final Style FLAT = Style.EMPTY.withShadowColor(0);
-
-    /** Make an EditBox's text shadowless via its formatter (the box keeps its text colour
-     *  from {@code setTextColor}; only the shadow goes transparent). No setTextShadow on 1.21.5. */
-    public static void noTextShadow(EditBox e) {
-        e.setFormatter((s, offset) -> FormattedCharSequence.forward(s, FLAT));
     }
 
     /** Square thick border = four filled edge rects (no rounded corners). */
