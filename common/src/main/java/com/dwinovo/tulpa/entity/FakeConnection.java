@@ -3,6 +3,7 @@ package com.dwinovo.tulpa.entity;
 import net.minecraft.network.PacketSendListener;
 import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.network.Connection;
+import net.minecraft.network.ConnectionProtocol;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
@@ -43,7 +44,16 @@ public final class FakeConnection extends Connection {
         // Registering this Connection (a netty inbound handler) as the embedded
         // channel's handler fires channelActive → sets this.channel, so the
         // pipeline setup inside placeNewPlayer has a channel to work on.
-        new EmbeddedChannel(this);
+        EmbeddedChannel channel = new EmbeddedChannel(this);
+        // 1.20.4: placeNewPlayer → new ServerGamePacketListenerImpl → Connection.setListener
+        // validates channel.attr(PROTOCOL).get().protocol() == listener.protocol() (PLAY). A real
+        // login walks handshake→…→play, seeding those attrs; our hand-built connection skips that,
+        // so the attr is null → NPE. Seed both directions straight to the PLAY codec.
+        Connection.setInitialProtocolAttributes(channel);
+        channel.attr(Connection.ATTRIBUTE_SERVERBOUND_PROTOCOL)
+                .set(ConnectionProtocol.PLAY.codec(PacketFlow.SERVERBOUND));
+        channel.attr(Connection.ATTRIBUTE_CLIENTBOUND_PROTOCOL)
+                .set(ConnectionProtocol.PLAY.codec(PacketFlow.CLIENTBOUND));
     }
 
     /** Discard every outbound packet — there is no client to receive it.

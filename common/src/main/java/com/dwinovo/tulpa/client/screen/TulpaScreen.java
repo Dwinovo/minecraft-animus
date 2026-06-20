@@ -538,7 +538,9 @@ public final class TulpaScreen extends Screen {
     }
 
     private void requestInventory() {
-        if (Minecraft.getInstance().getConnection() != null) {
+        // No active companion (empty panel before the first summon) → nothing to request;
+        // sending a null uuid would NPE in the payload writer.
+        if (uuid != null && Minecraft.getInstance().getConnection() != null) {
             Services.NETWORK.sendToServer(new RequestInventoryPayload(uuid));
         }
     }
