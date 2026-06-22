@@ -4,7 +4,8 @@
   "package": "com.dwinovo.tulpa.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
-    "MenuDataSlotsAccessor"
+    "MenuDataSlotsAccessor",
+    "MixinServerCommonPacketListener"
   ],
   "client": [
     "MixinMinecraft"
