@@ -4,13 +4,13 @@ import com.dwinovo.tulpa.platform.services.IBlockCapabilityReader;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.energy.IEnergyStorage;
-import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.fluids.capability.IFluidHandler;
-import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.transfer.ResourceHandler;
+import net.neoforged.neoforge.transfer.energy.EnergyHandler;
+import net.neoforged.neoforge.transfer.fluid.FluidResource;
+import net.neoforged.neoforge.transfer.item.ItemResource;
+import net.neoforged.neoforge.transfer.transaction.Transaction;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -20,6 +20,15 @@ import java.util.Map;
 /**
  * NeoForge implementation of {@link IBlockCapabilityReader} — reads a block's
  * item/fluid/energy contents through the standard block capabilities.
+ *
+ * <h2>Transfer Rework (MC 1.21.9+)</h2>
+ * This branch targets the reworked transfer API: items and fluids are both
+ * {@link ResourceHandler} (slot-indexed {@code size()}/{@code getResource}/
+ * {@code getAmountAsLong}), and energy is {@link EnergyHandler}. The old
+ * {@code canReceive()}/{@code canExtract()} flags are gone, so we probe energy
+ * direction by simulating an insert/extract inside a rolled-back
+ * {@link Transaction}. The pre-1.21.9 branches use the classic
+ * {@code IItemHandler}/{@code IFluidHandler}/{@code IEnergyStorage} variant.
  *
  * <h2>Why query null AND every face</h2>
  * The {@code null} context means "no particular side"; many machines expose a
@@ -45,30 +54,30 @@ public final class NeoForgeBlockCapabilityReader implements IBlockCapabilityRead
     }
 
     private void appendItems(Level level, BlockPos pos, StringBuilder sb) {
-        Map<IItemHandler, List<String>> byHandler = new IdentityHashMap<>();
-        collect(byHandler, level.getCapability(Capabilities.ItemHandler.BLOCK, pos, null), "all");
+        Map<ResourceHandler<ItemResource>, List<String>> byHandler = new IdentityHashMap<>();
+        collect(byHandler, level.getCapability(Capabilities.Item.BLOCK, pos, null), "all");
         for (Direction d : Direction.values()) {
-            collect(byHandler, level.getCapability(Capabilities.ItemHandler.BLOCK, pos, d), d.getName());
+            collect(byHandler, level.getCapability(Capabilities.Item.BLOCK, pos, d), d.getName());
         }
         if (byHandler.isEmpty()) return;
         int idx = 0;
-        for (Map.Entry<IItemHandler, List<String>> e : byHandler.entrySet()) {
-            IItemHandler h = e.getKey();
+        for (Map.Entry<ResourceHandler<ItemResource>, List<String>> e : byHandler.entrySet()) {
+            ResourceHandler<ItemResource> h = e.getKey();
             sb.append("items").append(byHandler.size() > 1 ? " #" + idx : "")
                     .append(" (sides: ").append(String.join(",", e.getValue())).append("), ")
-                    .append(h.getSlots()).append(" slots:\n");
+                    .append(h.size()).append(" slots:\n");
             int shown = 0;
             boolean any = false;
-            for (int s = 0; s < h.getSlots(); s++) {
-                ItemStack st = h.getStackInSlot(s);
-                if (st.isEmpty()) continue;
+            for (int s = 0; s < h.size(); s++) {
+                ItemResource res = h.getResource(s);
+                if (res.isEmpty()) continue;
                 any = true;
                 if (shown++ >= MAX_SLOT_LINES) continue;
                 sb.append("  slot ").append(s).append(": ")
-                        .append(itemId(st)).append(" x").append(st.getCount()).append("\n");
+                        .append(itemId(res)).append(" x").append(h.getAmountAsLong(s)).append("\n");
             }
             if (!any) {
-                sb.append("  (all ").append(h.getSlots()).append(" slots empty)\n");
+                sb.append("  (all ").append(h.size()).append(" slots empty)\n");
             } else if (shown > MAX_SLOT_LINES) {
                 sb.append("  … and ").append(shown - MAX_SLOT_LINES).append(" more non-empty slots\n");
             }
@@ -77,45 +86,50 @@ public final class NeoForgeBlockCapabilityReader implements IBlockCapabilityRead
     }
 
     private void appendFluids(Level level, BlockPos pos, StringBuilder sb) {
-        Map<IFluidHandler, List<String>> byHandler = new IdentityHashMap<>();
-        collect(byHandler, level.getCapability(Capabilities.FluidHandler.BLOCK, pos, null), "all");
+        Map<ResourceHandler<FluidResource>, List<String>> byHandler = new IdentityHashMap<>();
+        collect(byHandler, level.getCapability(Capabilities.Fluid.BLOCK, pos, null), "all");
         for (Direction d : Direction.values()) {
-            collect(byHandler, level.getCapability(Capabilities.FluidHandler.BLOCK, pos, d), d.getName());
+            collect(byHandler, level.getCapability(Capabilities.Fluid.BLOCK, pos, d), d.getName());
         }
         if (byHandler.isEmpty()) return;
         int idx = 0;
-        for (Map.Entry<IFluidHandler, List<String>> e : byHandler.entrySet()) {
-            IFluidHandler h = e.getKey();
+        for (Map.Entry<ResourceHandler<FluidResource>, List<String>> e : byHandler.entrySet()) {
+            ResourceHandler<FluidResource> h = e.getKey();
             sb.append("fluids").append(byHandler.size() > 1 ? " #" + idx : "")
                     .append(" (sides: ").append(String.join(",", e.getValue())).append("):\n");
-            for (int t = 0; t < h.getTanks(); t++) {
-                FluidStack fs = h.getFluidInTank(t);
+            for (int t = 0; t < h.size(); t++) {
+                FluidResource res = h.getResource(t);
                 sb.append("  tank ").append(t).append(": ");
-                if (fs.isEmpty()) {
+                if (res.isEmpty()) {
                     sb.append("empty");
                 } else {
-                    sb.append(fluidId(fs)).append(" ").append(fs.getAmount());
+                    sb.append(fluidId(res)).append(" ").append(h.getAmountAsLong(t));
                 }
-                sb.append("/").append(h.getTankCapacity(t)).append(" mB\n");
+                sb.append("/").append(h.getCapacityAsLong(t, res)).append(" mB\n");
             }
             idx++;
         }
     }
 
     private void appendEnergy(Level level, BlockPos pos, StringBuilder sb) {
-        IEnergyStorage en = level.getCapability(Capabilities.EnergyStorage.BLOCK, pos, null);
+        EnergyHandler en = level.getCapability(Capabilities.Energy.BLOCK, pos, null);
         if (en == null) {
             for (Direction d : Direction.values()) {
-                en = level.getCapability(Capabilities.EnergyStorage.BLOCK, pos, d);
+                en = level.getCapability(Capabilities.Energy.BLOCK, pos, d);
                 if (en != null) break;
             }
         }
         if (en == null) return;
-        sb.append("energy: ").append(en.getEnergyStored()).append("/").append(en.getMaxEnergyStored())
+        sb.append("energy: ").append(en.getAmountAsLong()).append("/").append(en.getCapacityAsLong())
                 .append(" FE");
+        // The reworked EnergyHandler dropped canReceive()/canExtract(); probe the
+        // direction by simulating a max insert/extract inside a transaction we
+        // never commit, so the block's state is untouched.
         List<String> io = new ArrayList<>();
-        if (en.canReceive()) io.add("accepts");
-        if (en.canExtract()) io.add("provides");
+        try (Transaction tx = Transaction.openRoot()) {
+            if (en.insert(Integer.MAX_VALUE, tx) > 0) io.add("accepts");
+            if (en.extract(Integer.MAX_VALUE, tx) > 0) io.add("provides");
+        }
         if (!io.isEmpty()) sb.append(" (").append(String.join("/", io)).append(")");
         sb.append("\n");
     }
@@ -126,11 +140,11 @@ public final class NeoForgeBlockCapabilityReader implements IBlockCapabilityRead
         byHandler.computeIfAbsent(handler, h -> new ArrayList<>()).add(side);
     }
 
-    private static String itemId(ItemStack stack) {
-        return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+    private static String itemId(ItemResource res) {
+        return BuiltInRegistries.ITEM.getKey(res.getItem()).toString();
     }
 
-    private static String fluidId(FluidStack stack) {
-        return BuiltInRegistries.FLUID.getKey(stack.getFluid()).toString();
+    private static String fluidId(FluidResource res) {
+        return BuiltInRegistries.FLUID.getKey(res.getFluid()).toString();
     }
 }
