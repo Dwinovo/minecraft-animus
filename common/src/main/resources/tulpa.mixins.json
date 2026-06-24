@@ -3,6 +3,7 @@
   "minVersion": "0.8",
   "package": "com.dwinovo.tulpa.mixin",
   "compatibilityLevel": "JAVA_17",
+  "refmap": "tulpa.refmap.json",
   "mixins": [
     "MenuDataSlotsAccessor",
     "MixinServerGamePacketListener"
