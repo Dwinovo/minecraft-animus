@@ -85,6 +85,7 @@ public class CommonClass {
         ToolRegistry.register(new ScanNearbyEntitiesTool());
         ToolRegistry.register(new ScanBlocksTool());
         ToolRegistry.register(new InspectBlockTool());
+        ToolRegistry.register(new com.dwinovo.tulpa.agent.tool.tools.InspectBlockStorageTool());
         ToolRegistry.register(new GetWorldInfoTool());
         ToolRegistry.register(new TodoWriteTool());
         ToolRegistry.register(new LoadSkillTool());
