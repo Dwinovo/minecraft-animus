@@ -29,10 +29,10 @@ import java.util.UUID;
  * (placed tables/furnaces deliberately stay in the world for exactly this).
  *
  * <h2>How entries get here</h2>
- * Harvested by {@link EntityAgentLoop} from successful tool results: a craft
- * that used a table reports the table's coordinates, the furnace tools report
- * the furnace's, a place_block of a tracked type reports its own. No new
- * tooling — the results already carried the data; this just stops forgetting it.
+ * Harvested by {@link EntityAgentLoop} from successful tool results: a
+ * place_block of a tracked type reports the block it placed, and an interact_at
+ * that opens a station reports the block it activated. No new tooling — the
+ * results already carried the data; this just stops forgetting it.
  *
  * <h2>Self-healing</h2>
  * The world changes behind our back (owner mines the furnace, a creeper

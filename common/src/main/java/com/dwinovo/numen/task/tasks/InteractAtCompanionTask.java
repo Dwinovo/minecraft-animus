@@ -36,6 +36,10 @@ public final class InteractAtCompanionTask implements CompanionTask {
     private Interaction interaction;
     private long holdUntil = -1;       // game tick to release a fixed-duration hold (holdTicks > 0)
     private String doneReason = "done";
+    // A right-click that activated a real block (a station's GUI): captured so the
+    // result can report it and the agent loop can remember it in <known_blocks>.
+    private net.minecraft.core.BlockPos activatedBlock;
+    private String activatedBlockId;
 
     public InteractAtCompanionTask(NumenPlayer player, InteractAtTaskRecord record) {
         this.player = player;
@@ -88,6 +92,15 @@ public final class InteractAtCompanionTask implements CompanionTask {
                     doneReason = reason;
                     return TaskState.FAILED;
                 }
+            }
+            // A right-click landing on a block activates it (opens a station's GUI,
+            // flips a switch, …). Remember the block we touched so <known_blocks> can
+            // walk us back to stations we've used, not just ones we placed. The harvest
+            // filters to tracked station types; doors/buttons fall away there.
+            if (button() == Interaction.Button.USE && hit instanceof net.minecraft.world.phys.BlockHitResult bhr) {
+                activatedBlock = bhr.getBlockPos();
+                activatedBlockId = BuiltInRegistries.BLOCK
+                        .getKey(player.level().getBlockState(activatedBlock).getBlock()).getPath();
             }
             interaction = Interaction.forHit(player, hit, button(), r.holdTicks);
             if (interaction == null) {       // left-click on air — a swing, nothing to do
@@ -147,6 +160,14 @@ public final class InteractAtCompanionTask implements CompanionTask {
             data.put("x", r.aim.getX());
             data.put("y", r.aim.getY());
             data.put("z", r.aim.getZ());
+        }
+        // Report the activated station (and its exact position, authoritative over the
+        // raw aim) so the agent loop can harvest it into <known_blocks>.
+        if (activatedBlock != null) {
+            data.put("block", activatedBlockId);
+            data.put("x", activatedBlock.getX());
+            data.put("y", activatedBlock.getY());
+            data.put("z", activatedBlock.getZ());
         }
         return switch (finalState) {
             case SUCCESS -> TaskResult.ok(doneReason, data);

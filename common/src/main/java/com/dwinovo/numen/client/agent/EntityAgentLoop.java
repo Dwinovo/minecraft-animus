@@ -14,6 +14,7 @@ import com.dwinovo.numen.network.payload.CancelTasksPayload;
 import com.dwinovo.numen.network.payload.ExecuteToolPayload;
 import com.dwinovo.numen.platform.Services;
 import com.dwinovo.numen.platform.services.INumenConfig;
+import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.client.Minecraft;
@@ -66,78 +67,7 @@ public final class EntityAgentLoop {
      * carries only what the tool schemas can't: identity, working discipline,
      * and the voice toward the owner.
      */
-    private static final String ENTITY_PROMPT = """
-
-            You are an Numen — a loyal companion unit in Minecraft, bound to one
-            owner. You have a real body in the world and act through it with the
-            tools provided on each request. Be capable and concise: get the
-            owner's intent done, then say what happened in a few words.
-
-            <operating_principles>
-            - Act, don't narrate. A physical request means CALL TOOLS, not
-              describe them — "I'll mine the ore" is wrong; call auto_mine. Keep
-              calling tools until the goal is done or provably impossible, then
-              report briefly.
-            - Verify, don't assume. get_self_status is your whole self in one
-              call — HP, position, equipment AND full inventory; the world comes
-              from the scan/inspect tools. NEVER claim an item, or a finished
-              job, that a tool result hasn't confirmed.
-            - Failed results teach. They say WHY and usually the next step (equip
-              a tool, use a suggested coordinate, get a material) — follow it,
-              don't repeat the same call unchanged. Exception: a TIMEOUT reports
-              progress made; re-issuing the same call resumes from there.
-            - Reuse the world. <known_blocks> lists stations you already placed
-              or used (crafting tables, furnaces, chests, …) — go back to those,
-              don't craft and place duplicates.
-            - Plan only what's big. Multi-phase jobs: todowrite the phases and
-              work the list; load_skill when one fits the task. One-step
-              requests: just do them.
-            </operating_principles>
-
-            <choosing_actions>
-            Heuristics for the common confusions — pick the tool that matches the
-            intent, the live schemas carry the details:
-            - To USE a station (crafting table, furnace, chest, any block with a
-              GUI), interact_at its coordinate — that paths you there safely and
-              opens it. Do NOT move_to onto a station; you'd just path into the
-              block.
-            - To craft, lookup_recipe for the grid layout, then transfer each
-              ingredient into its cell. A 2x2 recipe uses your own grid (inspect_gui
-              with nothing open); a 3x3 needs a crafting table (interact_at it,
-              then inspect_gui shows the grid as a slot-number map). Place ONE item
-              per cell (count:1), match the layout top-left, then transfer the
-              result slot out (no `to`). To smelt, interact_at a furnace and transfer
-              the input + fuel. To move items in/out of any container, use transfer.
-              lookup_recipe if unsure.
-            - move_to is for getting somewhere to STAND. If it reports no path or
-              stops far short, that spot is unreachable or too far — pick a
-              NEARER waypoint, or scan first; don't repeat the same target.
-            - Don't place a block where one already is — the result tells you
-              what's there; build somewhere clear instead.
-            </choosing_actions>
-
-            <communication>
-            - Your text is spoken aloud to the owner — reply in the owner's
-              language, one short natural paragraph. Tool calls are silent; only
-              your text is shown.
-            - Narrate by acting, not by posting each step. Speak when you have a
-              result or a real question.
-            </communication>
-
-            <examples>
-            owner: 去挖10块铁
-            → equip_item(stone_pickaxe), auto_mine(iron_ore + deepslate_iron_ore, 10) … (act)
-            → "挖到了 10 块铁,已经带回来了。"
-
-            owner: 用之前那个熔炉烧点铁
-            → interact_at(<furnace coordinate from known_blocks>), load the iron + fuel … (act)
-            → "在烧了,熟铁马上好。"
-
-            owner: 那边那个僵尸危险吗
-            → scan_nearby_entities(radius=24)
-            → "西边 12 格有一只僵尸,要我去清掉吗?"
-            </examples>
-            """;
+    private static final String ENTITY_PROMPT = com.dwinovo.numen.agent.prompt.NumenPrompts.ENTITY_PROMPT;
 
     // ---- context compaction (mirrors Claude Code's /compact machinery) ----
 
@@ -326,10 +256,12 @@ public final class EntityAgentLoop {
 
     /**
      * Pull functional-block coordinates out of successful tool results into
-     * {@link WorkBlockMemory}. The results already carry them (craft reports
-     * the table it used, the furnace tools report the furnace, place_block
-     * reports what it placed) — this just stops the loop from forgetting them
-     * once the result scrolls out of context.
+     * {@link WorkBlockMemory}. The results already carry them — place_block
+     * reports the block it placed, interact_at reports the station it activated
+     * (a chest/furnace/table it opened) — this just stops the loop from
+     * forgetting them once the result scrolls out of context. Both tools report
+     * the same {@code block} + {@code x/y/z} shape; {@code workBlocks.record}
+     * filters to tracked station types, so non-station interactions fall away.
      */
     private void harvestWorkBlocks(String toolName, String resultJson) {
         try {
@@ -340,25 +272,7 @@ public final class EntityAgentLoop {
             if (data == null) return;
 
             switch (toolName) {
-                case "craft" -> {
-                    if (data.has("crafting_table_x")) {
-                        workBlocks.record("crafting_table", new net.minecraft.core.BlockPos(
-                                data.get("crafting_table_x").getAsInt(),
-                                data.get("crafting_table_y").getAsInt(),
-                                data.get("crafting_table_z").getAsInt()));
-                    }
-                }
-                case "load_furnace", "check_furnace", "collect_furnace" -> {
-                    if (data.has("x")) {
-                        workBlocks.record("furnace", new net.minecraft.core.BlockPos(
-                                data.get("x").getAsInt(),
-                                data.get("y").getAsInt(),
-                                data.get("z").getAsInt()));
-                    }
-                }
-                // The chest-storage tools also report which container block they
-                // used (data.block + x/y/z) — same harvest as place_block.
-                case "place_block", "deposit_items", "take_items" -> {
+                case "place_block", "interact_at" -> {
                     if (data.has("block") && data.has("x")) {
                         String path = data.get("block").getAsString();
                         int colon = path.indexOf(':');
@@ -510,8 +424,7 @@ public final class EntityAgentLoop {
         dead = false;
         if (wasFrozen) {
             for (String id : deathInterruptedCalls) {
-                convo.addToolResult(id, "{\"success\":false,\"message\":\""
-                        + escape("任务因你死亡而中断") + "\"}");
+                convo.addToolResult(id, TaskResult.fail("任务因你死亡而中断").toJson());
             }
             deathInterruptedCalls = List.of();
             if (convo.lastMessage() instanceof ConvoState.Msg.User) {
@@ -821,7 +734,7 @@ public final class EntityAgentLoop {
                 Constants.LOG.warn("[numen-entity#{}] LLM called unknown tool '{}' (id={})",
                         entityUuid, tc.name(), tc.id());
                 convo.addToolResult(tc.id(),
-                        "{\"success\":false,\"message\":\"unknown tool: " + escape(tc.name()) + "\"}");
+                        TaskResult.fail("unknown tool: " + tc.name()).toJson());
                 continue;
             }
             if (tool.isLocal()) {
@@ -831,7 +744,7 @@ public final class EntityAgentLoop {
                     ClientToolContext ctx = new ClientToolContext(resolveEntity(), entityUuid);
                     resultJson = tool.executeLocal(args, ctx);
                 } catch (RuntimeException ex) {
-                    resultJson = "{\"success\":false,\"message\":\"" + escape(ex.getMessage()) + "\"}";
+                    resultJson = TaskResult.fail(ex.getMessage()).toJson();
                     Constants.LOG.warn("[numen-entity#{}] local tool {} failed (id={}): {}",
                             entityUuid, tc.name(), tc.id(), ex.getMessage());
                 }
@@ -874,10 +787,5 @@ public final class EntityAgentLoop {
         Throwable cur = t;
         while (cur.getCause() != null && cur != cur.getCause()) cur = cur.getCause();
         return cur.getClass().getSimpleName() + ": " + cur.getMessage();
-    }
-
-    private static String escape(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }
