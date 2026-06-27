@@ -4,6 +4,7 @@ import com.dwinovo.numen.Constants;
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
 import com.dwinovo.numen.task.TaskRecord;
+import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.core.UUIDUtil;
@@ -144,7 +145,7 @@ public record ExecuteToolPayload(UUID entityUuid,
             try {
                 result = tool.executeQuery(args, companion);
             } catch (RuntimeException ex) {
-                result = "{\"success\":false,\"message\":\"" + escape(ex.getMessage()) + "\"}";
+                result = TaskResult.fail(ex.getMessage()).toJson();
             }
             com.dwinovo.numen.platform.Services.NETWORK.sendToPlayer(player,
                     new TaskResultPayload(p.entityUuid(), p.toolCallId(), result));
@@ -167,13 +168,8 @@ public record ExecuteToolPayload(UUID entityUuid,
     public static void replyError(ServerPlayer player, ExecuteToolPayload p, String message) {
         Constants.LOG.warn("[numen-net] ✗ execute_tool rejected from {}: tool={} id={} reason={}",
                 player.getName().getString(), p.toolName(), p.toolCallId(), message);
-        String json = "{\"success\":false,\"message\":\"" + escape(message) + "\"}";
+        String json = TaskResult.fail(message).toJson();
         com.dwinovo.numen.platform.Services.NETWORK.sendToPlayer(player,
                 new TaskResultPayload(p.entityUuid(), p.toolCallId(), json));
-    }
-
-    private static String escape(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

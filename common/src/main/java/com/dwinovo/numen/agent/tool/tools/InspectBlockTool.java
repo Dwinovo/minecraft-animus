@@ -1,6 +1,7 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.task.tasks.BlockMiningProgress;
 import com.google.gson.JsonObject;
@@ -84,9 +85,9 @@ public final class InspectBlockTool implements NumenTool {
     @SuppressWarnings("deprecation")  // BlockBehaviour.isSolid() carries Mojang's
                                      // "deprecated for override" marker, not phased out.
     public String executeQuery(JsonObject args, NumenPlayer entity) {
-        int x = readInt(args, "x");
-        int y = readInt(args, "y");
-        int z = readInt(args, "z");
+        int x = ToolArgs.requireInt(args, "x");
+        int y = ToolArgs.requireInt(args, "y");
+        int z = ToolArgs.requireInt(args, "z");
         BlockPos pos = new BlockPos(x, y, z);
         BlockState state = entity.level().getBlockState(pos);
 
@@ -145,15 +146,4 @@ public final class InspectBlockTool implements NumenTool {
         return p.getName(state.getValue(p));
     }
 
-    private static int readInt(JsonObject args, String key) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: " + key);
-        }
-        try {
-            return args.get(key).getAsInt();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException(
-                    "argument '" + key + "' must be an integer: " + ex.getMessage());
-        }
-    }
 }

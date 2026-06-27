@@ -1,13 +1,12 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.DropItemsTaskRecord;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.Items;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -62,53 +61,10 @@ public final class DropItemsTool implements NumenTool {
 
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        Item item = ToolArgs.readItem(args, "item_id");
+        Item item = ToolArgs.requireItem(args, "item_id");
         int count = Math.clamp(ToolArgs.requireInt(args, "count"), 1, MAX_COUNT);
         String label = BuiltInRegistries.ITEM.getKey(item).getPath();
         return new DropItemsTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS,
                 item, count, label);
-    }
-
-    /** Shared small arg readers for the storage tool family. */
-    static final class ToolArgs {
-
-        private ToolArgs() {}
-
-        static Item readItem(JsonObject args, String key) {
-            if (!args.has(key) || args.get(key).isJsonNull()) {
-                throw new IllegalArgumentException("missing required argument: " + key);
-            }
-            ResourceLocation id = ResourceLocation.tryParse(args.get(key).getAsString());
-            Item item = id == null ? null : BuiltInRegistries.ITEM.get(id);
-            if (item == null || item == Items.AIR) {
-                throw new IllegalArgumentException("unknown item: " + args.get(key).getAsString());
-            }
-            return item;
-        }
-
-        static int requireInt(JsonObject args, String key) {
-            if (!args.has(key) || args.get(key).isJsonNull()) {
-                throw new IllegalArgumentException("missing required argument: " + key);
-            }
-            try {
-                return args.get(key).getAsInt();
-            } catch (RuntimeException ex) {
-                throw new IllegalArgumentException("argument '" + key + "' must be an integer");
-            }
-        }
-
-        /** All three of x/y/z present → a specific container; none → auto-pick; mixed → error. */
-        static net.minecraft.core.BlockPos readOptionalPos(JsonObject args) {
-            boolean hasX = args.has("x") && !args.get("x").isJsonNull();
-            boolean hasY = args.has("y") && !args.get("y").isJsonNull();
-            boolean hasZ = args.has("z") && !args.get("z").isJsonNull();
-            if (!hasX && !hasY && !hasZ) return null;
-            if (!(hasX && hasY && hasZ)) {
-                throw new IllegalArgumentException(
-                        "give all three of x/y/z to target a container, or none");
-            }
-            return new net.minecraft.core.BlockPos(
-                    requireInt(args, "x"), requireInt(args, "y"), requireInt(args, "z"));
-        }
     }
 }

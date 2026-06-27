@@ -1,14 +1,12 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.InteractAtTaskRecord;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.Items;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,8 +31,12 @@ public final class InteractAtTool implements NumenTool {
         return "Aim at a world point and press one mouse button — the native crosshair "
                 + "interaction for BLOCKS and the AIR (moving entities use interact_entity). "
                 + "Auto-paths within reach like move_to, then a raytrace resolves what's under the aim.\n"
-                + "• button=right (use): activate the block at x,y,z (lever/button/door/bed/crafting "
-                + "table/modded machine GUI), or USE an item ON it — e.g. bonemeal a crop, an "
+                + "• button=right (use): activate / OPEN the block at x,y,z. To USE a station — a "
+                + "chest, furnace, crafting table, barrel, or any block with a GUI — aim at its "
+                + "coordinate here: interact_at paths you within reach AND opens its menu. NEVER "
+                + "move_to a station to 'go to it' — you'd just path into the block; interact_at is "
+                + "the one step that both walks there and opens it. Also flips levers/buttons/doors/"
+                + "beds, or USEs an item ON the block — e.g. bonemeal a crop, an "
                 + "ender_eye on an end_portal_frame to fill it. LIGHT A NETHER PORTAL: flint_and_steel "
                 + "aimed at an EMPTY AIR cell INSIDE the obsidian frame (not the obsidian). BUCKETS: "
                 + "an empty bucket on a SOURCE water/lava cell fills it; a full bucket on the cell to "
@@ -82,10 +84,10 @@ public final class InteractAtTool implements NumenTool {
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
         InteractAtTaskRecord.Button button = readButton(args);
-        Integer x = optionalInt(args, "x");
-        Integer y = optionalInt(args, "y");
-        Integer z = optionalInt(args, "z");
-        int holdTicks = optionalIntOr(args, "hold_ticks", 0);
+        Integer x = ToolArgs.optionalInt(args, "x");
+        Integer y = ToolArgs.optionalInt(args, "y");
+        Integer z = ToolArgs.optionalInt(args, "z");
+        int holdTicks = ToolArgs.optionalInt(args, "hold_ticks", 0);
 
         BlockPos aim = null;
         if (x != null || y != null || z != null) {
@@ -95,28 +97,12 @@ public final class InteractAtTool implements NumenTool {
             }
             aim = new BlockPos(x, y, z);
         }
-        Item item = readItem(args);
+        Item item = ToolArgs.optionalItem(args, "item_id");
         String bodyBound = InteractAtTaskRecord.bodyBoundReason(item);
         if (bodyBound != null) {
             throw new IllegalArgumentException(bodyBound);
         }
         return new InteractAtTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS, button, aim, holdTicks, item);
-    }
-
-    /** Parse the optional item_id, or null when omitted. */
-    private static Item readItem(JsonObject args) {
-        if (!args.has("item_id") || args.get("item_id").isJsonNull()) {
-            return null;
-        }
-        ResourceLocation id = ResourceLocation.tryParse(args.get("item_id").getAsString());
-        if (id == null) {
-            throw new IllegalArgumentException("item_id is not a valid id: " + args.get("item_id"));
-        }
-        Item item = BuiltInRegistries.ITEM.get(id);
-        if (item == null || item == Items.AIR) {
-            throw new IllegalArgumentException("unknown item: " + id);
-        }
-        return item;
     }
 
     private static InteractAtTaskRecord.Button readButton(JsonObject args) {
@@ -129,21 +115,5 @@ public final class InteractAtTool implements NumenTool {
             default -> throw new IllegalArgumentException(
                     "button must be 'left' or 'right', got: " + args.get("button").getAsString());
         };
-    }
-
-    private static Integer optionalInt(JsonObject args, String key) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            return null;
-        }
-        try {
-            return args.get(key).getAsInt();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("argument '" + key + "' must be an integer or null: " + ex.getMessage());
-        }
-    }
-
-    private static int optionalIntOr(JsonObject args, String key, int fallback) {
-        Integer v = optionalInt(args, key);
-        return v != null ? v : fallback;
     }
 }

@@ -2,6 +2,7 @@ package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.entity.NumenPlayer;
+import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonObject;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 
@@ -54,9 +55,9 @@ public final class CloseGuiTool implements NumenTool {
         if (menu == null || menu == entity.inventoryMenu) {
             // The InventoryMenu (your own 2x2 grid + inventory) is always open — nothing to close.
             // If you left items in the 2x2 crafting grid, transfer them back out.
-            return "no block GUI was open (your own inventory menu is always available).";
+            return TaskResult.ok("no block GUI was open (your own inventory menu is always available).").toJson();
         }
         entity.closeContainer();
-        return "closed the GUI.";
+        return TaskResult.ok("closed the GUI.").toJson();
     }
 }

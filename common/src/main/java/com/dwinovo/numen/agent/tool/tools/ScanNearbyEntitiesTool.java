@@ -1,6 +1,7 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -89,7 +90,7 @@ public final class ScanNearbyEntitiesTool implements NumenTool {
 
     @Override
     public String executeQuery(JsonObject args, NumenPlayer entity) {
-        double radius = readDouble(args, "radius", MIN_RADIUS, MAX_RADIUS);
+        double radius = ToolArgs.requireDouble(args, "radius", MIN_RADIUS, MAX_RADIUS);
         String filter = readEnum(args, "type_filter",
                 List.of("hostile", "passive", "player", "all"));
 
@@ -146,21 +147,6 @@ public final class ScanNearbyEntitiesTool implements NumenTool {
     }
 
     private record ScoredEntity(Entity entity, String category, double distance) {}
-
-    private static double readDouble(JsonObject args, String key, double min, double max) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: " + key);
-        }
-        double v;
-        try {
-            v = args.get(key).getAsDouble();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("argument '" + key + "' must be a number");
-        }
-        if (v < min) v = min;
-        if (v > max) v = max;
-        return v;
-    }
 
     private static String readEnum(JsonObject args, String key, List<String> allowed) {
         if (!args.has(key) || args.get(key).isJsonNull()) {

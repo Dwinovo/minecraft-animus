@@ -1,6 +1,7 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.BreakBlockTaskRecord;
 import com.google.gson.JsonObject;
@@ -63,18 +64,7 @@ public final class BreakBlockTool implements NumenTool {
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
         BlockPos target = new BlockPos(
-                requireInt(args, "x"), requireInt(args, "y"), requireInt(args, "z"));
+                ToolArgs.requireInt(args, "x"), ToolArgs.requireInt(args, "y"), ToolArgs.requireInt(args, "z"));
         return new BreakBlockTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS, target);
-    }
-
-    private static int requireInt(JsonObject args, String key) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: " + key);
-        }
-        try {
-            return args.get(key).getAsInt();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("argument '" + key + "' must be an integer");
-        }
     }
 }

@@ -1,17 +1,14 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.CollectItemsTaskRecord;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -77,7 +74,7 @@ public final class CollectItemsTool implements NumenTool {
 
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        Set<Item> filter = readItemIds(args);
+        Set<Item> filter = ToolArgs.itemSet(args, "item_ids");
 
         int radius = DEFAULT_RADIUS;
         if (args.has("radius") && !args.get("radius").isJsonNull()) {
@@ -89,22 +86,6 @@ public final class CollectItemsTool implements NumenTool {
         String label = filter.isEmpty() ? "all items" : labelFor(filter);
         long deadline = currentGameTime + DEFAULT_TIMEOUT_TICKS;
         return new CollectItemsTaskRecord(toolCallId, deadline, filter, radius, label);
-    }
-
-    private static Set<Item> readItemIds(JsonObject args) {
-        Set<Item> out = new LinkedHashSet<>();
-        if (!args.has("item_ids") || !args.get("item_ids").isJsonArray()) {
-            return out;   // no filter → collect everything
-        }
-        for (JsonElement el : args.getAsJsonArray("item_ids")) {
-            if (el == null || el.isJsonNull()) continue;
-            ResourceLocation id = ResourceLocation.tryParse(el.getAsString());
-            if (id == null) continue;
-            if (BuiltInRegistries.ITEM.containsKey(id)) {
-                out.add(BuiltInRegistries.ITEM.get(id));
-            }
-        }
-        return out;
     }
 
     private static String labelFor(Set<Item> filter) {

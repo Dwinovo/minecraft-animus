@@ -2,6 +2,7 @@ package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.entity.NumenPlayer;
+import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -63,7 +64,7 @@ public final class InspectGuiTool implements NumenTool {
     public String executeQuery(JsonObject args, NumenPlayer entity) {
         AbstractContainerMenu menu = entity.containerMenu;
         if (menu == null) {
-            return "no GUI open.";
+            return TaskResult.fail("no GUI open.").toJson();
         }
         // With no block menu open, containerMenu IS your own InventoryMenu — which carries the 2x2
         // crafting grid. Surface it so the model can craft small recipes without a table.
@@ -150,14 +151,14 @@ public final class InspectGuiTool implements NumenTool {
         String header = ownInventory
                 ? "GUI: InventoryMenu (YOUR own inventory — includes the 2x2 crafting grid below)\n"
                 : "GUI: " + menu.getClass().getSimpleName() + "\n";
-        return header
+        return TaskResult.ok(header
                 + gridSection
                 + "container slots:\n" + (container.length() == 0 ? "  (none)\n" : container)
                 + "your inventory (non-empty):\n" + (mine.length() == 0 ? "  (empty)\n" : mine)
                 + "cursor: " + describe(menu.getCarried()) + "\n"
                 + dataLine
                 + "tip: transfer {from} (no `to`) routes a whole stack to the other section; add `to`"
-                + " + `count` for an exact move into a specific slot.";
+                + " + `count` for an exact move into a specific slot.").toJson();
     }
 
     private static String describe(ItemStack stack) {

@@ -1,6 +1,7 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.MoveToTaskRecord;
 import com.google.gson.JsonObject;
@@ -70,7 +71,11 @@ public final class MoveToTool implements NumenTool {
                 + "wall. Consumes scaffold blocks and tool durability; carry "
                 + "cobblestone/dirt for gaps. Timeout scales with distance; the "
                 + "result reports the actual position reached (and the real ground "
-                + "height) — call again with the same target to resume.";
+                + "height) — call again with the same target to resume. But if it "
+                + "reports NO path or stops far short, that spot is unreachable or too "
+                + "far: pick a NEARER waypoint, or scan first — don't just repeat the "
+                + "same unreachable target. move_to is for getting somewhere to STAND; "
+                + "to open/use a station give its coordinate to interact_at instead.";
     }
 
     @Override
@@ -108,40 +113,15 @@ public final class MoveToTool implements NumenTool {
 
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        Double x = optionalDouble(args, "x");
-        Double y = optionalDouble(args, "y");
-        Double z = optionalDouble(args, "z");
-        double speed = requireDouble(args, "speed");
+        Double x = ToolArgs.optionalDouble(args, "x");
+        Double y = ToolArgs.optionalDouble(args, "y");
+        Double z = ToolArgs.optionalDouble(args, "z");
+        double speed = ToolArgs.requireDouble(args, "speed");
         if (speed < MIN_SPEED) speed = MIN_SPEED;
         if (speed > MAX_SPEED) speed = MAX_SPEED;
         long deadline = currentGameTime + DEFAULT_TIMEOUT_TICKS;
         // MoveToTaskRecord validates the x/y/z combination and throws a teaching
         // error for an ambiguous one (e.g. only x given).
         return new MoveToTaskRecord(toolCallId, deadline, x, y, z, speed);
-    }
-
-    /** A nullable numeric arg: {@code null} when absent or JSON null. */
-    private static Double optionalDouble(JsonObject args, String key) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            return null;
-        }
-        try {
-            return args.get(key).getAsDouble();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException(
-                    "argument '" + key + "' must be a number or null: " + ex.getMessage());
-        }
-    }
-
-    private static double requireDouble(JsonObject args, String key) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: " + key);
-        }
-        try {
-            return args.get(key).getAsDouble();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException(
-                    "argument '" + key + "' must be a number: " + ex.getMessage());
-        }
     }
 }

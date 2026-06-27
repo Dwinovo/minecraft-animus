@@ -1,16 +1,15 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.PlaceBlockTaskRecord;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.Items;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,8 +52,9 @@ public final class PlaceBlockTool implements NumenTool {
                 + "from what you asked, break it and retry from another angle. Fails "
                 + "with guidance (incl. nearby coords that WOULD work) if you lack the "
                 + "block, it isn't placeable, the target is occupied, or there's no "
-                + "reachable spot. Use for torches, walls/shelter, sealing caves, or "
-                + "positioning a crafting table/furnace/chest.";
+                + "reachable spot — so don't place where a block already is; build "
+                + "somewhere clear instead. Use for torches, walls/shelter, sealing "
+                + "caves, or positioning a crafting table/furnace/chest.";
     }
 
     @Override
@@ -90,12 +90,12 @@ public final class PlaceBlockTool implements NumenTool {
 
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        Item item = readItem(args);
+        Item item = ToolArgs.requireItem(args, "block_id");
         if (!(item instanceof BlockItem blockItem)) {
             throw new IllegalArgumentException(
                     BuiltInRegistries.ITEM.getKey(item) + " is not a placeable block");
         }
-        BlockPos pos = new BlockPos(requireInt(args, "x"), requireInt(args, "y"), requireInt(args, "z"));
+        BlockPos pos = new BlockPos(ToolArgs.requireInt(args, "x"), ToolArgs.requireInt(args, "y"), ToolArgs.requireInt(args, "z"));
         String label = BuiltInRegistries.ITEM.getKey(item).getPath();
         Direction facing = optEnum(args, "facing") == null ? null
                 : Direction.byName(optEnum(args, "facing"));
@@ -112,32 +112,5 @@ public final class PlaceBlockTool implements NumenTool {
         if (!args.has(key) || args.get(key).isJsonNull()) return null;
         String v = args.get(key).getAsString().trim().toLowerCase();
         return v.isEmpty() ? null : v;
-    }
-
-    private static Item readItem(JsonObject args) {
-        if (!args.has("block_id") || args.get("block_id").isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: block_id");
-        }
-        ResourceLocation id = ResourceLocation.tryParse(args.get("block_id").getAsString());
-        if (id == null) {
-            throw new IllegalArgumentException("block_id is not a valid id: " + args.get("block_id"));
-        }
-        Item item = BuiltInRegistries.ITEM.get(id);
-        if (item == null || item == Items.AIR) {
-            throw new IllegalArgumentException("unknown item: " + id);
-        }
-        return item;
-    }
-
-    private static int requireInt(JsonObject args, String key) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: " + key);
-        }
-        try {
-            return args.get(key).getAsInt();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException(
-                    "argument '" + key + "' must be an integer: " + ex.getMessage());
-        }
     }
 }

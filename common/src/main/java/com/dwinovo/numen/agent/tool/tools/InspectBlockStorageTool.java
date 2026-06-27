@@ -1,8 +1,10 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.platform.Services;
+import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -70,34 +72,22 @@ public final class InspectBlockStorageTool implements NumenTool {
 
     @Override
     public String executeQuery(JsonObject args, NumenPlayer entity) {
-        int x = readInt(args, "x");
-        int y = readInt(args, "y");
-        int z = readInt(args, "z");
+        int x = ToolArgs.requireInt(args, "x");
+        int y = ToolArgs.requireInt(args, "y");
+        int z = ToolArgs.requireInt(args, "z");
         BlockPos pos = new BlockPos(x, y, z);
         BlockState state = entity.level().getBlockState(pos);
         String coord = x + "," + y + "," + z;
         if (state.isAir()) {
-            return "block at " + coord + " is air — nothing to read.";
+            return TaskResult.fail("block at " + coord + " is air — nothing to read.").toJson();
         }
         String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
         String caps = Services.CAPS.describe(entity.level(), pos);
         if (caps == null || caps.isBlank()) {
-            return id + " at " + coord + " exposes no item/fluid/energy storage "
+            return TaskResult.ok(id + " at " + coord + " exposes no item/fluid/energy storage "
                     + "(not a machine/tank/battery, or it keeps its state elsewhere). "
-                    + "If it has a GUI, right-click it then use inspect_gui.";
+                    + "If it has a GUI, right-click it then use inspect_gui.").toJson();
         }
-        return id + " at " + coord + ":\n" + caps;
-    }
-
-    private static int readInt(JsonObject args, String key) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: " + key);
-        }
-        try {
-            return args.get(key).getAsInt();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException(
-                    "argument '" + key + "' must be an integer: " + ex.getMessage());
-        }
+        return TaskResult.ok(id + " at " + coord + ":\n" + caps).toJson();
     }
 }

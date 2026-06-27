@@ -2,6 +2,7 @@ package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.entity.NumenPlayer;
+import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -90,7 +91,7 @@ public final class TransferTool implements NumenTool {
     public String executeQuery(JsonObject args, NumenPlayer entity) {
         AbstractContainerMenu menu = entity.containerMenu;
         if (menu == null) {
-            return "no GUI open — interact_at a container or machine first.";
+            return TaskResult.fail("no GUI open — interact_at a container or machine first.").toJson();
         }
         if (!args.has("moves") || args.get("moves").isJsonNull()) {
             throw new IllegalArgumentException("missing required argument: moves (a list of transfers)");
@@ -133,7 +134,7 @@ public final class TransferTool implements NumenTool {
             }
             out.append("\n");
         }
-        return out.toString();
+        return TaskResult.ok(out.toString().stripTrailing()).toJson();
     }
 
     /** No destination: shift the whole stack to the other section, menu-routed (deposit/take/feed). */

@@ -1,13 +1,10 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.InteractEntityTaskRecord;
 import com.google.gson.JsonObject;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.Items;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -89,23 +86,8 @@ public final class InteractEntityTool implements NumenTool {
                 throw new IllegalArgumentException("hold_ticks must be an integer or null: " + ex.getMessage());
             }
         }
-        return new InteractEntityTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS, button, entityId, holdTicks, readItem(args));
-    }
-
-    /** Parse the optional item_id, or null when omitted. (Used ON the entity, so no body-bound veto.) */
-    private static Item readItem(JsonObject args) {
-        if (!args.has("item_id") || args.get("item_id").isJsonNull()) {
-            return null;
-        }
-        ResourceLocation id = ResourceLocation.tryParse(args.get("item_id").getAsString());
-        if (id == null) {
-            throw new IllegalArgumentException("item_id is not a valid id: " + args.get("item_id"));
-        }
-        Item item = BuiltInRegistries.ITEM.get(id);
-        if (item == null || item == Items.AIR) {
-            throw new IllegalArgumentException("unknown item: " + id);
-        }
-        return item;
+        return new InteractEntityTaskRecord(toolCallId, currentGameTime + TIMEOUT_TICKS, button, entityId, holdTicks,
+                ToolArgs.optionalItem(args, "item_id"));
     }
 
     private static InteractEntityTaskRecord.Button readButton(JsonObject args) {

@@ -1,6 +1,7 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.ShootTaskRecord;
 import com.google.gson.JsonArray;
@@ -103,9 +104,7 @@ public final class ShootTool implements NumenTool {
         if (targets.isEmpty()) {
             throw new IllegalArgumentException("entity_ids contained no valid entity type ids");
         }
-        int count = requireInt(args, "count");
-        if (count < 1) count = 1;
-        if (count > MAX_COUNT) count = MAX_COUNT;
+        int count = ToolArgs.requireInt(args, "count", 1, MAX_COUNT);
 
         int radius = DEFAULT_MAX_RADIUS;
         if (args.has("radius") && !args.get("radius").isJsonNull()) {
@@ -141,17 +140,5 @@ public final class ShootTool implements NumenTool {
         EntityType<?> first = targets.iterator().next();
         String path = BuiltInRegistries.ENTITY_TYPE.getKey(first).getPath();
         return targets.size() == 1 ? path : path + "+" + (targets.size() - 1);
-    }
-
-    private static int requireInt(JsonObject args, String key) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: " + key);
-        }
-        try {
-            return args.get(key).getAsInt();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException(
-                    "argument '" + key + "' must be an integer: " + ex.getMessage());
-        }
     }
 }

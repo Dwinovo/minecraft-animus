@@ -1,14 +1,13 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.tasks.EquipTaskRecord;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.Items;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -82,27 +81,12 @@ public final class EquipTool implements NumenTool {
 
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        Item item = readItem(args);
+        Item item = ToolArgs.requireItem(args, "item_id");
         EquipmentSlot slot = readSlot(args);
 
         String label = BuiltInRegistries.ITEM.getKey(item).getPath();
         long deadline = currentGameTime + TIMEOUT_TICKS;
         return new EquipTaskRecord(toolCallId, deadline, item, slot, label);
-    }
-
-    private static Item readItem(JsonObject args) {
-        if (!args.has("item_id") || args.get("item_id").isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: item_id");
-        }
-        ResourceLocation id = ResourceLocation.tryParse(args.get("item_id").getAsString());
-        if (id == null) {
-            throw new IllegalArgumentException("item_id is not a valid id: " + args.get("item_id"));
-        }
-        Item item = BuiltInRegistries.ITEM.get(id);
-        if (item == null || item == Items.AIR) {
-            throw new IllegalArgumentException("unknown item: " + id);
-        }
-        return item;
     }
 
     /** Parse the optional slot; {@code null} means auto-route. */

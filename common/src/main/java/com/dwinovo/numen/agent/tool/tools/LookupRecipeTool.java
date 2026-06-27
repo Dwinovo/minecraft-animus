@@ -1,14 +1,14 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.entity.NumenPlayer;
+import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonObject;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.AbstractCookingRecipe;
 import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
@@ -86,9 +86,9 @@ public final class LookupRecipeTool implements NumenTool {
         if (!args.has("item_id") || args.get("item_id").isJsonNull()) {
             throw new IllegalArgumentException("missing required argument: item_id");
         }
-        Item target = readItem(args.get("item_id").getAsString());
+        Item target = ToolArgs.parseItem(args.get("item_id").getAsString());
         if (!(entity.level() instanceof ServerLevel level)) {
-            return "recipe lookup needs a server level.";
+            return TaskResult.fail("recipe lookup needs a server level.").toJson();
         }
         String name = BuiltInRegistries.ITEM.getKey(target).getPath();
 
@@ -155,10 +155,10 @@ public final class LookupRecipeTool implements NumenTool {
         }
 
         if (recipes.isEmpty()) {
-            return "no recipe for " + name + " — it's obtained another way (mine it, or trade), not "
-                    + "crafted or smelted.";
+            return TaskResult.ok("no recipe for " + name + " — it's obtained another way (mine it, or "
+                    + "trade), not crafted or smelted.").toJson();
         }
-        return "recipe(s) for " + name + ":\n\n" + String.join("\n\n", recipes) + "\n\n"
+        return TaskResult.ok("recipe(s) for " + name + ":\n\n" + String.join("\n\n", recipes) + "\n\n"
                 + "To make it —\n"
                 + "• [crafting]: open the grid (2x2 = your own, inspect_gui with nothing open; 3x3 = "
                 + "interact_at a crafting table), then transfer each ingredient into its cell per the "
@@ -169,7 +169,7 @@ public final class LookupRecipeTool implements NumenTool {
                 + "output back out.\n"
                 + "• [stonecutter]: interact_at it, transfer the input (no `to` routes it in), take the "
                 + "output. [smithing]: interact_at it, inspect_gui, then transfer template + base + "
-                + "addition each into its own slot (give `to`).";
+                + "addition each into its own slot (give `to`).").toJson();
     }
 
     private static String format(CraftingRecipe recipe, ItemStack result) {
@@ -255,15 +255,4 @@ public final class LookupRecipeTool implements NumenTool {
         return token;
     }
 
-    private static Item readItem(String id) {
-        ResourceLocation rl = ResourceLocation.tryParse(id);
-        if (rl == null) {
-            throw new IllegalArgumentException("not a valid item id: " + id);
-        }
-        Item item = BuiltInRegistries.ITEM.get(rl);
-        if (item == null || item == Items.AIR) {
-            throw new IllegalArgumentException("unknown item: " + id);
-        }
-        return item;
-    }
 }

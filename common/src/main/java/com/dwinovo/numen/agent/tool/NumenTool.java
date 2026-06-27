@@ -78,7 +78,16 @@ public interface NumenTool {
     /** Tool name as the LLM sees it. {@code snake_case}. Must match the Task's tool name field. */
     String name();
 
-    /** Short description shown to the LLM. Keep under ~120 chars; it counts as prompt tokens. */
+    /**
+     * Description shown to the LLM — the single biggest lever on whether the model
+     * picks this tool correctly, so make it thorough (Anthropic's guidance: aim for
+     * several sentences, more for a complex tool). Cover what it does, WHEN to use it
+     * (and when not — how it differs from neighbouring tools), what each non-obvious
+     * parameter means, and any caveat. The per-tool how-to lives HERE, not in the
+     * system prompt, so it can't rot: the live schema rides on every request. It
+     * counts as prompt tokens, but selection accuracy is worth far more than the
+     * tokens saved by terseness.
+     */
     String description();
 
     /** JSON Schema for {@link #toTaskRecord} arguments. See class-level Javadoc. */
@@ -159,6 +168,15 @@ public interface NumenTool {
      * Only called when {@link #isQuery()} is true, on the server tick thread,
      * with a resolved non-null entity. The returned string becomes the
      * {@code role:tool} message content verbatim.
+     *
+     * <p><b>Return the shared envelope.</b> Build the result with
+     * {@link com.dwinovo.numen.task.TaskResult} and call {@code toJson()}, the
+     * same {@code {success, message, data}} shape every world-action tool
+     * returns — so the model reads one contract and the agent loop can
+     * post-process results uniformly (e.g. work-block harvesting). Put the
+     * human-readable observation (including any ASCII layout) in {@code message};
+     * Gson escapes it safely. Use {@code TaskResult.fail} for a degenerate read
+     * (no target, nothing open) so the model sees {@code success:false}.
      *
      * @throws IllegalArgumentException for malformed args; the payload handler
      *                                  converts it into a failed tool result

@@ -1,6 +1,7 @@
 package com.dwinovo.numen.agent.tool.tools;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.pathing.util.BlockScanner;
 import com.dwinovo.numen.task.tasks.ScanBlocksJob;
@@ -107,7 +108,7 @@ public final class ScanBlocksTool implements NumenTool {
     @Override
     public void startAsyncQuery(JsonObject args, NumenPlayer entity,
                                 java.util.function.Consumer<String> reply) {
-        int radius = readInt(args, "radius", MIN_RADIUS, MAX_RADIUS);
+        int radius = ToolArgs.requireInt(args, "radius", MIN_RADIUS, MAX_RADIUS);
         Set<Block> targets = readBlockIds(args);
         if (targets.isEmpty()) {
             throw new IllegalArgumentException("no valid block_ids provided");
@@ -173,20 +174,5 @@ public final class ScanBlocksTool implements NumenTool {
             if (b != null && b != Blocks.AIR) out.add(b);
         }
         return out;
-    }
-
-    private static int readInt(JsonObject args, String key, int min, int max) {
-        if (!args.has(key) || args.get(key).isJsonNull()) {
-            throw new IllegalArgumentException("missing required argument: " + key);
-        }
-        int v;
-        try {
-            v = args.get(key).getAsInt();
-        } catch (RuntimeException ex) {
-            throw new IllegalArgumentException("argument '" + key + "' must be an integer");
-        }
-        if (v < min) v = min;
-        if (v > max) v = max;
-        return v;
     }
 }
