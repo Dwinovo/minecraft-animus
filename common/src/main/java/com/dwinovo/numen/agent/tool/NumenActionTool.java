@@ -16,6 +16,7 @@ import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * A {@link NumenTool} backed by a reflected {@link NumenAction} method — the
@@ -39,9 +40,9 @@ import java.util.Map;
  */
 public final class NumenActionTool implements NumenTool {
 
-    private enum Kind { QUERY, WORLD }
+    private enum Kind { QUERY, WORLD, ASYNC, LOCAL }
 
-    private enum SlotType { ARG, ENTITY, CONTEXT }
+    private enum SlotType { ARG, ENTITY, CONTEXT, CLIENT, REPLY }
 
     /** One method parameter: either a model argument or an injected context value. */
     private static final class Slot {
@@ -84,6 +85,7 @@ public final class NumenActionTool implements NumenTool {
 
         boolean injectsEntity = false;
         boolean injectsContext = false;
+        boolean injectsReply = false;
         List<Slot> plan = new ArrayList<>();
         for (Parameter p : method.getParameters()) {
             Arg arg = p.getAnnotation(Arg.class);
@@ -96,6 +98,11 @@ public final class NumenActionTool implements NumenTool {
             } else if (p.getType() == ToolContext.class) {
                 injectsContext = true;
                 plan.add(new Slot(SlotType.CONTEXT, null, null, false, false));
+            } else if (p.getType() == java.util.function.Consumer.class) {
+                injectsReply = true;
+                plan.add(new Slot(SlotType.REPLY, null, null, false, false));
+            } else if (p.getType() == ClientToolContext.class) {
+                plan.add(new Slot(SlotType.CLIENT, null, null, false, false));
             } else {
                 throw new IllegalArgumentException("@NumenAction " + name
                         + ": parameter " + p.getName() + " of type " + p.getType().getName()
@@ -106,13 +113,18 @@ public final class NumenActionTool implements NumenTool {
 
         boolean returnsTaskRecord = TaskRecord.class.isAssignableFrom(method.getReturnType());
         boolean returnsValue = method.getReturnType() != void.class;
-        if (returnsTaskRecord) {
-            this.kind = Kind.WORLD;
+        // Where a tool runs is inferred from what it reaches for, not declared:
+        if (injectsReply) {
+            this.kind = Kind.ASYNC;          // budget-sliced server job; replies via the callback
+        } else if (returnsTaskRecord) {
+            this.kind = Kind.WORLD;          // body task, queued on the server
         } else if (injectsEntity && returnsValue) {
-            this.kind = Kind.QUERY;
+            this.kind = Kind.QUERY;          // synchronous read against the server body
+        } else if (returnsValue) {
+            this.kind = Kind.LOCAL;          // client-side bookkeeping; no server body
         } else {
             throw new IllegalArgumentException("@NumenAction " + name
-                    + ": tool shape not yet supported by the adapter (server query or body task only)");
+                    + ": unsupported tool shape (a void method must take a reply Consumer)");
         }
         if (kind == Kind.QUERY && injectsContext) {
             throw new IllegalArgumentException("@NumenAction " + name
@@ -126,20 +138,31 @@ public final class NumenActionTool implements NumenTool {
     @Override public long defaultTimeoutTicks() { return timeoutTicks; }
 
     @Override public boolean isQuery() { return kind == Kind.QUERY; }
+    @Override public boolean isAsyncQuery() { return kind == Kind.ASYNC; }
+    @Override public boolean isLocal() { return kind == Kind.LOCAL; }
 
     @Override
     public String executeQuery(JsonObject args, NumenPlayer entity) {
-        Object result = invoke(buildArgs(args, entity, null));
-        return resultToString(result);
+        return resultToString(invoke(buildArgs(args, entity, null, null, null)));
     }
 
     @Override
     public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        Object result = invoke(buildArgs(args, null, new ToolContext(toolCallId, currentGameTime)));
-        return (TaskRecord) result;
+        return (TaskRecord) invoke(buildArgs(args, null, new ToolContext(toolCallId, currentGameTime), null, null));
     }
 
-    private Object[] buildArgs(JsonObject args, NumenPlayer entity, ToolContext ctx) {
+    @Override
+    public void startAsyncQuery(JsonObject args, NumenPlayer entity, Consumer<String> reply) {
+        invoke(buildArgs(args, entity, null, null, reply));   // void; the method replies through `reply`
+    }
+
+    @Override
+    public String executeLocal(JsonObject args, ClientToolContext ctx) {
+        return resultToString(invoke(buildArgs(args, null, null, ctx, null)));
+    }
+
+    private Object[] buildArgs(JsonObject args, NumenPlayer entity, ToolContext ctx,
+                               ClientToolContext clientCtx, Consumer<String> reply) {
         Object[] argv = new Object[slots.length];
         for (int i = 0; i < slots.length; i++) {
             Slot s = slots[i];
@@ -147,6 +170,8 @@ public final class NumenActionTool implements NumenTool {
                 case ARG -> coerce(args, s.argName, s.argType, s.required, s.nullable);
                 case ENTITY -> entity;
                 case CONTEXT -> ctx;
+                case CLIENT -> clientCtx;
+                case REPLY -> reply;
             };
         }
         return argv;

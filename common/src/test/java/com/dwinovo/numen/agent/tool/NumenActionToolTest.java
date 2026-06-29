@@ -109,6 +109,9 @@ class NumenActionToolTest {
         check(p, NumenTools.tool(queries, "scan_nearby_entities"), new ScanNearbyEntitiesTool());
         check(p, NumenTools.tool(queries, "inspect_block_storage"), new InspectBlockStorageTool());
 
+        check(p, NumenTools.tool(new ScanTools(), "scan_blocks"), new ScanBlocksTool());
+        check(p, NumenTools.tool(new AgentTools(), "load_skill"), new LoadSkillTool());
+
         assertTrue(p.isEmpty(), "surface mismatches (" + p.size() + "):\n" + String.join("\n", p));
     }
 
@@ -133,6 +136,16 @@ class NumenActionToolTest {
         assertEquals(MoveToTaskRecord.Kind.COLUMN, move.kind);
         assertEquals("call-1", move.getToolCallId());
         assertEquals(1000L + 30 * 20, move.getDeadlineGameTime(), "deadline = now + timeoutTicks");
+    }
+
+    /** The LOCAL path runs client-side: load_skill executes and reports a missing skill. */
+    @Test
+    void localToolRunsClientSide() {
+        NumenTool loadSkill = NumenTools.tool(new AgentTools(), "load_skill");
+        JsonObject args = new JsonObject();
+        args.addProperty("name", "definitely_missing_skill_xyz");
+        String result = loadSkill.executeLocal(args, null);   // load_skill needs no ClientToolContext
+        assertTrue(result.contains("unknown skill"), "local tool ran and reported the missing skill");
     }
 
     /** A list arg binds to {@code List<String>} and a truly-optional arg binds to null — MC-free. */

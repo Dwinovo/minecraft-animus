@@ -2,16 +2,16 @@ package com.dwinovo.numen;
 
 import com.dwinovo.numen.agent.tool.NumenTools;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
+import com.dwinovo.numen.agent.tool.tools.AgentTools;
 import com.dwinovo.numen.agent.tool.tools.BlockActionTools;
 import com.dwinovo.numen.agent.tool.tools.CombatTools;
 import com.dwinovo.numen.agent.tool.tools.GuiTools;
 import com.dwinovo.numen.agent.tool.tools.InventoryTools;
-import com.dwinovo.numen.agent.tool.tools.LoadSkillTool;
 import com.dwinovo.numen.agent.tool.tools.LocateTools;
 import com.dwinovo.numen.agent.tool.tools.MovementTools;
 import com.dwinovo.numen.agent.tool.tools.PerceptionTools;
 import com.dwinovo.numen.agent.tool.tools.QueryExtraTools;
-import com.dwinovo.numen.agent.tool.tools.ScanBlocksTool;
+import com.dwinovo.numen.agent.tool.tools.ScanTools;
 import com.dwinovo.numen.agent.tool.tools.TodoWriteTool;
 import com.dwinovo.numen.agent.tool.tools.TransferTool;
 import com.dwinovo.numen.platform.Services;
@@ -61,6 +61,8 @@ public class CommonClass {
         GuiTools gui = new GuiTools();
         PerceptionTools perception = new PerceptionTools();
         QueryExtraTools queries = new QueryExtraTools();
+        ScanTools scan = new ScanTools();
+        AgentTools agent = new AgentTools();
 
         // Entity world-action + entity-perspective perception tools.
         reg(movement, "move_to");
@@ -88,12 +90,12 @@ public class CommonClass {
         // Shared perception / planning tools.
         reg(queries, "lookup_recipe");
         reg(queries, "scan_nearby_entities");
-        ToolRegistry.register(new ScanBlocksTool()); // not yet on @NumenAction: async-query path
+        reg(scan, "scan_blocks");
         reg(perception, "inspect_block");
         reg(queries, "inspect_block_storage");
         reg(perception, "get_world_info");
-        ToolRegistry.register(new TodoWriteTool());  // not yet on @NumenAction: local path
-        ToolRegistry.register(new LoadSkillTool());  // not yet on @NumenAction: local path
+        ToolRegistry.register(new TodoWriteTool());  // not yet on @NumenAction: object-array arg
+        reg(agent, "load_skill");
 
         Constants.LOG.info("[numen] registered {} tool(s)", ToolRegistry.size());
     }
