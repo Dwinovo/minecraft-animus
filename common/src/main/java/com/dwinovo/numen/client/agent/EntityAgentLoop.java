@@ -5,14 +5,10 @@ import com.dwinovo.numen.agent.llm.NumenLlmClient;
 import com.dwinovo.numen.agent.llm.ConvoLog;
 import com.dwinovo.numen.agent.llm.ConvoState;
 import com.dwinovo.numen.agent.provider.AssistantTurn;
-import com.dwinovo.numen.agent.provider.LlmToolCall;
 import com.dwinovo.numen.agent.skill.SkillRegistry;
-import com.dwinovo.numen.agent.tool.NumenTool;
-import com.dwinovo.numen.agent.tool.ClientToolContext;
-import com.dwinovo.numen.agent.tool.ToolCall;
+import com.dwinovo.numen.agent.tool.ToolInvocation;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
 import com.dwinovo.numen.network.payload.CancelTasksPayload;
-import com.dwinovo.numen.network.payload.ExecuteToolPayload;
 import com.dwinovo.numen.platform.Services;
 import com.dwinovo.numen.platform.services.INumenConfig;
 import com.dwinovo.numen.task.TaskResult;
@@ -23,12 +19,8 @@ import net.minecraft.client.player.AbstractClientPlayer;
 
 import java.nio.file.Path;
 import java.time.LocalDate;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -125,10 +117,6 @@ public final class EntityAgentLoop {
     private final ConvoState convo;
     /** Functional-block coordinate memory, injected as {@code <known_blocks>}. */
     private final WorkBlockMemory workBlocks;
-    /** Outstanding world-action calls: tool_call id → tool name (the name drives
-     *  result harvesting in {@link #harvestWorkBlocks}). */
-    private final Map<String, String> pendingToolCalls = new HashMap<>();
-
     /**
      * Prompts the owner typed while a turn was still in flight (waiting on the
      * LLM, or on outstanding tool results). They must NOT be spliced into the
@@ -144,30 +132,12 @@ public final class EntityAgentLoop {
     private boolean aborted = false;
 
     /**
-     * The current turn's tool calls awaiting dispatch, drained strictly one at a
-     * time: the next is dispatched only when the current one's result lands.
-     * This is the agent's single synchronous tool queue — one body, one brain,
-     * one thing at a time. No async, no concurrency (by design, for now).
+     * Runs this turn's tool calls one at a time and reports each result back
+     * through a {@link ToolDispatcher.Sink} into the conversation. All the
+     * tool-execution plumbing (serial queue, ship-to-server, completion,
+     * timeout) lives in here, not in the loop.
      */
-    private final Deque<LlmToolCall> turnQueue = new ArrayDeque<>();
-
-    /**
-     * Reentrancy guard for {@link #dispatchNext}: a client-side tool that
-     * finishes synchronously calls back into {@link #complete} mid-dispatch;
-     * the guard lets the dispatch loop keep draining the queue instead of
-     * recursing into itself.
-     */
-    private boolean advancing = false;
-
-    /**
-     * Wall-clock deadline (epoch millis) for the single in-flight tool call, or
-     * {@code 0} when nothing is in flight. This is a <em>backstop</em> for a
-     * dead-server / never-replying tool only — deliberately generous, so a core
-     * tool (which always gets a real server reply, even on death/removal) never
-     * trips it. Tight per-tool timeouts arrive with the extension API.
-     */
-    private long inFlightDeadlineMillis = 0;
-    private static final long TOOL_BACKSTOP_MILLIS = 15 * 60 * 1000L;
+    private final ToolDispatcher dispatcher;
 
     /** A summarization call is in flight; blocks normal turns until it lands. */
     private boolean compacting = false;
@@ -205,6 +175,18 @@ public final class EntityAgentLoop {
         this.log = ConvoLog.forEntity(numenRoot.resolve("conversations"), entityUuid);
         this.convo = new ConvoState(log::append);
         this.workBlocks = WorkBlockMemory.forEntity(numenRoot.resolve("memory"), entityUuid);
+        this.dispatcher = new ToolDispatcher(entityUuid, new ToolDispatcher.Sink() {
+            @Override public void onResult(ToolInvocation inv, String resultJson) {
+                harvestWorkBlocks(inv.name(), resultJson);
+                convo.addToolResult(inv.id(), resultJson);
+            }
+            @Override public void onAllSettled() {
+                tryStartTurn();
+            }
+            @Override public AbstractClientPlayer entity() {
+                return resolveEntity();
+            }
+        });
         restoreFromDisk();
     }
 
@@ -257,7 +239,7 @@ public final class EntityAgentLoop {
         // flushed once the outstanding assistant/tool round-trip completes —
         // this avoids inserting a user message between assistant(tool_calls)
         // and its tool results (which the API rejects with HTTP 400).
-        boolean deferred = awaitingLlmResponse || !pendingToolCalls.isEmpty();
+        boolean deferred = awaitingLlmResponse || dispatcher.busy();
         bufferedPrompts.add(text);
         Constants.LOG.info("[numen-entity#{}] user prompt ({} chars){}{}: {}",
                 entityUuid, text.length(),
@@ -269,107 +251,12 @@ public final class EntityAgentLoop {
 
     /** Server body reported a result for one of our outstanding calls (async path). */
     public void onToolResult(String toolCallId, String resultJson) {
-        String toolName = pendingToolCalls.get(toolCallId);
-        if (toolName == null) {
-            Constants.LOG.debug("[numen-entity#{}] late tool_result id={} ignored",
-                    entityUuid, toolCallId);
-            return;
-        }
-        complete(toolCallId, toolName, resultJson);
+        dispatcher.deliver(toolCallId, resultJson);
     }
 
-    /**
-     * Land a tool result — the single completion path for every tool, whether
-     * it ran synchronously on the client or came back from the server body.
-     * Removes the in-flight call, harvests any work-block coordinates, writes
-     * the {@code role:tool} message, then advances the serial queue (dispatch
-     * the next call, or start the next LLM turn if the queue is now empty).
-     */
-    private void complete(String toolCallId, String toolName, String resultJson) {
-        if (pendingToolCalls.remove(toolCallId) == null) {
-            // Already settled by abort()/death/timeout, or a duplicate/late reply — drop it.
-            return;
-        }
-        inFlightDeadlineMillis = 0;
-        harvestWorkBlocks(toolName, resultJson);
-        convo.addToolResult(toolCallId, resultJson);
-        Constants.LOG.info("[numen-entity#{}] tool_result id={} tool={} (queued={}) → {}",
-                entityUuid, toolCallId, toolName, turnQueue.size(),
-                truncate(resultJson, 200));
-        // Advance the serial queue. While dispatchNext is already draining
-        // (advancing), skip — that loop picks up the next call itself.
-        if (!advancing) dispatchNext();
-    }
-
-    /**
-     * Drain the serial tool-call queue: dispatch the next call, or — when the
-     * queue is empty and nothing is in flight — start the next LLM turn. Exactly
-     * one call occupies the in-flight slot at a time; {@link #complete} calls
-     * back here to advance after each result lands. A client-side tool that
-     * completes synchronously inside {@code invoke} clears the slot mid-loop, so
-     * the {@link #advancing} guard keeps this draining iteratively instead of
-     * recursing.
-     */
-    private void dispatchNext() {
-        if (advancing) return;
-        advancing = true;
-        try {
-            while (pendingToolCalls.isEmpty()) {
-                LlmToolCall tc = turnQueue.poll();
-                if (tc == null) {
-                    // Every tool call this turn has settled → next LLM turn.
-                    tryStartTurn();
-                    return;
-                }
-                NumenTool tool = ToolRegistry.resolve(tc.name());
-                if (tool == null) {
-                    Constants.LOG.warn("[numen-entity#{}] LLM called unknown tool '{}' (id={})",
-                            entityUuid, tc.name(), tc.id());
-                    convo.addToolResult(tc.id(),
-                            TaskResult.fail("unknown tool: " + tc.name()).toJson());
-                    continue;   // nothing in flight — drain the next queued call
-                }
-                final String id = tc.id();
-                final String name = tc.name();
-                final String rawArgs = tc.arguments();
-                pendingToolCalls.put(id, name);
-                inFlightDeadlineMillis = System.currentTimeMillis() + TOOL_BACKSTOP_MILLIS;
-                ToolCall call = new ToolCall(id, name, rawArgs,
-                        new ClientToolContext(resolveEntity(), entityUuid),
-                        resultJson -> complete(id, name, resultJson),
-                        () -> Services.NETWORK.sendToServer(
-                                new ExecuteToolPayload(entityUuid, id, name, rawArgs)));
-                Constants.LOG.info("[numen-entity#{}] dispatch tool={} id={} args={}",
-                        entityUuid, name, id, truncate(rawArgs, 200));
-                try {
-                    tool.invoke(call);
-                } catch (RuntimeException ex) {
-                    Constants.LOG.warn("[numen-entity#{}] tool {} threw (id={}): {}",
-                            entityUuid, name, id, ex.getMessage());
-                    complete(id, name, TaskResult.fail(ex.getMessage()).toJson());
-                }
-                // Client-side tool: complete() already cleared the slot → loop
-                // drains the next. Server tool: slot occupied → exit and wait for
-                // onToolResult to advance us.
-            }
-        } finally {
-            advancing = false;
-        }
-    }
-
-    /**
-     * Driven once per client tick (see {@code AgentLoopRegistry.tickAll}).
-     * Enforces the in-flight backstop so a never-replying tool can't wedge the
-     * synchronous loop forever; normal core tools reply long before this fires.
-     */
+    /** Driven once per client tick (see {@code AgentLoopRegistry.tickAll}) — backstop timeout. */
     public void clientTick() {
-        if (inFlightDeadlineMillis == 0 || pendingToolCalls.isEmpty()) return;
-        if (System.currentTimeMillis() < inFlightDeadlineMillis) return;
-        Map.Entry<String, String> inFlight = pendingToolCalls.entrySet().iterator().next();
-        Constants.LOG.warn("[numen-entity#{}] tool {} id={} hit backstop timeout — failing it",
-                entityUuid, inFlight.getValue(), inFlight.getKey());
-        complete(inFlight.getKey(), inFlight.getValue(),
-                TaskResult.fail("tool timed out (no result returned)").toJson());
+        dispatcher.tick();
     }
 
     /**
@@ -413,7 +300,7 @@ public final class EntityAgentLoop {
 
     /** A turn is actively running: waiting on the LLM, on tool results, or compacting. */
     public boolean isBusy() {
-        return awaitingLlmResponse || compacting || !pendingToolCalls.isEmpty();
+        return awaitingLlmResponse || compacting || dispatcher.busy();
     }
 
     /** A summarization call is currently in flight (drives the GUI status line). */
@@ -466,28 +353,18 @@ public final class EntityAgentLoop {
             // its response is generation-stamped too, so it gets discarded).
             turnGeneration++; // any in-flight LLM response is now stale → discarded on arrival
             boolean wasAwaitingLlm = awaitingLlmResponse;
-            int cancelledTools = pendingToolCalls.size();
             awaitingLlmResponse = false;
             compacting = false;
 
-            // Synthesize cancelled results for outstanding world-action calls so the
-            // assistant(tool_calls) message keeps matching tool results. Real results
-            // arriving later are dropped as "late" by onToolResult (id already removed).
-            for (String id : pendingToolCalls.keySet()) {
+            // Synthesize cancelled results for EVERY outstanding call (in flight AND
+            // still-queued) so the assistant(tool_calls) message keeps matching tool
+            // results — otherwise the next request is protocol-invalid (HTTP 400). Real
+            // results arriving later are dropped as "late" by the dispatcher.
+            List<String> cancelled = dispatcher.cancelAndDrain();
+            for (String id : cancelled) {
                 convo.addToolResult(id,
                         "{\"success\":false,\"message\":\"interrupted by owner\"}");
             }
-            pendingToolCalls.clear();
-            // The turn is cancelled — but its assistant(tool_calls) message lists
-            // EVERY call, including the ones still queued (never dispatched under
-            // serial). They need synthetic results too, or the next request is
-            // protocol-invalid (tool_calls without matching results → HTTP 400).
-            for (LlmToolCall tc : turnQueue) {
-                convo.addToolResult(tc.id(),
-                        "{\"success\":false,\"message\":\"interrupted by owner\"}");
-            }
-            turnQueue.clear();
-            inFlightDeadlineMillis = 0;
 
             // Stop the BODY, not just the conversation: tell the server to cancel
             // the running task and the queue. Harmless no-op when only an LLM
@@ -498,7 +375,7 @@ public final class EntityAgentLoop {
             // recorded, the conversation now ends on a user message. Cap it with a
             // short assistant note so the next prompt doesn't create back-to-back
             // user messages (some backends reject those — see flushBufferedPrompts).
-            if (wasAwaitingLlm && cancelledTools == 0
+            if (wasAwaitingLlm && cancelled.isEmpty()
                     && convo.lastMessage() instanceof ConvoState.Msg.User) {
                 convo.addAssistant(new AssistantTurn("(已中断)", List.of(), null));
             }
@@ -506,7 +383,7 @@ public final class EntityAgentLoop {
             convo.resetTurnCount();
             aborted = true;
             Constants.LOG.info("[numen-entity#{}] interrupted by owner (awaitingLlm={}, cancelledTools={}, queued={})",
-                    entityUuid, wasAwaitingLlm, cancelledTools, bufferedPrompts.size());
+                    entityUuid, wasAwaitingLlm, cancelled.size(), bufferedPrompts.size());
         } else if (!bufferedPrompts.isEmpty()) {
             // Priority 2: idle — drop the held queue.
             int dropped = bufferedPrompts.size();
@@ -530,16 +407,12 @@ public final class EntityAgentLoop {
         // restored on respawn. The body is gone, so its tool results will never arrive — we'll synth
         // them at respawn instead.
         deathCause = cause;
-        // Resolve at respawn: the in-flight call PLUS every still-queued call of
-        // this turn (all are listed in the assistant message, all need results).
-        deathInterruptedCalls = new java.util.ArrayList<>(pendingToolCalls.keySet());
-        for (LlmToolCall tc : turnQueue) deathInterruptedCalls.add(tc.id());
+        // Resolve at respawn: every outstanding call (in flight + still queued) — all
+        // are listed in the assistant message, so all need results.
+        deathInterruptedCalls = dispatcher.cancelAndDrain();
         turnGeneration++;          // discard any in-flight LLM response (halt output)
         awaitingLlmResponse = false;
         compacting = false;
-        pendingToolCalls.clear();
-        turnQueue.clear();
-        inFlightDeadlineMillis = 0;
         bufferedPrompts.clear();
         dead = true;
         Constants.LOG.info("[numen-entity#{}] body died ({}) — loop frozen ({} call(s) in flight)",
@@ -629,9 +502,8 @@ public final class EntityAgentLoop {
             Constants.LOG.debug("[numen-entity#{}] tryStartTurn skipped: compacting", entityUuid);
             return;
         }
-        if (!pendingToolCalls.isEmpty()) {
-            Constants.LOG.debug("[numen-entity#{}] tryStartTurn skipped: {} tool result(s) pending",
-                    entityUuid, pendingToolCalls.size());
+        if (dispatcher.busy()) {
+            Constants.LOG.debug("[numen-entity#{}] tryStartTurn skipped: tool call(s) outstanding", entityUuid);
             return;
         }
         // Safe point: no assistant reply in flight and no tool results
@@ -856,14 +728,12 @@ public final class EntityAgentLoop {
             return;
         }
 
-        // Queue every tool call for strictly serial dispatch — one in flight at
-        // a time, the next starting only when the current one's result lands
-        // (synchronous agent: one body, one brain, one thing at a time). The
-        // loop stays blind to HOW each runs (NumenTool.invoke); results arrive
-        // through complete(), synchronously for client-side tools or later via
-        // onToolResult for ones shipped to the server body.
-        turnQueue.addAll(turn.toolCalls());
-        dispatchNext();
+        // Hand this turn's calls to the dispatcher — it runs them serially and
+        // reports each result back through the sink (into the conversation), then
+        // calls onAllSettled so the loop starts the next turn.
+        dispatcher.dispatch(turn.toolCalls().stream()
+                .map(tc -> new ToolInvocation(tc.id(), tc.name(), tc.arguments()))
+                .toList());
     }
 
     private static String truncate(String s, int max) {
