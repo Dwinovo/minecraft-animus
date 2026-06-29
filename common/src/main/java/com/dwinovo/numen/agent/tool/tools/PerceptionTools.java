@@ -14,6 +14,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
@@ -178,5 +179,86 @@ public final class PerceptionTools {
     /** Serialized value of one block-state property (e.g. "true", "north"). */
     private static <T extends Comparable<T>> String propValue(BlockState state, Property<T> p) {
         return p.getName(state.getValue(p));
+    }
+
+    @NumenAction(name = "get_owner_status", description =
+            "Read your owner's current status: name, online state, HP, "
+            + "hunger, position, distance from you, and held item. Call "
+            + "before any 'follow', 'protect', or 'rendezvous' decision. "
+            + "If the owner is offline the call returns online:false — "
+            + "default to autonomous mode until they return. No arguments.")
+    public String getOwnerStatus(NumenPlayer self) {
+        JsonObject root = new JsonObject();
+        java.util.UUID ownerUuid = self.getOwnerUuid();
+        if (ownerUuid == null) {
+            root.addProperty("online", false);
+            root.addProperty("message", "no owner (untamed)");
+            return root.toString();
+        }
+        root.addProperty("owner_uuid", ownerUuid.toString());
+
+        // Server-wide resolution: vanilla getOwner() is scoped to the PET's
+        // level and would report a cross-dimension owner as "offline".
+        Player player = self.resolveOwnerPlayer();
+        if (player == null) {
+            root.addProperty("online", false);
+            root.addProperty("message", "owner offline");
+            return root.toString();
+        }
+
+        root.addProperty("online", true);
+        root.addProperty("name", player.getName().getString());
+        root.addProperty("hp", player.getHealth());
+        root.addProperty("max_hp", player.getMaxHealth());
+        root.addProperty("hunger", player.getFoodData().getFoodLevel());
+        root.addProperty("saturation", player.getFoodData().getSaturationLevel());
+
+        JsonObject pos = new JsonObject();
+        pos.addProperty("x", player.getX());
+        pos.addProperty("y", player.getY());
+        pos.addProperty("z", player.getZ());
+        root.add("position", pos);
+
+        boolean sameDimension = self.level().dimension().equals(player.level().dimension());
+        root.addProperty("same_dimension", sameDimension);
+        root.addProperty("owner_dimension", player.level().dimension().location().toString());
+        if (sameDimension) {
+            root.addProperty("distance_to_me", self.distanceTo(player));
+        } else {
+            root.addProperty("note", "owner is in a different dimension — their "
+                    + "position is in THAT dimension's coordinates, not yours");
+        }
+        root.addProperty("main_hand", itemKey(player.getMainHandItem()));
+        root.addProperty("off_hand", itemKey(player.getOffhandItem()));
+
+        return root.toString();
+    }
+
+    private static String itemKey(ItemStack stack) {
+        if (stack.isEmpty()) return "minecraft:air";
+        return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+    }
+
+    @NumenAction(name = "get_world_info", description =
+            "Read the current world state: dimension, game-time tick counter, "
+            + "whether it's bright or dark outside (combat / spawn planning), "
+            + "and weather (clear / rain / thunder, affects sailing and combat). "
+            + "No arguments.")
+    public String getWorldInfo(NumenPlayer self) {
+        var level = self.level();
+
+        JsonObject root = new JsonObject();
+        root.addProperty("dimension", level.dimension().location().toString());
+        root.addProperty("game_time", level.getLevelData().getGameTime());
+        root.addProperty("is_bright_outside", level.isDay());
+        root.addProperty("is_dark_outside", level.isNight());
+
+        String weather;
+        if (level.isThundering()) weather = "thunder";
+        else if (level.isRaining()) weather = "rain";
+        else weather = "clear";
+        root.addProperty("weather", weather);
+
+        return root.toString();
     }
 }

@@ -3,8 +3,6 @@ package com.dwinovo.numen;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
 import com.dwinovo.numen.agent.tool.tools.BreakBlockTool;
 import com.dwinovo.numen.agent.tool.tools.DropItemsTool;
-import com.dwinovo.numen.agent.tool.tools.GetOwnerStatusTool;
-import com.dwinovo.numen.agent.tool.tools.GetWorldInfoTool;
 import com.dwinovo.numen.agent.tool.tools.LoadSkillTool;
 import com.dwinovo.numen.agent.tool.tools.WaitTool;
 import com.dwinovo.numen.agent.tool.tools.EquipTool;
@@ -80,7 +78,8 @@ public class CommonClass {
         // Registered in place so the tool-list order (and prompt caching) is unchanged.
         ToolRegistry.register(com.dwinovo.numen.agent.tool.NumenTools.tool(
                 new com.dwinovo.numen.agent.tool.tools.PerceptionTools(), "get_self_status"));
-        ToolRegistry.register(new GetOwnerStatusTool());
+        ToolRegistry.register(com.dwinovo.numen.agent.tool.NumenTools.tool(
+                new com.dwinovo.numen.agent.tool.tools.PerceptionTools(), "get_owner_status"));
 
         // Shared perception / planning tools.
         ToolRegistry.register(new com.dwinovo.numen.agent.tool.tools.LookupRecipeTool());
@@ -90,7 +89,8 @@ public class CommonClass {
         ToolRegistry.register(com.dwinovo.numen.agent.tool.NumenTools.tool(
                 new com.dwinovo.numen.agent.tool.tools.PerceptionTools(), "inspect_block"));
         ToolRegistry.register(new com.dwinovo.numen.agent.tool.tools.InspectBlockStorageTool());
-        ToolRegistry.register(new GetWorldInfoTool());
+        ToolRegistry.register(com.dwinovo.numen.agent.tool.NumenTools.tool(
+                new com.dwinovo.numen.agent.tool.tools.PerceptionTools(), "get_world_info"));
         ToolRegistry.register(new TodoWriteTool());
         ToolRegistry.register(new LoadSkillTool());
 
