@@ -1,6 +1,5 @@
-package com.dwinovo.numen.agent.tool.api;
+package com.dwinovo.numen.agent.tool;
 
-import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.agent.tool.tools.GetSelfStatusTool;
 import com.dwinovo.numen.agent.tool.tools.InspectBlockTool;
 import com.dwinovo.numen.agent.tool.tools.MoveToTool;

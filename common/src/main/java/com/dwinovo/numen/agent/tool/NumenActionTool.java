@@ -1,6 +1,9 @@
-package com.dwinovo.numen.agent.tool.api;
+package com.dwinovo.numen.agent.tool;
 
-import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.api.Arg;
+import com.dwinovo.numen.agent.tool.api.NumenAction;
+import com.dwinovo.numen.agent.tool.api.ToolContext;
+import com.dwinovo.numen.agent.tool.api.ToolSchema;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.TaskResult;

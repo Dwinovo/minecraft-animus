@@ -1,7 +1,7 @@
-package com.dwinovo.numen.agent.tool.api;
+package com.dwinovo.numen.agent.tool;
 
-import com.dwinovo.numen.agent.tool.NumenTool;
-import com.dwinovo.numen.agent.tool.ToolRegistry;
+import com.dwinovo.numen.agent.tool.api.NumenAction;
+import com.dwinovo.numen.agent.tool.api.ToolSchema;
 
 import java.lang.reflect.Method;
 

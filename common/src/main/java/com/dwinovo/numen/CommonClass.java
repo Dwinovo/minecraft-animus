@@ -56,7 +56,7 @@ public class CommonClass {
     public static void registerTools() {
         // Entity world-action + entity-perspective perception tools.
         // move_to — migrated to @NumenAction (world-action: returns a TaskRecord).
-        ToolRegistry.register(com.dwinovo.numen.agent.tool.api.NumenTools.tool(
+        ToolRegistry.register(com.dwinovo.numen.agent.tool.NumenTools.tool(
                 new com.dwinovo.numen.agent.tool.tools.MovementTools(), "move_to"));
         ToolRegistry.register(new HuntTool());
         ToolRegistry.register(new ShootTool());
@@ -78,7 +78,7 @@ public class CommonClass {
         ToolRegistry.register(new com.dwinovo.numen.agent.tool.tools.CloseGuiTool());
         // get_self_status — migrated to the @NumenAction authoring surface (dogfood).
         // Registered in place so the tool-list order (and prompt caching) is unchanged.
-        ToolRegistry.register(com.dwinovo.numen.agent.tool.api.NumenTools.tool(
+        ToolRegistry.register(com.dwinovo.numen.agent.tool.NumenTools.tool(
                 new com.dwinovo.numen.agent.tool.tools.PerceptionTools(), "get_self_status"));
         ToolRegistry.register(new GetOwnerStatusTool());
 
@@ -87,7 +87,7 @@ public class CommonClass {
         ToolRegistry.register(new ScanNearbyEntitiesTool());
         ToolRegistry.register(new ScanBlocksTool());
         // inspect_block — migrated to @NumenAction (query with args).
-        ToolRegistry.register(com.dwinovo.numen.agent.tool.api.NumenTools.tool(
+        ToolRegistry.register(com.dwinovo.numen.agent.tool.NumenTools.tool(
                 new com.dwinovo.numen.agent.tool.tools.PerceptionTools(), "inspect_block"));
         ToolRegistry.register(new com.dwinovo.numen.agent.tool.tools.InspectBlockStorageTool());
         ToolRegistry.register(new GetWorldInfoTool());
