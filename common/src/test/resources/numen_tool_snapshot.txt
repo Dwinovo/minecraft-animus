@@ -1,0 +1,189 @@
+=== auto_mine ===
+query=false local=false async=false
+desc: Gather blocks by type and quantity. Give the block id(s) and how many you want — the entity finds the nearest ones and travels to each with full terrain-traversing navigation: it digs tunnels to reach buried ores, pillars up to blocks high on cliffs, and bridges gaps with cobblestone/dirt from its own inventory, all automatically — then mines them and repeats until it has gathered `count` of the resulting ITEMS or none remain nearby. count is items, not blocks: a block can drop several (redstone_ore → ~4 redstone), so count:10 redstone mines only ~3 ore. It counts only NEW items gained, on top of what you already carry. You do NOT provide coordinates, call move_to, or pre-clear a path; carrying some cobblestone/dirt helps it cross terrain. Include all variants of a resource in block_ids (e.g. iron_ore AND deepslate_iron_ore). Optional radius caps how far to look (default auto-expands). Returns the actual number gathered, which may be less than requested if the deposit runs out. You must hold a tool that can harvest the target: mining a block your main-hand tool can't harvest fails up front and tells you the minimum tier required (e.g. iron_ore needs a stone pickaxe). Equip the right pickaxe/axe/shovel yourself first (equip_item) — check get_self_status for your main hand.
+schema: {additionalProperties=false, properties={block_ids={description=Namespaced block id(s) to gather; include all variants., items={type=string}, minItems=1, type=array}, count={description=How many ITEMS to gather (not blocks) — a block may drop several, and it counts only items gained on top of what you already hold., maximum=256, minimum=1, type=integer}, radius={description=Optional max search radius in blocks (default auto-expands to 48)., maximum=96, minimum=1, type=integer}}, required=[block_ids, count], type=object}
+
+=== break_block ===
+query=false local=false async=false
+desc: Break the ONE block at exact coordinates — the precision inverse of place_block, for construction work: clear the cell a structure block must occupy, remove a block placed by mistake, prune obstructions. The entity walks within reach first. Drops are collected into your inventory. Requires the right tool in hand for blocks that need one (same rule as auto_mine — stone needs a pickaxe); fails with guidance otherwise. To GATHER resources by type, use auto_mine instead — it finds blocks itself.
+schema: {additionalProperties=false, properties={x={description=Block X., type=integer}, y={description=Block Y., type=integer}, z={description=Block Z., type=integer}}, required=[x, y, z], type=object}
+
+=== close_gui ===
+query=true local=false async=false
+desc: Close the container GUI you currently have open — do this when you've finished moving items. No arguments.
+schema: {additionalProperties=false, properties={}, required=[], type=object}
+
+=== collect_items ===
+query=false local=false async=false
+desc: Pick up dropped items off the ground nearby. The entity travels to each dropped item (it auto-absorbs items it gets close to) until none remain in range — terrain is handled automatically: it digs and bridges on its own if drops landed in a pit or across a gap. Optionally restrict to specific item_ids (omit to collect everything). Optional radius (default 16). Use after auto_mine or hunt to gather scattered drops. Returns how many drops were collected.
+schema: {additionalProperties=false, properties={item_ids={description=Optional namespaced item id(s) to collect; omit to collect all., items={type=string}, type=array}, radius={description=Optional search radius in blocks (default 16)., maximum=48, minimum=1, type=integer}}, required=[], type=object}
+
+=== drop_items ===
+query=false local=false async=false
+desc: Drop items from your inventory onto the ground in front of you — to hand something to your owner, or to shed junk when your inventory is full and no chest is nearby (prefer deposit_items when one is — dropped items despawn after 5 minutes). count above what you carry drops everything you have of it. Returns how many were dropped and how many remain.
+schema: {additionalProperties=false, properties={count={description=How many to drop (1-999)., maximum=999, minimum=1, type=integer}, item_id={description=Namespaced id of the item to drop, e.g. minecraft:cobblestone., type=string}}, required=[item_id, count], type=object}
+
+=== eat_item ===
+query=false local=false async=false
+desc: Eat or drink a consumable from your inventory. It's a real timed action — chewing animation, particles and sound play over the eat duration, and only when it finishes does it restore your hunger + saturation and apply the item's effects (e.g. a golden apple's regeneration/absorption). Your HP then regenerates naturally from saturation, the same as a real player — so eat to refill hunger and let health recover. Fails if you don't carry it, it isn't a consumable, or your hunger is already full (the food is kept).
+schema: {additionalProperties=false, properties={item_id={description=Namespaced id of the food to eat, e.g. minecraft:cooked_beef., type=string}}, required=[item_id], type=object}
+
+=== equip_item ===
+query=false local=false async=false
+desc: Equip an item from your OWN inventory so it actually takes effect — a tool/weapon to the main hand (speeds up auto_mine, boosts melee), armor to its slot, a modded accessory (Curios / Trinkets ring, amulet, …) to its accessory slot. It equips by right-clicking the item the way a player does, so armor and accessories route to the correct slot on their own. Omit slot for that auto-routing; set it only to force a hand or a specific vanilla armor piece. Whatever was equipped before is stowed back. Fails if the item isn't in your inventory.
+schema: {additionalProperties=false, properties={item_id={description=Namespaced id of the item to equip; must be in the inventory., type=string}, slot={description=Optional target slot; omit to auto-route by item type., enum=[mainhand, offhand, head, chest, legs, feet], type=string}}, required=[item_id], type=object}
+
+=== get_owner_status ===
+query=true local=false async=false
+desc: Read your owner's current status: name, online state, HP, hunger, position, distance from you, and held item. Call before any 'follow', 'protect', or 'rendezvous' decision. If the owner is offline the call returns online:false — default to autonomous mode until they return. No arguments.
+schema: {additionalProperties=false, properties={}, required=[], type=object}
+
+=== get_self_status ===
+query=true local=false async=false
+desc: Read your complete status in one call: name, game mode, HP / max HP, hunger / saturation, position, dimension, biome, the structures you are standing in (village, mineshaft, …), equipment (hands + armor — an equipped item leaves the backpack, it is NOT lost), your full backpack inventory, current attack target, and movement state. ALWAYS call this before combat or planning decisions and periodically during long tasks. No arguments.
+schema: {additionalProperties=false, properties={}, required=[], type=object}
+
+=== get_world_info ===
+query=true local=false async=false
+desc: Read the current world state: dimension, game-time tick counter, whether it's bright or dark outside (combat / spawn planning), and weather (clear / rain / thunder, affects sailing and combat). No arguments.
+schema: {additionalProperties=false, properties={}, required=[], type=object}
+
+=== hunt ===
+query=false local=false async=false
+desc: Hunt mobs by type and quantity. Give the entity id(s) and how many to kill — the entity finds the nearest, chases it with the full pathfinder (bridging gaps, digging through cover, jumping to close in), and melees it to death, repeating until the count is met or none remain nearby. It AUTO-SELECTS the strongest melee weapon in its inventory before every swing (no need to equip_item first — but it can only wield what it carries, so keep a good sword/axe in its pack for real damage), and once the fight ends it AUTO-COLLECTS the mob drops around the battlefield (loot ends up in its pack — only reach for collect_items for drops flung far away). You do NOT provide coordinates or entity ids — give TYPES (e.g. minecraft:zombie). Optional radius caps how far to look (default auto-expands). Returns the actual number killed, which may be less if the area runs dry. If HP runs low mid-fight you auto-eat from your inventory; the result reports your post-fight HP and anything eaten.
+schema: {additionalProperties=false, properties={count={description=How many to kill., maximum=64, minimum=1, type=integer}, entity_ids={description=Namespaced entity type id(s) to hunt (e.g. minecraft:zombie)., items={type=string}, minItems=1, type=array}, radius={description=Optional max search radius in blocks (default auto-expands to 48)., maximum=96, minimum=1, type=integer}}, required=[entity_ids, count], type=object}
+
+=== inspect_block ===
+query=true local=false async=false
+desc: Inspect a single block at the given integer coordinates. Returns block id, its block-state properties when any (e.g. an end_portal_frame's has_eye/facing), hardness, whether you have the correct tool in hand, an estimated dig-tick count, and whether the block is in your 4.5-block mining reach. Call this before auto_mine to confirm the operation will succeed, or to check which end_portal_frame cells still need an ender_eye.
+schema: {additionalProperties=false, properties={x={description=Block X., type=integer}, y={description=Block Y., type=integer}, z={description=Block Z., type=integer}}, required=[x, y, z], type=object}
+
+=== inspect_block_storage ===
+query=true local=false async=false
+desc: Read what a block HOLDS — items, fluid, and energy — directly from the block, WITHOUT opening its GUI. Works on most modded machines, tanks and batteries (chests, furnaces, Create / Mekanism / Thermal machines, fluid tanks, energy cells) because they expose standard item/fluid/energy handlers. Give the block's integer x/y/z. Use this instead of right-click + inspect_gui when you just need a machine's contents or fill levels. Note: storage-network terminals (AE2/RS) show only their local buffer here, not the whole network.
+schema: {additionalProperties=false, properties={x={description=Block X., type=integer}, y={description=Block Y., type=integer}, z={description=Block Z., type=integer}}, required=[x, y, z], type=object}
+
+=== inspect_gui ===
+query=true local=false async=false
+desc: Look at the GUI you currently have open. After interact_at right-clicks a chest / furnace / machine it shows that container; with NO container open it shows YOUR own inventory menu (which includes a 2x2 crafting grid), so you can craft small recipes without a table. Lists every slot — index, side, item + count, [output] mark — plus the cursor and any machine progress. If a crafting grid is open it draws the grid as a 2D map of slot numbers (handy for hand-loading a modded grid). Use it to choose transfer slot indices and to verify a transfer. No arguments.
+schema: {additionalProperties=false, properties={}, required=[], type=object}
+
+=== interact_at ===
+query=false local=false async=false
+desc: Aim at a world point and press one mouse button — the native crosshair interaction for BLOCKS and the AIR (moving entities use interact_entity). Auto-paths within reach like move_to, then a raytrace resolves what's under the aim.
+• button=right (use): activate / OPEN the block at x,y,z. To USE a station — a chest, furnace, crafting table, barrel, or any block with a GUI — aim at its coordinate here: interact_at paths you within reach AND opens its menu. NEVER move_to a station to 'go to it' — you'd just path into the block; interact_at is the one step that both walks there and opens it. Also flips levers/buttons/doors/beds, or USEs an item ON the block — e.g. bonemeal a crop, an ender_eye on an end_portal_frame to fill it. LIGHT A NETHER PORTAL: flint_and_steel aimed at an EMPTY AIR cell INSIDE the obsidian frame (not the obsidian). BUCKETS: an empty bucket on a SOURCE water/lava cell fills it; a full bucket on the cell to pour into empties it. Omit x,y,z (or aim at clear air) to use the held item in the air — e.g. throw an ender_eye to locate a stronghold, lob a snowball.
+• button=left (attack): break the block at x,y,z (native timed; the right tool must be in inventory). Left-click on air does nothing.
+item_id: optionally the item to use — it is equipped to the hand first, so you don't need a separate equip_item. Omit to use whatever is already in hand.
+hold_ticks: 0 = a single press; >0 = HOLD that many ticks (a modded machine that needs continuous right-click, or a bow draw — 20 fully charges a bow); -1 = hold until it finishes or the task times out. For routine breaking/placing prefer break_block/place_block; eating/drinking is eat_item (not this).
+schema: {additionalProperties=false, properties={button={description=right = use/activate/throw, left = attack/break., enum=[left, right], type=string}, hold_ticks={description=0/null = single press; >0 = hold that many ticks; -1 = hold until done/timeout., type=[integer, null]}, item_id={description=Optional namespaced item to equip-and-use, e.g. minecraft:bonemeal. Null = use what's in hand., type=[string, null]}, x={description=Aim X. Null (with y,z null) = use the held item straight ahead (eat/drink)., type=[integer, null]}, y={description=Aim Y. Null when aiming forward., type=[integer, null]}, z={description=Aim Z. Null when aiming forward., type=[integer, null]}}, required=[button, x, y, z, hold_ticks, item_id], type=object}
+
+=== interact_entity ===
+query=false local=false async=false
+desc: Press a mouse button on an ENTITY — the native interaction for moving targets. Auto-paths and FOLLOWS the entity (id from scan_nearby_entities), then acts once the crosshair reaches it (a wall in the way makes it re-position, not hit through).
+• button=left (attack): hit it. hold_ticks=-1 keeps hitting until it dies (killing a mob); 0 = a single hit.
+• button=right (use): interact with the held item — trade a villager, breed/feed (wheat/seeds/carrots), shear a sheep, name with a name_tag, saddle. hold_ticks>0 for a modded entity needing continuous right-click.
+item_id: optionally the item to equip-and-use first (the food / shears / weapon), so you don't need a separate equip_item. Omit to use what's in hand.
+hold_ticks: 0 = one press; >0 = hold that many ticks; -1 = hold until done (dead / finished) or timeout. Use interact_at for blocks and thrown items.
+schema: {additionalProperties=false, properties={button={description=left = attack/hit, right = use/interact., enum=[left, right], type=string}, entity_id={description=Target entity id (from scan_nearby_entities)., type=integer}, hold_ticks={description=0/null = single press; >0 = hold that many ticks; -1 = hold until done/timeout (e.g. attack until dead)., type=[integer, null]}, item_id={description=Optional namespaced item to equip-and-use, e.g. minecraft:wheat. Null = use what's in hand., type=[string, null]}}, required=[button, entity_id, hold_ticks, item_id], type=object}
+
+=== load_skill ===
+query=false local=true async=false
+desc: Load a specialized skill when the task at hand matches one of the skills listed in the system prompt.
+
+Use this tool to inject the skill's instructions and resources into the current conversation. The output contains detailed workflow guidance for the task.
+
+The skill name must match one of the skills listed in your system prompt's <available_skills> block.
+schema: {additionalProperties=false, properties={name={description=The skill name from <available_skills> in the system prompt., type=string}}, required=[name], type=object}
+
+=== locate_biome ===
+query=false local=false async=false
+desc: Find the nearest biome of a given type and get its coordinates, compass direction and distance — no walking needed. `biome` is a biome id — minecraft:warped_forest (endermen for pearls), minecraft:soul_sand_valley, minecraft:desert, minecraft:plains, minecraft:dark_forest — or a #tag for families like #minecraft:is_forest or #minecraft:is_ocean. Searches YOUR CURRENT dimension only, ~6400 blocks out. Biome edges are fuzzy: the answer is accurate to ~64 blocks, so move_to the x/z (pick a sensible y) and confirm with scan_blocks or scan_nearby_entities when you arrive.
+schema: {additionalProperties=false, properties={biome={description=Biome id (e.g. minecraft:warped_forest) or #tag (e.g. #minecraft:is_forest)., type=string}}, required=[biome], type=object}
+
+=== locate_structure ===
+query=false local=false async=false
+desc: Find the nearest structure of a given type and get its coordinates, compass direction and distance. `structure` is a structure id — minecraft:stronghold, minecraft:fortress, minecraft:bastion_remnant, minecraft:ancient_city, minecraft:end_city, minecraft:monument, minecraft:mansion, minecraft:pillager_outpost — or a #tag for families like #minecraft:village or #minecraft:ruined_portal. Searches YOUR CURRENT dimension only: fortresses/bastions exist in the Nether, end cities in the End. For the stronghold this is the eye-free equivalent of throwing eyes of ender — save the eyes for the 12 portal frames. The returned y is approximate; navigate by x/z and scan_blocks when you arrive.
+schema: {additionalProperties=false, properties={structure={description=Structure id (e.g. minecraft:fortress) or #tag (e.g. #minecraft:village)., type=string}}, required=[structure], type=object}
+
+=== lookup_recipe ===
+query=true local=false async=false
+desc: Look up how to make an item — like JEI. Returns every recipe whose output is this item, across all stations: crafting (with the grid layout), smelting / blasting / smoking, stonecutting, and smithing — each tagged [crafting] / [smelting] / [stonecutter] / [smithing] / …. Then make it: [crafting] → transfer each ingredient into a grid cell (your own 2x2, or a crafting table for 3x3); [smelting] → open the furnace and transfer the input + fuel; [stonecutter] / [smithing] → open the station and transfer the inputs. No recipe found = the item is mined or traded, not made.
+schema: {additionalProperties=false, properties={item_id={description=Namespaced output item, e.g. minecraft:diamond_pickaxe., type=string}}, required=[item_id], type=object}
+
+=== move_to ===
+query=false local=false async=false
+desc: Travel somewhere — full terrain-traversing navigation, not just walking. Pick ONE of three intents by which coordinates you fill (leave the others null):
+• Go to a LOCATION: give x and z, leave y null. The companion walks to that spot and stands on whatever ground is there — Y is auto-resolved to the surface. THIS IS THE DEFAULT for 'go over there' / following / exploring; never guess a Y for a location.
+• Go to an EXACT cell: give x, y and z. Only for a specific cell you know is reachable (e.g. a block you scanned). If that cell is mid-air or walled in it will report it couldn't reach it.
+• Change ELEVATION: give y only (x and z null) to climb to the surface or descend to a mining depth at your current column.
+En route it mines through obstructions, digs down/up, bridges gaps and pillars up with cobblestone/dirt from inventory. Digging is gated by your HELD tool: stone/deepslate need a pickaxe IN HAND (equip_item first); a sword held makes stone an impassable wall. Consumes scaffold blocks and tool durability; carry cobblestone/dirt for gaps. Timeout scales with distance; the result reports the actual position reached (and the real ground height) — call again with the same target to resume. But if it reports NO path or stops far short, that spot is unreachable or too far: pick a NEARER waypoint, or scan first — don't just repeat the same unreachable target. move_to is for getting somewhere to STAND; to open/use a station give its coordinate to interact_at instead.
+schema: {additionalProperties=false, properties={speed={description=Speed multiplier in [0.1, 2.0]. 1.0 is normal walking speed., maximum=2.0, minimum=0.1, type=number}, x={description=Target X. Null for an elevation-only move (y alone)., type=[number, null]}, y={description=Target Y (block height). LEAVE NULL to go to a location (x+z) — Y is auto-resolved to the surface. Only set it for an exact cell (x+y+z) or an elevation move (y alone)., type=[number, null]}, z={description=Target Z. Null for an elevation-only move (y alone)., type=[number, null]}}, required=[x, y, z, speed], type=object}
+
+=== place_block ===
+query=false local=false async=false
+desc: Place a block from your inventory at an absolute coordinate. The companion travels to a reachable spot next to the target on its own — digging through obstacles, bridging gaps, pillaring up — then places it like a real player (steps to the edge, looks, places). The coordinate is the cell the block will OCCUPY, not the block it sits on — to put a torch on top of a block at (x,y,z), target (x,y+1,z). Placement still needs a block to attach to (you can't place in pure mid-air), and the target cell must be empty. Optional orientation for blocks that have one: `facing` (north/south/east/west/up/down — furnace/chest/stairs/observer…), `axis` (x/y/z — logs/pillars), `half` (top/bottom — slabs/stairs). The result reports the block's ACTUAL orientation, so if it differs from what you asked, break it and retry from another angle. Fails with guidance (incl. nearby coords that WOULD work) if you lack the block, it isn't placeable, the target is occupied, or there's no reachable spot — so don't place where a block already is; build somewhere clear instead. Use for torches, walls/shelter, sealing caves, or positioning a crafting table/furnace/chest.
+schema: {additionalProperties=false, properties={axis={description=Optional. Pillar/log axis (y = upright)., enum=[x, y, z], type=[string, null]}, block_id={description=Namespaced id of the block item to place, e.g. minecraft:torch., type=string}, facing={description=Optional. Which way the block should face (furnace/chest/stairs/…)., enum=[north, south, east, west, up, down], type=[string, null]}, half={description=Optional. Which half for a slab / stairs., enum=[top, bottom], type=[string, null]}, x={description=Target x., type=integer}, y={description=Target y., type=integer}, z={description=Target z., type=integer}}, required=[block_id, x, y, z], type=object}
+
+=== scan_blocks ===
+query=false local=false async=true
+desc: Bulk find blocks of given type(s) within a spherical radius around you. Returns matches sorted by distance, capped at 32. A perception tool for surveying the area — to actually gather blocks use auto_mine, which finds and digs them itself. Radius is in blocks (max 192 = 12 chunks — use big radii for landscape features like water, lava lakes or villages' blocks; a big scan answers after a few seconds, you can keep acting meanwhile). FLUIDS are scannable too: minecraft:water / minecraft:lava work as block_ids, and fluid matches carry source:true/false — only SOURCE lava turns to obsidian under water, and only SOURCE water fills a bucket. block_ids accepts one or more namespaced ids; include all variants (e.g. both iron_ore and deepslate_iron_ore for iron).
+schema: {additionalProperties=false, properties={block_ids={description=List of namespaced block ids to search for., items={type=string}, minItems=1, type=array}, radius={description=Spherical search radius in blocks (max 192)., maximum=192, minimum=1, type=integer}}, required=[radius, block_ids], type=object}
+
+=== scan_nearby_entities ===
+query=true local=false async=false
+desc: List entities within a radius around you, sorted by distance. Use type_filter to narrow: 'hostile' for monsters, 'passive' for animals/items, 'player' for players, 'all' for everything. Returns at most 20 entities; truncated:true means more exist. Each entry has id, type, position, distance, hp, and category. To fight mobs, use hunt (it scans by type itself).
+schema: {additionalProperties=false, properties={radius={description=Search radius in blocks. Range [1, 64]., maximum=64.0, minimum=1.0, type=number}, type_filter={description=One of: hostile, passive, player, all., enum=[hostile, passive, player, all], type=string}}, required=[radius, type_filter], type=object}
+
+=== shoot ===
+query=false local=false async=false
+desc: Destroy entities at range with a ranged weapon — a bow or crossbow (vanilla or modded). Give the entity id(s) and how many — the companion finds the nearest, walks to within firing range and line of sight (pathfinding around obstacles), and fires until each is down, repeating until the count is met. Targets may be non-living: use this for the Ender Dragon's end_crystal (which MUST be destroyed at range) and for blazes. REQUIRES a bow or crossbow in your main hand (equip_item) and matching ammo in your inventory — fails up front if either is missing. Optional radius (default auto-expands). Returns the actual number destroyed. Unlike hunt, shoot does NOT pick up drops — ranged kills scatter their loot away from you, so call collect_items afterward if you want it.
+schema: {additionalProperties=false, properties={count={description=How many to destroy., maximum=64, minimum=1, type=integer}, entity_ids={description=Namespaced entity type id(s) to destroy (e.g. minecraft:end_crystal)., items={type=string}, minItems=1, type=array}, radius={description=Optional max search radius in blocks (default auto-expands to 64)., maximum=128, minimum=1, type=integer}}, required=[entity_ids, count], type=object}
+
+=== todowrite ===
+query=false local=true async=false
+desc: Create and maintain a structured task list for the current Numen session. Tracks progress, organizes multi-step work, and lets you keep one step in_progress at a time.
+
+## When to use
+Use proactively when:
+- The task requires 3+ distinct steps or actions (not just 3 tool calls for a single conceptual step)
+- The work is non-trivial and benefits from planning
+- The user provides multiple sub-tasks
+- You start a step — mark it `in_progress` (only one at a time) before working
+- You finish a step — mark it `completed` and add any follow-ups discovered during the work
+
+## When NOT to use
+Skip when:
+- The work is a single straightforward action (or <3 trivial steps)
+- The request is purely conversational ("hi", "look at me")
+- Tracking adds no organizational value
+
+## States
+- `pending` — not started
+- `in_progress` — actively working (exactly ONE at a time)
+- `completed` — finished successfully (only after the work is actually done, never based on intent)
+- `cancelled` — no longer needed
+
+## Rules
+- Update status in real time; don't batch completions
+- Mark `completed` only after the actual work is done
+- Keep exactly one `in_progress` while work remains
+- If blocked or partial, keep it `in_progress` and add a follow-up todo describing the blocker
+
+When in doubt, use it.
+schema: {additionalProperties=false, properties={todos={description=The complete updated todo list (replaces the previous one)., items={additionalProperties=false, properties={content={description=Brief description of the step., type=string}, priority={description=One of: high, medium, low., enum=[high, medium, low], type=string}, status={description=One of: pending, in_progress, completed, cancelled., enum=[pending, in_progress, completed, cancelled], type=string}}, required=[content, status, priority], type=object}, type=array}}, required=[todos], type=object}
+
+=== transfer ===
+query=true local=false async=false
+desc: Transfer items between slots in the GUI you have open — reorganize, load a machine, deposit or take. Pass `moves` as a LIST; they run in order, so do the whole job in one call. inspect_gui first for slot indices.
+Each transfer: {from, to?, count?}.
+• Omit `to` → send from's whole stack to the OTHER section, routed by the menu (deposit into a chest, take out, feed a furnace input). The easiest bulk deposit/withdraw — you don't pick a destination slot.
+• Give `to` → put it in that EXACT slot: empty → moves there; same item → stacks/merges; a different item → the two slots SWAP.
+• `count` (needs `to`) → move exactly that many instead of the whole stack.
+Returns what actually happened to each transfer — amounts, merges, swaps, or why nothing moved (full / output-only slot). To craft, transfer ingredients into a grid (lookup_recipe for the layout); to drop items use drop_items.
+schema: {additionalProperties=false, properties={moves={description=Transfers to run in order (one whole job per call)., items={additionalProperties=false, properties={count={description=Exact number to move (needs `to`; default = the whole stack). Ignored when `to` is omitted — routing moves the whole stack., type=[integer, null]}, from={description=Source slot index (from inspect_gui)., type=integer}, to={description=Destination slot. OMIT to route the stack to the other section (deposit/take/feed). Give a slot to place exactly there (empty=move, same item=merge, different item=swap)., type=[integer, null]}}, required=[from, to, count], type=object}, type=array}}, required=[moves], type=object}
+
+=== wait ===
+query=false local=false async=false
+desc: Wait in place for the given number of seconds, doing nothing on purpose. Use it when the next step depends on time passing: a furnace batch (~10s per item), nightfall/daybreak, an owner who said "wait here". Max 300s per call — for longer vigils, call it again after re-checking the situation (each return is a natural checkpoint). The optional reason is shown to the owner on the debug overlay. Interruptible by the owner at any time.
+schema: {additionalProperties=false, properties={reason={description=Optional: why you're waiting (shown on the debug overlay)., type=string}, seconds={description=How long to wait, in real seconds (1-300)., maximum=300, minimum=1, type=integer}}, required=[seconds], type=object}
+

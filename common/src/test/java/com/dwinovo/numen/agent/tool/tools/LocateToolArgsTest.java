@@ -1,5 +1,7 @@
 package com.dwinovo.numen.agent.tool.tools;
 
+import com.dwinovo.numen.agent.tool.NumenTool;
+import com.dwinovo.numen.agent.tool.NumenTools;
 import com.dwinovo.numen.task.tasks.LocateBiomeTaskRecord;
 import com.dwinovo.numen.task.tasks.LocateStructureTaskRecord;
 import com.google.gson.JsonObject;
@@ -11,9 +13,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * Tool-arg validation is the first line of the "teach the model" contract:
  * malformed calls must throw (the loop reports them back as failed results)
- * and valid calls must stamp the right deadline.
+ * and valid calls must stamp the right deadline. Exercised through the
+ * migrated {@code @NumenAction} locate tools.
  */
 class LocateToolArgsTest {
+
+    private static NumenTool locateStructure() {
+        return NumenTools.tool(new LocateTools(), "locate_structure");
+    }
+
+    private static NumenTool locateBiome() {
+        return NumenTools.tool(new LocateTools(), "locate_biome");
+    }
 
     private static JsonObject obj(String key, String value) {
         JsonObject o = new JsonObject();
@@ -23,7 +34,7 @@ class LocateToolArgsTest {
 
     @Test
     void locateStructureBuildsRecordWithDeadline() {
-        var record = (LocateStructureTaskRecord) new LocateStructureTool()
+        var record = (LocateStructureTaskRecord) locateStructure()
                 .toTaskRecord("call_1", obj("structure", " minecraft:fortress "), 1000L);
         assertEquals("minecraft:fortress", record.structure);
         assertEquals(1000L + 30 * 20, record.getDeadlineGameTime());
@@ -31,7 +42,7 @@ class LocateToolArgsTest {
 
     @Test
     void locateBiomeBuildsRecordWithDeadline() {
-        var record = (LocateBiomeTaskRecord) new LocateBiomeTool()
+        var record = (LocateBiomeTaskRecord) locateBiome()
                 .toTaskRecord("call_1", obj("biome", "minecraft:warped_forest"), 50L);
         assertEquals("minecraft:warped_forest", record.biome);
         assertEquals(50L + 30 * 20, record.getDeadlineGameTime());
@@ -40,18 +51,18 @@ class LocateToolArgsTest {
     @Test
     void missingOrBlankArgsThrow() {
         assertThrows(IllegalArgumentException.class, () ->
-                new LocateStructureTool().toTaskRecord("c", new JsonObject(), 0L));
+                locateStructure().toTaskRecord("c", new JsonObject(), 0L));
         assertThrows(IllegalArgumentException.class, () ->
-                new LocateStructureTool().toTaskRecord("c", obj("structure", "   "), 0L));
+                locateStructure().toTaskRecord("c", obj("structure", "   "), 0L));
         assertThrows(IllegalArgumentException.class, () ->
-                new LocateBiomeTool().toTaskRecord("c", new JsonObject(), 0L));
+                locateBiome().toTaskRecord("c", new JsonObject(), 0L));
         assertThrows(IllegalArgumentException.class, () ->
-                new LocateBiomeTool().toTaskRecord("c", obj("biome", ""), 0L));
+                locateBiome().toTaskRecord("c", obj("biome", ""), 0L));
     }
 
     @Test
     void oversizedArgThrows() {
         assertThrows(IllegalArgumentException.class, () ->
-                new LocateBiomeTool().toTaskRecord("c", obj("biome", "x".repeat(200)), 0L));
+                locateBiome().toTaskRecord("c", obj("biome", "x".repeat(200)), 0L));
     }
 }

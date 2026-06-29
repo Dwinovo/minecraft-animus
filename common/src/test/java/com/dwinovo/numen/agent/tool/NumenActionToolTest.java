@@ -11,10 +11,13 @@ import com.google.gson.JsonObject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -22,100 +25,114 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Zero-regression proof for the {@code @NumenAction} migrations: each reflected
- * tool must present the <em>identical</em> LLM-facing surface (name, description,
- * parameter schema) AND infer the <em>same</em> execution category as the
- * hand-written class it replaces, so tool selection and routing can't shift. The
- * originals are kept as oracles until they are deleted as a batch. Adding a
- * migrated tool here is one line.
+ * Regression guard for the {@code @NumenAction} tools. The hand-written oracle
+ * classes are gone, so the guard is now a golden snapshot: the full LLM-facing
+ * surface (name, category, description, parameter schema) of every registered
+ * tool is captured in {@code src/test/resources/numen_tool_snapshot.txt} and
+ * asserted byte-for-byte. A change to any holder that alters what the model
+ * sees fails this test; if the change is intentional, regenerate the snapshot
+ * with {@code -Dnumen.snapshot.update}.
  */
 class NumenActionToolTest {
 
+    private static final Path SNAPSHOT = Path.of("src/test/resources/numen_tool_snapshot.txt");
+
     @BeforeAll
     static void bootstrapMinecraft() {
-        // A few tool classes touch registries at class-init; bring the registries up.
+        // A few tools touch registries at class-init / schema build; bring them up.
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
     }
 
-    private static void check(List<String> out, NumenTool migrated, NumenTool original) {
-        String id = original.name();
-        if (!original.name().equals(migrated.name())) out.add("name: " + id);
-        if (!original.description().equals(migrated.description())) out.add("description: " + id);
-        if (!original.parameterSchema().equals(migrated.parameterSchema())) {
-            out.add(schemaDiff(id, original.parameterSchema(), migrated.parameterSchema()));
-        }
-        if (original.isQuery() != migrated.isQuery()) out.add("isQuery: " + id);
-        if (original.isLocal() != migrated.isLocal()) out.add("isLocal: " + id);
-        if (original.isAsyncQuery() != migrated.isAsyncQuery()) out.add("isAsyncQuery: " + id);
-    }
-
-    /** Compact per-property diff of two schemas, so all drift shows in one run. */
-    @SuppressWarnings("unchecked")
-    private static String schemaDiff(String id, Map<String, Object> exp, Map<String, Object> act) {
-        StringBuilder sb = new StringBuilder("schema: " + id);
-        if (!Objects.equals(exp.get("required"), act.get("required"))) {
-            sb.append("\n    required exp=").append(exp.get("required")).append(" act=").append(act.get("required"));
-        }
-        Map<String, Object> ep = (Map<String, Object>) exp.get("properties");
-        Map<String, Object> ap = (Map<String, Object>) act.get("properties");
-        for (String k : ep.keySet()) {
-            if (!Objects.equals(ep.get(k), ap.get(k))) {
-                sb.append("\n    .").append(k).append(" exp=").append(ep.get(k)).append(" act=").append(ap.get(k));
-            }
-        }
-        return sb.toString();
+    /** Every registered @NumenAction tool, built through the adapter (registration order irrelevant). */
+    private static List<NumenTool> allTools() {
+        PerceptionTools perception = new PerceptionTools();
+        CombatTools combat = new CombatTools();
+        LocateTools locate = new LocateTools();
+        InventoryTools inventory = new InventoryTools();
+        BlockActionTools blocks = new BlockActionTools();
+        GuiTools gui = new GuiTools();
+        QueryExtraTools queries = new QueryExtraTools();
+        AgentTools agent = new AgentTools();
+        return List.of(
+                NumenTools.tool(perception, "get_self_status"),
+                NumenTools.tool(perception, "inspect_block"),
+                NumenTools.tool(perception, "get_owner_status"),
+                NumenTools.tool(perception, "get_world_info"),
+                NumenTools.tool(new MovementTools(), "move_to"),
+                NumenTools.tool(combat, "hunt"),
+                NumenTools.tool(combat, "shoot"),
+                NumenTools.tool(locate, "locate_structure"),
+                NumenTools.tool(locate, "locate_biome"),
+                NumenTools.tool(inventory, "collect_items"),
+                NumenTools.tool(inventory, "equip_item"),
+                NumenTools.tool(inventory, "eat_item"),
+                NumenTools.tool(inventory, "wait"),
+                NumenTools.tool(inventory, "drop_items"),
+                NumenTools.tool(blocks, "auto_mine"),
+                NumenTools.tool(blocks, "place_block"),
+                NumenTools.tool(blocks, "break_block"),
+                NumenTools.tool(blocks, "interact_at"),
+                NumenTools.tool(blocks, "interact_entity"),
+                NumenTools.tool(gui, "inspect_gui"),
+                NumenTools.tool(gui, "close_gui"),
+                NumenTools.tool(queries, "lookup_recipe"),
+                NumenTools.tool(queries, "scan_nearby_entities"),
+                NumenTools.tool(queries, "inspect_block_storage"),
+                NumenTools.tool(new ScanTools(), "scan_blocks"),
+                NumenTools.tool(agent, "load_skill"),
+                NumenTools.tool(agent, "todowrite"),
+                NumenTools.tool(new ContainerTools(), "transfer"));
     }
 
     @Test
-    void migratedToolsMatchOriginalSurface() {
-        List<String> p = new ArrayList<>();
-        PerceptionTools perception = new PerceptionTools();
-        check(p, NumenTools.tool(perception, "get_self_status"), new GetSelfStatusTool());
-        check(p, NumenTools.tool(perception, "inspect_block"), new InspectBlockTool());
-        check(p, NumenTools.tool(perception, "get_owner_status"), new GetOwnerStatusTool());
-        check(p, NumenTools.tool(perception, "get_world_info"), new GetWorldInfoTool());
+    void toolSurfaceMatchesSnapshot() throws Exception {
+        List<NumenTool> tools = new ArrayList<>(allTools());
+        tools.sort(Comparator.comparing(NumenTool::name));
+        StringBuilder sb = new StringBuilder();
+        for (NumenTool t : tools) {
+            sb.append(snapshotLine(t)).append("\n\n");
+        }
+        String actual = normalize(sb.toString());
 
-        check(p, NumenTools.tool(new MovementTools(), "move_to"), new MoveToTool());
+        // Create the golden on first run (file absent); regenerate intentionally by
+        // deleting it or passing -Dnumen.snapshot.update. Otherwise compare.
+        boolean missing = !Files.exists(SNAPSHOT);
+        if (missing || Boolean.getBoolean("numen.snapshot.update")) {
+            Files.createDirectories(SNAPSHOT.getParent());
+            Files.writeString(SNAPSHOT, actual);
+            System.out.println("[snapshot] wrote " + SNAPSHOT.toAbsolutePath()
+                    + (missing ? " (created)" : " (updated)"));
+            return;
+        }
+        String expected = normalize(Files.readString(SNAPSHOT));
+        assertEquals(expected, actual,
+                "tool surface drifted from snapshot; if intentional, regenerate with -Dnumen.snapshot.update");
+    }
 
-        CombatTools combat = new CombatTools();
-        check(p, NumenTools.tool(combat, "hunt"), new HuntTool());
-        check(p, NumenTools.tool(combat, "shoot"), new ShootTool());
+    private static String snapshotLine(NumenTool t) {
+        return "=== " + t.name() + " ===\n"
+                + "query=" + t.isQuery() + " local=" + t.isLocal() + " async=" + t.isAsyncQuery() + "\n"
+                + "desc: " + t.description() + "\n"
+                + "schema: " + canonical(t.parameterSchema());
+    }
 
-        LocateTools locate = new LocateTools();
-        check(p, NumenTools.tool(locate, "locate_structure"), new LocateStructureTool());
-        check(p, NumenTools.tool(locate, "locate_biome"), new LocateBiomeTool());
+    /** Stable, order-independent rendering of a schema map (keys sorted recursively). */
+    private static String canonical(Object node) {
+        if (node instanceof Map<?, ?> map) {
+            return map.entrySet().stream()
+                    .sorted(Comparator.comparing(e -> String.valueOf(e.getKey())))
+                    .map(e -> e.getKey() + "=" + canonical(e.getValue()))
+                    .collect(Collectors.joining(", ", "{", "}"));
+        }
+        if (node instanceof List<?> list) {
+            return list.stream().map(NumenActionToolTest::canonical).collect(Collectors.joining(", ", "[", "]"));
+        }
+        return String.valueOf(node);
+    }
 
-        InventoryTools inventory = new InventoryTools();
-        check(p, NumenTools.tool(inventory, "collect_items"), new CollectItemsTool());
-        check(p, NumenTools.tool(inventory, "equip_item"), new EquipTool());
-        check(p, NumenTools.tool(inventory, "eat_item"), new EatItemTool());
-        check(p, NumenTools.tool(inventory, "wait"), new WaitTool());
-        check(p, NumenTools.tool(inventory, "drop_items"), new DropItemsTool());
-
-        BlockActionTools blocks = new BlockActionTools();
-        check(p, NumenTools.tool(blocks, "auto_mine"), new MineBlockTool());
-        check(p, NumenTools.tool(blocks, "place_block"), new PlaceBlockTool());
-        check(p, NumenTools.tool(blocks, "break_block"), new BreakBlockTool());
-        check(p, NumenTools.tool(blocks, "interact_at"), new InteractAtTool());
-        check(p, NumenTools.tool(blocks, "interact_entity"), new InteractEntityTool());
-
-        GuiTools gui = new GuiTools();
-        check(p, NumenTools.tool(gui, "inspect_gui"), new InspectGuiTool());
-        check(p, NumenTools.tool(gui, "close_gui"), new CloseGuiTool());
-
-        QueryExtraTools queries = new QueryExtraTools();
-        check(p, NumenTools.tool(queries, "lookup_recipe"), new LookupRecipeTool());
-        check(p, NumenTools.tool(queries, "scan_nearby_entities"), new ScanNearbyEntitiesTool());
-        check(p, NumenTools.tool(queries, "inspect_block_storage"), new InspectBlockStorageTool());
-
-        check(p, NumenTools.tool(new ScanTools(), "scan_blocks"), new ScanBlocksTool());
-        AgentTools agentTools = new AgentTools();
-        check(p, NumenTools.tool(agentTools, "load_skill"), new LoadSkillTool());
-        check(p, NumenTools.tool(agentTools, "todowrite"), new TodoWriteTool());
-        check(p, NumenTools.tool(new ContainerTools(), "transfer"), new TransferTool());
-
-        assertTrue(p.isEmpty(), "surface mismatches (" + p.size() + "):\n" + String.join("\n", p));
+    private static String normalize(String s) {
+        return s.replace("\r\n", "\n");   // CRLF-proof the comparison
     }
 
     @Test
@@ -127,7 +144,6 @@ class NumenActionToolTest {
         args.addProperty("x", 10.0);
         args.addProperty("z", 20.0);
         args.addProperty("speed", 1.5);
-        // y intentionally absent → nullable, must coerce to null.
 
         TaskRecord rec = migrated.toTaskRecord("call-1", args, 1000L);
         MoveToTaskRecord move = assertInstanceOf(MoveToTaskRecord.class, rec);
@@ -147,7 +163,7 @@ class NumenActionToolTest {
         NumenTool loadSkill = NumenTools.tool(new AgentTools(), "load_skill");
         JsonObject args = new JsonObject();
         args.addProperty("name", "definitely_missing_skill_xyz");
-        String result = loadSkill.executeLocal(args, null);   // load_skill needs no ClientToolContext
+        String result = loadSkill.executeLocal(args, null);
         assertTrue(result.contains("unknown skill"), "local tool ran and reported the missing skill");
     }
 
