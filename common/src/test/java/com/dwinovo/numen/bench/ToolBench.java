@@ -6,6 +6,7 @@ import com.dwinovo.numen.agent.llm.NumenLlmClient;
 import com.dwinovo.numen.agent.provider.AssistantTurn;
 import com.dwinovo.numen.agent.provider.LlmProvider;
 import com.dwinovo.numen.agent.provider.LlmToolCall;
+import com.dwinovo.numen.agent.tool.NumenActionTool;
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
 import com.dwinovo.numen.agent.http.HttpLlmTransport;
@@ -271,10 +272,13 @@ public final class ToolBench {
         } catch (RuntimeException ex) {
             return "args not JSON";
         }
-        // Uniform offline validation: the tool coerces its args (a missing or
-        // ill-typed argument throws) without executing. No category branching.
+        // Offline validation lives on the core adapter (not the MC-free contract):
+        // it coerces the args, throwing on a missing/ill-typed one, without executing.
+        if (!(tool instanceof NumenActionTool action)) {
+            return null;   // non-adapter tool: no offline validator
+        }
         try {
-            tool.checkArgs(args);
+            action.checkArgs(args);
             return null;
         } catch (IllegalArgumentException ex) {
             return ex.getMessage();

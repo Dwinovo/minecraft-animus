@@ -1,6 +1,7 @@
 package com.dwinovo.numen.network.payload;
 
 import com.dwinovo.numen.Constants;
+import com.dwinovo.numen.agent.tool.NumenActionTool;
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
 import com.dwinovo.numen.task.TaskResult;
@@ -118,6 +119,12 @@ public record ExecuteToolPayload(UUID entityUuid,
             replyError(player, p, "unknown tool: " + p.toolName());
             return;
         }
+        // Server execution is the core adapter's job — NumenActionTool.runOnServer is
+        // not part of the MC-free NumenTool contract, so reach it concretely here.
+        if (!(tool instanceof NumenActionTool action)) {
+            replyError(player, p, "tool not server-runnable: " + p.toolName());
+            return;
+        }
         JsonObject args;
         try {
             args = JsonParser.parseString(p.argumentsJson()).getAsJsonObject();
@@ -126,12 +133,11 @@ public record ExecuteToolPayload(UUID entityUuid,
             return;
         }
 
-        // Single unified dispatch: the tool runs itself against the live companion
-        // (a read replies now, a sliced job replies later, a body action enqueues
-        // and its result returns via the task lifecycle). Malformed args throw and
-        // are reported back as a failed result.
+        // The adapter runs the tool against the live companion: a read replies now,
+        // a sliced job replies later, a body action enqueues and its result returns
+        // via the task lifecycle. Malformed args throw and are reported as a failure.
         try {
-            tool.runOnServer(p.toolCallId(), args, companion,
+            action.runOnServer(p.toolCallId(), args, companion,
                     json -> com.dwinovo.numen.platform.Services.NETWORK.sendToPlayer(player,
                             new TaskResultPayload(p.entityUuid(), p.toolCallId(), json)));
         } catch (RuntimeException ex) {

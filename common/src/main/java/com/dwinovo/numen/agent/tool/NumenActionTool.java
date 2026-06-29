@@ -69,7 +69,6 @@ public final class NumenActionTool implements NumenTool {
     private final String name;
     private final String description;
     private final Map<String, Object> schema;
-    private final long timeoutTicks;
     private final Slot[] slots;
     private final Kind kind;
 
@@ -84,7 +83,6 @@ public final class NumenActionTool implements NumenTool {
         this.name = ToolSchema.actionName(method);
         this.description = action.description();
         this.schema = ToolSchema.schemaFor(method);
-        this.timeoutTicks = action.timeoutTicks();
 
         boolean injectsEntity = false;
         boolean injectsContext = false;
@@ -139,7 +137,6 @@ public final class NumenActionTool implements NumenTool {
     @Override public String name() { return name; }
     @Override public String description() { return description; }
     @Override public Map<String, Object> parameterSchema() { return schema; }
-    @Override public long defaultTimeoutTicks() { return timeoutTicks; }
 
     @Override
     public void invoke(ToolCall call) {
@@ -159,7 +156,12 @@ public final class NumenActionTool implements NumenTool {
         }
     }
 
-    @Override
+    /**
+     * Numen's own Minecraft server-side execution — called by the core network
+     * transport ({@code ExecuteToolPayload}), NOT part of the {@link NumenTool}
+     * contract. A read replies immediately, a sliced job replies later, a body
+     * action enqueues a task whose result returns via the task lifecycle.
+     */
     public void runOnServer(String toolCallId, JsonObject args, NumenPlayer companion, Consumer<String> reply) {
         switch (kind) {
             case QUERY ->
@@ -177,7 +179,7 @@ public final class NumenActionTool implements NumenTool {
         }
     }
 
-    @Override
+    /** Offline arg validation (coerce + discard) for the benchmark; not part of the contract. */
     public void checkArgs(JsonObject args) {
         // Coerce every model argument and discard — throws IllegalArgumentException
         // on a missing/ill-typed arg, without executing the tool.

@@ -140,7 +140,7 @@ class NumenActionToolTest {
 
     @Test
     void checkArgsValidatesWithoutExecuting() {
-        NumenTool moveTo = NumenTools.tool(new MovementTools(), "move_to");
+        NumenActionTool moveTo = (NumenActionTool) NumenTools.tool(new MovementTools(), "move_to");
         JsonObject good = new JsonObject();
         good.addProperty("x", 1.0);
         good.addProperty("z", 2.0);
