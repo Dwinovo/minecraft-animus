@@ -141,28 +141,51 @@ public final class NumenActionTool implements NumenTool {
     @Override public Map<String, Object> parameterSchema() { return schema; }
     @Override public long defaultTimeoutTicks() { return timeoutTicks; }
 
-    @Override public boolean isQuery() { return kind == Kind.QUERY; }
-    @Override public boolean isAsyncQuery() { return kind == Kind.ASYNC; }
-    @Override public boolean isLocal() { return kind == Kind.LOCAL; }
-
     @Override
-    public String executeQuery(JsonObject args, NumenPlayer entity) {
-        return resultToString(invoke(buildArgs(args, entity, null, null, null)));
+    public void invoke(ToolCall call) {
+        // Client-side: a LOCAL tool runs here and completes; everything else is the
+        // server body's job and ships over the network.
+        if (kind == Kind.LOCAL) {
+            String resultJson;
+            try {
+                resultJson = resultToString(reflectInvoke(
+                        buildArgs(call.args(), null, null, call.ctx(), null)));
+            } catch (RuntimeException ex) {
+                resultJson = TaskResult.fail(ex.getMessage()).toJson();
+            }
+            call.complete(resultJson);
+        } else {
+            call.shipToServer();
+        }
     }
 
     @Override
-    public TaskRecord toTaskRecord(String toolCallId, JsonObject args, long currentGameTime) {
-        return (TaskRecord) invoke(buildArgs(args, null, new ToolContext(toolCallId, currentGameTime), null, null));
+    public void runOnServer(String toolCallId, JsonObject args, NumenPlayer companion, Consumer<String> reply) {
+        switch (kind) {
+            case QUERY ->
+                reply.accept(resultToString(reflectInvoke(buildArgs(args, companion, null, null, null))));
+            case ASYNC ->
+                reflectInvoke(buildArgs(args, companion, null, null, reply));   // void; replies via `reply`
+            case WORLD -> {
+                long gameTime = companion.level().getGameTime();
+                TaskRecord record = (TaskRecord) reflectInvoke(
+                        buildArgs(args, null, new ToolContext(toolCallId, gameTime), null, null));
+                companion.getTaskQueue().enqueue(record);   // result returns via the task lifecycle
+            }
+            case LOCAL -> throw new IllegalStateException(
+                    "local tool " + name + " was shipped to the server");
+        }
     }
 
     @Override
-    public void startAsyncQuery(JsonObject args, NumenPlayer entity, Consumer<String> reply) {
-        invoke(buildArgs(args, entity, null, null, reply));   // void; the method replies through `reply`
-    }
-
-    @Override
-    public String executeLocal(JsonObject args, ClientToolContext ctx) {
-        return resultToString(invoke(buildArgs(args, null, null, ctx, null)));
+    public void checkArgs(JsonObject args) {
+        // Coerce every model argument and discard — throws IllegalArgumentException
+        // on a missing/ill-typed arg, without executing the tool.
+        for (Slot s : slots) {
+            if (s.type == SlotType.ARG) {
+                coerce(args, s.argName, s.argType, s.elemType, s.required, s.nullable);
+            }
+        }
     }
 
     private Object[] buildArgs(JsonObject args, NumenPlayer entity, ToolContext ctx,
@@ -181,7 +204,7 @@ public final class NumenActionTool implements NumenTool {
         return argv;
     }
 
-    private Object invoke(Object[] argv) {
+    private Object reflectInvoke(Object[] argv) {
         try {
             return method.invoke(holder, argv);
         } catch (InvocationTargetException ex) {

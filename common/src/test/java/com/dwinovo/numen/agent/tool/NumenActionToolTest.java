@@ -3,9 +3,6 @@ package com.dwinovo.numen.agent.tool;
 import com.dwinovo.numen.agent.tool.api.Arg;
 import com.dwinovo.numen.agent.tool.api.NumenAction;
 import com.dwinovo.numen.agent.tool.tools.*;
-import com.dwinovo.numen.entity.NumenPlayer;
-import com.dwinovo.numen.task.TaskRecord;
-import com.dwinovo.numen.task.tasks.MoveToTaskRecord;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.BeforeAll;
@@ -20,18 +17,17 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Regression guard for the {@code @NumenAction} tools. The hand-written oracle
- * classes are gone, so the guard is now a golden snapshot: the full LLM-facing
- * surface (name, category, description, parameter schema) of every registered
- * tool is captured in {@code src/test/resources/numen_tool_snapshot.txt} and
- * asserted byte-for-byte. A change to any holder that alters what the model
- * sees fails this test; if the change is intentional, regenerate the snapshot
- * with {@code -Dnumen.snapshot.update}.
+ * Regression guard for the {@code @NumenAction} tools. The full LLM-facing
+ * surface (name, description, parameter schema) of every registered tool is
+ * captured in {@code src/test/resources/numen_tool_snapshot.txt} and asserted
+ * byte-for-byte; a holder change that shifts what the model sees fails the test
+ * (regenerate intentionally by deleting the file or passing
+ * {@code -Dnumen.snapshot.update}). Runtime tests then exercise argument
+ * coercion through the real {@link NumenTool#invoke} path for client tools.
  */
 class NumenActionToolTest {
 
@@ -39,12 +35,11 @@ class NumenActionToolTest {
 
     @BeforeAll
     static void bootstrapMinecraft() {
-        // A few tools touch registries at class-init / schema build; bring them up.
         net.minecraft.SharedConstants.tryDetectVersion();
         net.minecraft.server.Bootstrap.bootStrap();
     }
 
-    /** Every registered @NumenAction tool, built through the adapter (registration order irrelevant). */
+    /** Every registered @NumenAction tool, built through the adapter. */
     private static List<NumenTool> allTools() {
         PerceptionTools perception = new PerceptionTools();
         CombatTools combat = new CombatTools();
@@ -95,8 +90,6 @@ class NumenActionToolTest {
         }
         String actual = normalize(sb.toString());
 
-        // Create the golden on first run (file absent); regenerate intentionally by
-        // deleting it or passing -Dnumen.snapshot.update. Otherwise compare.
         boolean missing = !Files.exists(SNAPSHOT);
         if (missing || Boolean.getBoolean("numen.snapshot.update")) {
             Files.createDirectories(SNAPSHOT.getParent());
@@ -112,7 +105,6 @@ class NumenActionToolTest {
 
     private static String snapshotLine(NumenTool t) {
         return "=== " + t.name() + " ===\n"
-                + "query=" + t.isQuery() + " local=" + t.isLocal() + " async=" + t.isAsyncQuery() + "\n"
                 + "desc: " + t.description() + "\n"
                 + "schema: " + canonical(t.parameterSchema());
     }
@@ -132,45 +124,45 @@ class NumenActionToolTest {
     }
 
     private static String normalize(String s) {
-        return s.replace("\r\n", "\n");   // CRLF-proof the comparison
+        return s.replace("\r\n", "\n");
+    }
+
+    /** Run a client-side (LOCAL) tool through the real {@link NumenTool#invoke} path and return its result. */
+    private static String runLocal(NumenTool tool, JsonObject args) {
+        String[] box = {null};
+        ToolCall call = new ToolCall("t", tool.name(), args.toString(),
+                new ClientToolContext(null, null),
+                json -> box[0] = json,
+                () -> { throw new AssertionError("a local tool must not ship to the server"); });
+        tool.invoke(call);
+        return box[0];
     }
 
     @Test
-    void moveToBuildsRecordFromCoercedArgs() {
-        NumenTool migrated = NumenTools.tool(new MovementTools(), "move_to");
+    void checkArgsValidatesWithoutExecuting() {
+        NumenTool moveTo = NumenTools.tool(new MovementTools(), "move_to");
+        JsonObject good = new JsonObject();
+        good.addProperty("x", 1.0);
+        good.addProperty("z", 2.0);
+        good.addProperty("speed", 1.0);   // y nullable → absent is fine
+        moveTo.checkArgs(good);
 
-        // x + z, no y → a COLUMN goal; speed coerced; toolCallId + deadline injected.
-        JsonObject args = new JsonObject();
-        args.addProperty("x", 10.0);
-        args.addProperty("z", 20.0);
-        args.addProperty("speed", 1.5);
-
-        TaskRecord rec = migrated.toTaskRecord("call-1", args, 1000L);
-        MoveToTaskRecord move = assertInstanceOf(MoveToTaskRecord.class, rec);
-
-        assertEquals(Double.valueOf(10.0), move.x);
-        assertNull(move.y, "absent nullable arg must coerce to null");
-        assertEquals(Double.valueOf(20.0), move.z);
-        assertEquals(1.5, move.speed);
-        assertEquals(MoveToTaskRecord.Kind.COLUMN, move.kind);
-        assertEquals("call-1", move.getToolCallId());
-        assertEquals(1000L + 30 * 20, move.getDeadlineGameTime(), "deadline = now + timeoutTicks");
+        JsonObject bad = new JsonObject();
+        bad.addProperty("x", 1.0);
+        bad.addProperty("z", 2.0);        // speed required + non-nullable → missing
+        assertThrows(IllegalArgumentException.class, () -> moveTo.checkArgs(bad));
     }
 
-    /** The LOCAL path runs client-side: load_skill executes and reports a missing skill. */
     @Test
     void localToolRunsClientSide() {
-        NumenTool loadSkill = NumenTools.tool(new AgentTools(), "load_skill");
         JsonObject args = new JsonObject();
         args.addProperty("name", "definitely_missing_skill_xyz");
-        String result = loadSkill.executeLocal(args, null);
+        String result = runLocal(NumenTools.tool(new AgentTools(), "load_skill"), args);
         assertTrue(result.contains("unknown skill"), "local tool ran and reported the missing skill");
     }
 
-    /** An object-array arg binds to {@code List<record>}; exercised via todowrite's LOCAL path. */
     @Test
     void objectArrayArgCoerces() {
-        NumenTool todo = NumenTools.tool(new AgentTools(), "todowrite");
         JsonObject args = new JsonObject();
         JsonArray todos = new JsonArray();
         JsonObject item = new JsonObject();
@@ -180,12 +172,11 @@ class NumenActionToolTest {
         todos.add(item);
         args.add("todos", todos);
 
-        String result = todo.executeLocal(args, null);
+        String result = runLocal(NumenTools.tool(new AgentTools(), "todowrite"), args);
         assertTrue(result.contains("\"success\":true"), "object-array bound and tool ran");
         assertTrue(result.contains("dig iron"), "todo content echoed back");
     }
 
-    /** A list arg binds to {@code List<String>} and a truly-optional arg binds to null — MC-free. */
     @Test
     void listAndOptionalArgsCoerce() {
         NumenTool probe = NumenTools.tool(new ListProbe(), "list_probe");
@@ -195,18 +186,17 @@ class NumenActionToolTest {
         ids.add("a");
         ids.add("b");
         args.add("ids", ids);
-        assertEquals("2/null", probe.executeQuery(args, null), "list coerced; optional arg → null");
+        assertEquals("2/null", runLocal(probe, args), "list coerced; optional arg → null");
 
         args.addProperty("n", 7);
-        assertEquals("2/7", probe.executeQuery(args, null), "optional arg present → value");
+        assertEquals("2/7", runLocal(probe, args), "optional arg present → value");
     }
 
-    /** Minimal holder exercising List + optional coercion without touching Minecraft. */
+    /** Minimal LOCAL holder exercising List + optional coercion without touching Minecraft. */
     static final class ListProbe {
         @NumenAction(name = "list_probe", description = "probe")
         public String probe(@Arg("ids") List<String> ids,
-                            @Arg(value = "n", required = false) Integer n,
-                            NumenPlayer self) {
+                            @Arg(value = "n", required = false) Integer n) {
             return ids.size() + "/" + (n == null ? "null" : n);
         }
     }

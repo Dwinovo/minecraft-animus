@@ -271,35 +271,16 @@ public final class ToolBench {
         } catch (RuntimeException ex) {
             return "args not JSON";
         }
-        boolean worldAction = !tool.isQuery() && !tool.isLocal() && !tool.isAsyncQuery();
-        if (worldAction) {
-            // The real validator: toTaskRecord parses args into a record without touching
-            // the world, so a clean return means the args are well-formed and in-range.
-            try {
-                tool.toTaskRecord("bench", args, 0L);
-                return null;
-            } catch (IllegalArgumentException ex) {
-                return ex.getMessage();
-            } catch (RuntimeException ex) {
-                return ex.getClass().getSimpleName();
-            }
+        // Uniform offline validation: the tool coerces its args (a missing or
+        // ill-typed argument throws) without executing. No category branching.
+        try {
+            tool.checkArgs(args);
+            return null;
+        } catch (IllegalArgumentException ex) {
+            return ex.getMessage();
+        } catch (RuntimeException ex) {
+            return ex.getClass().getSimpleName();
         }
-        // Query/local/async tools validate inside execute*, which needs a live entity —
-        // fall back to a schema-required-keys check (the cheap offline proxy).
-        return missingRequiredKey(tool, args);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static String missingRequiredKey(NumenTool tool, JsonObject args) {
-        Object req = tool.parameterSchema().get("required");
-        if (!(req instanceof List<?> keys)) return null;
-        for (Object k : keys) {
-            String key = String.valueOf(k);
-            if (!args.has(key) || args.get(key).isJsonNull()) {
-                return "missing " + key;
-            }
-        }
-        return null;
     }
 
     private static Boolean argsMatchExpected(LlmToolCall call, JsonObject expected) {

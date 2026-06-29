@@ -3,7 +3,6 @@ package com.dwinovo.numen.network.payload;
 import com.dwinovo.numen.Constants;
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
-import com.dwinovo.numen.task.TaskRecord;
 import com.dwinovo.numen.task.TaskResult;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -127,42 +126,17 @@ public record ExecuteToolPayload(UUID entityUuid,
             return;
         }
 
-        // Async query: budget-sliced server job; reply rides a later tick.
-        if (tool.isAsyncQuery()) {
-            try {
-                tool.startAsyncQuery(args, companion, json ->
-                        com.dwinovo.numen.platform.Services.NETWORK.sendToPlayer(player,
-                                new TaskResultPayload(p.entityUuid(), p.toolCallId(), json)));
-            } catch (RuntimeException ex) {
-                replyError(player, p, "invalid arguments: " + ex.getMessage());
-            }
-            return;
-        }
-
-        // Query fast path: execute now, reply now, never queue.
-        if (tool.isQuery()) {
-            String result;
-            try {
-                result = tool.executeQuery(args, companion);
-            } catch (RuntimeException ex) {
-                result = TaskResult.fail(ex.getMessage()).toJson();
-            }
-            com.dwinovo.numen.platform.Services.NETWORK.sendToPlayer(player,
-                    new TaskResultPayload(p.entityUuid(), p.toolCallId(), result));
-            return;
-        }
-
-        // World-action: validate into a record and enqueue for the dispatcher.
-        TaskRecord record;
+        // Single unified dispatch: the tool runs itself against the live companion
+        // (a read replies now, a sliced job replies later, a body action enqueues
+        // and its result returns via the task lifecycle). Malformed args throw and
+        // are reported back as a failed result.
         try {
-            record = tool.toTaskRecord(p.toolCallId(), args, companion.level().getGameTime());
+            tool.runOnServer(p.toolCallId(), args, companion,
+                    json -> com.dwinovo.numen.platform.Services.NETWORK.sendToPlayer(player,
+                            new TaskResultPayload(p.entityUuid(), p.toolCallId(), json)));
         } catch (RuntimeException ex) {
             replyError(player, p, "invalid arguments: " + ex.getMessage());
-            return;
         }
-        companion.getTaskQueue().enqueue(record);
-        Constants.LOG.info("[numen-net] ✓ enqueued tool={} id={} on companion {} (queue depth now={})",
-                p.toolName(), p.toolCallId(), p.entityUuid(), companion.getTaskQueue().pendingCount());
     }
 
     public static void replyError(ServerPlayer player, ExecuteToolPayload p, String message) {
