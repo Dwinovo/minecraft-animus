@@ -93,6 +93,44 @@ public interface NumenTool {
     /** JSON Schema for {@link #toTaskRecord} arguments. See class-level Javadoc. */
     Map<String, Object> parameterSchema();
 
+    /**
+     * Execute this tool for one call — the <em>only</em> execution entry point
+     * the agent loop calls. The loop is blind to <em>how</em> a tool runs: it
+     * hands over a {@link ToolCall} and waits to be notified of the result
+     * through it. Whether the work happens on the client thread, on the server
+     * body, or out on some external service is entirely the tool's business.
+     *
+     * <p>The default implementation is the only place the built-in local-vs-
+     * server routing now lives:
+     * <ul>
+     *   <li>{@link #isLocal()} tools run {@link #executeLocal} right here on the
+     *       agent (client) thread and {@link ToolCall#complete complete}
+     *       immediately;</li>
+     *   <li>everything else is {@link ToolCall#shipToServer shipped to the
+     *       server body}, where {@code ExecuteToolPayload} picks the
+     *       query / async-query / world-action scheduling discipline and the
+     *       result returns asynchronously.</li>
+     * </ul>
+     * The category flags ({@link #isLocal} / {@link #isQuery} /
+     * {@link #isAsyncQuery}) are now consulted only here and on the server — the
+     * loop never inspects them. A tool that owns its execution end-to-end (e.g.
+     * an MCP bridge proxying to an external server) can override {@code invoke}
+     * directly and call {@link ToolCall#complete} on whatever thread it likes.
+     */
+    default void invoke(ToolCall call) {
+        if (isLocal()) {
+            String resultJson;
+            try {
+                resultJson = executeLocal(call.args(), call.ctx());
+            } catch (RuntimeException ex) {
+                resultJson = com.dwinovo.numen.task.TaskResult.fail(ex.getMessage()).toJson();
+            }
+            call.complete(resultJson);
+        } else {
+            call.shipToServer();
+        }
+    }
+
     /** Deadline in game ticks. 20 ticks = 1 second of real time (vanilla rate). */
     long defaultTimeoutTicks();
 

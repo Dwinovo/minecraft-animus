@@ -42,6 +42,7 @@ public class NumenNeoForgeClient {
     static void onClientTick(net.neoforged.neoforge.client.event.ClientTickEvent.Post event) {
         com.dwinovo.numen.client.NumenKeys.tick();
         com.dwinovo.numen.client.hud.NumenToasts.tick();
+        com.dwinovo.numen.client.agent.AgentLoopRegistry.tickAll();
     }
 
     static void onRenderLevel(net.neoforged.neoforge.client.event.RenderLevelStageEvent event) {

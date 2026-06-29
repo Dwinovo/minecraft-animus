@@ -58,6 +58,18 @@ public final class AgentLoopRegistry {
         return out;
     }
 
+    /**
+     * Drive every loop once per client tick — currently just the in-flight
+     * tool backstop timeout. Wired from each loader's client-tick hook. Safe to
+     * iterate directly: no path reached from {@code clientTick} adds or removes
+     * loops.
+     */
+    public static void tickAll() {
+        for (EntityAgentLoop loop : ENTITY_LOOPS.values()) {
+            loop.clientTick();
+        }
+    }
+
     /** Drop one entity's loop (e.g. when it dies / unloads). */
     public static void dispose(UUID entityUuid) {
         ENTITY_LOOPS.remove(entityUuid);
