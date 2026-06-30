@@ -1,14 +1,20 @@
 package com.dwinovo.numen.core;
 
+import com.dwinovo.numen.agent.skill.SkillRegistry;
 import com.dwinovo.numen.core.pathing.cache.PathCaches;
 import com.dwinovo.numen.core.task.CompanionTickDispatcher;
 import com.dwinovo.numen.core.task.ScanBlocksJob;
+import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+
+import java.nio.file.Path;
 
 /**
  * NeoForge entry point for the numen-core tool pack. Registers the tools and
@@ -27,7 +33,23 @@ public class NumenCoreNeoForge {
         // Release pathfinding chunk-ref snapshots when the server stops (don't pin an old world).
         NeoForge.EVENT_BUS.addListener((ServerStoppedEvent e) -> PathCaches.dropAll());
 
+        // Client-only: declare core's built-in skills, read in place from the
+        // skills/ dir bundled in this jar. Skills feed the client-side LLM, so
+        // this never runs on a dedicated server.
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            declareBundledSkills();
+        }
+
         Constants.LOG.info("numen-core initialised on NeoForge.");
+    }
+
+    private static void declareBundledSkills() {
+        Path root = ModList.get().getModFileById(Constants.MOD_ID).getFile().findResource("skills");
+        if (root != null) {
+            SkillRegistry.instance().declareBundled(root);
+        } else {
+            Constants.LOG.warn("[numen-core] no bundled skills/ dir found in jar");
+        }
     }
 
     private static void onServerTickPost(ServerTickEvent.Post event) {

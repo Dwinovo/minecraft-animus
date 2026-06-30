@@ -18,6 +18,9 @@
         "main": [
             "com.dwinovo.numen.core.NumenCoreFabric"
         ],
+        "client": [
+            "com.dwinovo.numen.core.NumenCoreFabricClient"
+        ],
         "fabric-datagen": [
             "com.dwinovo.numen.core.data.FabricDataGenerators"
         ]
