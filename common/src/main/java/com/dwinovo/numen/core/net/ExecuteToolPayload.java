@@ -119,12 +119,6 @@ public record ExecuteToolPayload(UUID entityUuid,
             replyError(player, p, "unknown tool: " + p.toolName());
             return;
         }
-        // Server execution is the core adapter's job — NumenActionTool.runOnServer is
-        // not part of the MC-free NumenTool contract, so reach it concretely here.
-        if (!(tool instanceof NumenActionTool action)) {
-            replyError(player, p, "tool not server-runnable: " + p.toolName());
-            return;
-        }
         JsonObject args;
         try {
             args = JsonParser.parseString(p.argumentsJson()).getAsJsonObject();
@@ -132,14 +126,21 @@ public record ExecuteToolPayload(UUID entityUuid,
             replyError(player, p, "invalid arguments JSON: " + ex.getMessage());
             return;
         }
-
-        // The adapter runs the tool against the live companion: a read replies now,
-        // a sliced job replies later, a body action enqueues and its result returns
-        // via the task lifecycle. Malformed args throw and are reported as a failure.
+        // Run the tool against the live companion: a query replies now, a world action
+        // enqueues and its result returns via the task lifecycle. Server execution is
+        // not part of the MC-free NumenTool contract, so dispatch concretely — the raw
+        // ServerNumenTool base, or the legacy reflective adapter during the transition.
+        java.util.function.Consumer<String> reply = json ->
+                com.dwinovo.numen.platform.Services.NETWORK.sendToPlayer(player,
+                        new TaskResultPayload(p.entityUuid(), p.toolCallId(), json));
         try {
-            action.runOnServer(p.toolCallId(), args, companion,
-                    json -> com.dwinovo.numen.platform.Services.NETWORK.sendToPlayer(player,
-                            new TaskResultPayload(p.entityUuid(), p.toolCallId(), json)));
+            if (tool instanceof com.dwinovo.numen.core.tool.ServerNumenTool st) {
+                st.runOnServer(p.toolCallId(), args, companion, reply);
+            } else if (tool instanceof NumenActionTool action) {
+                action.runOnServer(p.toolCallId(), args, companion, reply);
+            } else {
+                replyError(player, p, "tool not server-runnable: " + p.toolName());
+            }
         } catch (RuntimeException ex) {
             replyError(player, p, "invalid arguments: " + ex.getMessage());
         }

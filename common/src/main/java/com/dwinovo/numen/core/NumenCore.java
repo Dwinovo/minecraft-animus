@@ -132,12 +132,12 @@ public final class NumenCore {
         reg(blocks, "interact_at");
         reg(blocks, "interact_entity");
         reg(inventory, "eat_item");
-        reg(inventory, "wait");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.WaitTool());   // SAMPLE: raw NumenTool, no @NumenAction
         reg(inventory, "drop_items");
         reg(gui, "inspect_gui");
         reg(container, "transfer");
         reg(gui, "close_gui");
-        reg(perception, "get_self_status");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.GetSelfStatusTool());   // SAMPLE: raw NumenTool
         reg(perception, "get_owner_status");
         reg(queries, "lookup_recipe");
         reg(queries, "scan_nearby_entities");
@@ -145,8 +145,8 @@ public final class NumenCore {
         reg(perception, "inspect_block");
         reg(queries, "inspect_block_storage");
         reg(perception, "get_world_info");
-        reg(agent, "todowrite");
-        reg(agent, "load_skill");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.TodoWriteTool());   // raw NumenTool
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.LoadSkillTool());   // raw NumenTool
     }
 
     private static void reg(Object holder, String action) {
