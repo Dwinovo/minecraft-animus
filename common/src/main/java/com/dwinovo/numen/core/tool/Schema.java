@@ -29,6 +29,12 @@ public final class Schema {
         private final Map<String, Object> props = new LinkedHashMap<>();
         private final List<String> required = new ArrayList<>();
 
+        public Builder integer(String name, String desc) {
+            props.put(name, base("integer", desc));
+            required.add(name);
+            return this;
+        }
+
         public Builder integer(String name, String desc, int min, int max) {
             Map<String, Object> p = base("integer", desc);
             p.put("minimum", min);

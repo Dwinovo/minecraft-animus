@@ -138,13 +138,13 @@ public final class NumenCore {
         reg(container, "transfer");
         reg(gui, "close_gui");
         ToolRegistry.register(new com.dwinovo.numen.core.tools.GetSelfStatusTool());   // SAMPLE: raw NumenTool
-        reg(perception, "get_owner_status");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.GetOwnerStatusTool());
         reg(queries, "lookup_recipe");
         reg(queries, "scan_nearby_entities");
         reg(scan, "scan_blocks");
-        reg(perception, "inspect_block");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.InspectBlockTool());
         reg(queries, "inspect_block_storage");
-        reg(perception, "get_world_info");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.GetWorldInfoTool());
         ToolRegistry.register(new com.dwinovo.numen.core.tools.TodoWriteTool());   // raw NumenTool
         ToolRegistry.register(new com.dwinovo.numen.core.tools.LoadSkillTool());   // raw NumenTool
     }
