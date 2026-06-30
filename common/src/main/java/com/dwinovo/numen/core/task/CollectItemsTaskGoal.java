@@ -2,9 +2,9 @@ package com.dwinovo.numen.core.task;
 
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.core.pathing.exec.PlayerNav;
-import com.dwinovo.numen.task.CompanionTask;
+import com.dwinovo.numen.core.task.CompanionTask;
 import com.dwinovo.numen.task.TaskResult;
-import com.dwinovo.numen.task.TaskState;
+import com.dwinovo.numen.core.task.TaskState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -88,7 +88,6 @@ public final class CollectItemsTaskGoal implements CompanionTask {
             // Absorbed (by us or otherwise) — count it if it was ours to get.
             if (target != null) {
                 r.incrementCollected();
-                player.setDebugTask(r.describe());
             }
             stopNav();
             phase = Phase.SCAN;

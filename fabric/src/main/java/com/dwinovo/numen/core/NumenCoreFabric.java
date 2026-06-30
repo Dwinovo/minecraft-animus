@@ -1,6 +1,7 @@
 package com.dwinovo.numen.core;
 
 import com.dwinovo.numen.core.pathing.cache.PathCaches;
+import com.dwinovo.numen.core.task.CompanionTickDispatcher;
 import com.dwinovo.numen.core.task.ScanBlocksJob;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -19,6 +20,8 @@ public class NumenCoreFabric implements ModInitializer {
     public void onInitialize() {
         NumenCore.init();
 
+        // Drive core's per-companion task queues each tick (move_to, mining, …).
+        ServerTickEvents.END_SERVER_TICK.register(CompanionTickDispatcher::tick);
         // Advance budget-sliced long-range block scans each tick.
         ServerTickEvents.END_SERVER_TICK.register(ScanBlocksJob::tick);
         // Snapshot loaded chunks near companions for the off-thread planner to read live.

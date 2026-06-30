@@ -4,9 +4,9 @@ import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.core.pathing.exec.Interaction;
 import com.dwinovo.numen.core.pathing.exec.PlayerNav;
 import com.dwinovo.numen.core.pathing.util.BlockHelper;
-import com.dwinovo.numen.task.CompanionTask;
+import com.dwinovo.numen.core.task.CompanionTask;
 import com.dwinovo.numen.task.TaskResult;
-import com.dwinovo.numen.task.TaskState;
+import com.dwinovo.numen.core.task.TaskState;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.phys.Vec3;
 

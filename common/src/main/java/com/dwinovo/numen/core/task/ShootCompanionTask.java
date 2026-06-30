@@ -4,9 +4,9 @@ import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.core.pathing.exec.Ballistics;
 import com.dwinovo.numen.core.pathing.exec.InputDriver;
 import com.dwinovo.numen.core.pathing.exec.PlayerNav;
-import com.dwinovo.numen.task.CompanionTask;
+import com.dwinovo.numen.core.task.CompanionTask;
 import com.dwinovo.numen.task.TaskResult;
-import com.dwinovo.numen.task.TaskState;
+import com.dwinovo.numen.core.task.TaskState;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
@@ -139,7 +139,6 @@ public final class ShootCompanionTask implements CompanionTask {
         }
         if (target.isRemoved() || (target instanceof LivingEntity le && le.isDeadOrDying())) {
             r.incrementDestroyed();
-            player.setDebugTask(r.describe());
             abortShot();
             target = null;
             stopNav();

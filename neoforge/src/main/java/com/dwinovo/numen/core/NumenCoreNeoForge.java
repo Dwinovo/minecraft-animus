@@ -1,6 +1,7 @@
 package com.dwinovo.numen.core;
 
 import com.dwinovo.numen.core.pathing.cache.PathCaches;
+import com.dwinovo.numen.core.task.CompanionTickDispatcher;
 import com.dwinovo.numen.core.task.ScanBlocksJob;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -30,6 +31,7 @@ public class NumenCoreNeoForge {
     }
 
     private static void onServerTickPost(ServerTickEvent.Post event) {
+        CompanionTickDispatcher.tick(event.getServer());
         ScanBlocksJob.tick(event.getServer());
         PathCaches.serverTick(event.getServer());
     }

@@ -1,8 +1,15 @@
 package com.dwinovo.numen.core;
 
-import com.dwinovo.numen.agent.tool.NumenTools;
+import com.dwinovo.numen.core.tool.NumenTools;
+import com.dwinovo.numen.core.tool.CoreServerTools;
 import com.dwinovo.numen.agent.tool.ToolRegistry;
-import com.dwinovo.numen.task.CompanionTaskFactory;
+import com.dwinovo.numen.entity.CompanionLifecycle;
+import com.dwinovo.numen.platform.Services;
+import com.dwinovo.numen.core.net.CancelTasksPayload;
+import com.dwinovo.numen.core.net.ExecuteToolPayload;
+import com.dwinovo.numen.core.net.TaskResultPayload;
+import com.dwinovo.numen.core.task.CompanionTaskFactory;
+import com.dwinovo.numen.core.task.CompanionTickDispatcher;
 import com.dwinovo.numen.core.task.BreakBlockCompanionTask;
 import com.dwinovo.numen.core.task.BreakBlockTaskRecord;
 import com.dwinovo.numen.core.task.CollectItemsTaskGoal;
@@ -73,8 +80,28 @@ public final class NumenCore {
         initialised = true;
         registerTools();
         registerTaskRunners();
+        registerTransport();
         Constants.LOG.info("[numen-core] registered {} tool(s), {} task type(s)",
                 ToolRegistry.size(), CompanionTaskFactory.size());
+    }
+
+    /**
+     * Core's own server-side execution wiring — none of it is the engine's: our
+     * three transport packets (client ships a body-bound tool, server replies),
+     * and the engine's {@link CompanionLifecycle} seam used to finalize our
+     * per-companion tasks on death / removal / owner-abort.
+     */
+    private static void registerTransport() {
+        Services.NETWORK.registerClientToServer(
+                ExecuteToolPayload.TYPE, ExecuteToolPayload.STREAM_CODEC, ExecuteToolPayload::handle);
+        Services.NETWORK.registerServerToClient(
+                TaskResultPayload.TYPE, TaskResultPayload.STREAM_CODEC, TaskResultPayload::handle);
+        Services.NETWORK.registerClientToServer(
+                CancelTasksPayload.TYPE, CancelTasksPayload.STREAM_CODEC, CancelTasksPayload::handle);
+
+        CompanionLifecycle.onDeath(CompanionTickDispatcher::clearActiveTask);
+        CompanionLifecycle.onRemove(CompanionTickDispatcher::onCompanionRemoved);
+        CompanionLifecycle.onAbort(CoreServerTools::abort);
     }
 
     private static void registerTools() {

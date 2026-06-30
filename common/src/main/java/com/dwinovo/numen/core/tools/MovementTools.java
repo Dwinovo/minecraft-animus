@@ -3,7 +3,7 @@ package com.dwinovo.numen.core.tools;
 import com.dwinovo.numen.agent.tool.api.Arg;
 import com.dwinovo.numen.agent.tool.api.NumenAction;
 import com.dwinovo.numen.agent.tool.api.ToolContext;
-import com.dwinovo.numen.task.TaskRecord;
+import com.dwinovo.numen.core.task.TaskRecord;
 import com.dwinovo.numen.core.task.MoveToTaskRecord;
 
 /**

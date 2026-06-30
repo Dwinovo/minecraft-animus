@@ -3,9 +3,9 @@ package com.dwinovo.numen.core.task;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.dwinovo.numen.core.pathing.calc.NavGoal;
 import com.dwinovo.numen.core.pathing.exec.PlayerNav;
-import com.dwinovo.numen.task.CompanionTask;
+import com.dwinovo.numen.core.task.CompanionTask;
 import com.dwinovo.numen.task.TaskResult;
-import com.dwinovo.numen.task.TaskState;
+import com.dwinovo.numen.core.task.TaskState;
 import net.minecraft.core.BlockPos;
 
 import java.util.HashMap;

@@ -4,7 +4,7 @@ import com.dwinovo.numen.agent.tool.ToolArgs;
 import com.dwinovo.numen.agent.tool.api.Arg;
 import com.dwinovo.numen.agent.tool.api.NumenAction;
 import com.dwinovo.numen.agent.tool.api.ToolContext;
-import com.dwinovo.numen.task.TaskRecord;
+import com.dwinovo.numen.core.task.TaskRecord;
 import com.dwinovo.numen.core.task.BreakBlockTaskRecord;
 import com.dwinovo.numen.core.task.InteractAtTaskRecord;
 import com.dwinovo.numen.core.task.InteractEntityTaskRecord;

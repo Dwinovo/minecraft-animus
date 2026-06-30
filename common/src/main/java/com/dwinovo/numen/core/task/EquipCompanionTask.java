@@ -1,10 +1,10 @@
 package com.dwinovo.numen.core.task;
 
 import com.dwinovo.numen.entity.NumenPlayer;
-import com.dwinovo.numen.task.CompanionTask;
+import com.dwinovo.numen.core.task.CompanionTask;
 import com.dwinovo.numen.core.task.PlayerInv;
 import com.dwinovo.numen.task.TaskResult;
-import com.dwinovo.numen.task.TaskState;
+import com.dwinovo.numen.core.task.TaskState;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;

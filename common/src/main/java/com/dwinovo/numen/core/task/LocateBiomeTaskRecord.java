@@ -1,6 +1,6 @@
 package com.dwinovo.numen.core.task;
 
-import com.dwinovo.numen.task.TaskRecord;
+import com.dwinovo.numen.core.task.TaskRecord;
 
 /**
  * Typed task descriptor for {@code locate_biome}: "where is the nearest X?" —

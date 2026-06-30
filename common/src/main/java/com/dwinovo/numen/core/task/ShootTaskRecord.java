@@ -1,6 +1,6 @@
 package com.dwinovo.numen.core.task;
 
-import com.dwinovo.numen.task.TaskRecord;
+import com.dwinovo.numen.core.task.TaskRecord;
 import net.minecraft.world.entity.EntityType;
 
 import java.util.Set;
