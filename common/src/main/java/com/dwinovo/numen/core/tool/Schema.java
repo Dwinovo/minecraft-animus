@@ -44,6 +44,15 @@ public final class Schema {
             return this;
         }
 
+        public Builder number(String name, String desc, double min, double max) {
+            Map<String, Object> p = base("number", desc);
+            p.put("minimum", min);
+            p.put("maximum", max);
+            props.put(name, p);
+            required.add(name);
+            return this;
+        }
+
         public Builder string(String name, String desc) {
             props.put(name, base("string", desc));
             required.add(name);

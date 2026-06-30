@@ -134,16 +134,16 @@ public final class NumenCore {
         reg(inventory, "eat_item");
         ToolRegistry.register(new com.dwinovo.numen.core.tools.WaitTool());   // SAMPLE: raw NumenTool, no @NumenAction
         reg(inventory, "drop_items");
-        reg(gui, "inspect_gui");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.InspectGuiTool());
         reg(container, "transfer");
-        reg(gui, "close_gui");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.CloseGuiTool());
         ToolRegistry.register(new com.dwinovo.numen.core.tools.GetSelfStatusTool());   // SAMPLE: raw NumenTool
         ToolRegistry.register(new com.dwinovo.numen.core.tools.GetOwnerStatusTool());
-        reg(queries, "lookup_recipe");
-        reg(queries, "scan_nearby_entities");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.LookupRecipeTool());
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.ScanNearbyEntitiesTool());
         reg(scan, "scan_blocks");
         ToolRegistry.register(new com.dwinovo.numen.core.tools.InspectBlockTool());
-        reg(queries, "inspect_block_storage");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.InspectBlockStorageTool());
         ToolRegistry.register(new com.dwinovo.numen.core.tools.GetWorldInfoTool());
         ToolRegistry.register(new com.dwinovo.numen.core.tools.TodoWriteTool());   // raw NumenTool
         ToolRegistry.register(new com.dwinovo.numen.core.tools.LoadSkillTool());   // raw NumenTool
