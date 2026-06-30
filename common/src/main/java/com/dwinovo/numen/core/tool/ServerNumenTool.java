@@ -2,6 +2,9 @@ package com.dwinovo.numen.core.tool;
 
 import com.dwinovo.numen.agent.tool.NumenTool;
 import com.dwinovo.numen.agent.tool.ToolCall;
+import com.dwinovo.numen.agent.tool.api.ToolContext;
+import com.dwinovo.numen.core.task.CompanionTickDispatcher;
+import com.dwinovo.numen.core.task.TaskRecord;
 import com.dwinovo.numen.entity.NumenPlayer;
 import com.google.gson.JsonObject;
 
@@ -32,4 +35,15 @@ public abstract class ServerNumenTool implements NumenTool {
     /** Runs on the server with the live companion body. Reply now, or enqueue a task and reply later. */
     public abstract void runOnServer(String toolCallId, JsonObject args,
                                      NumenPlayer companion, Consumer<String> reply);
+
+    /** Helper for world-action tools: a ToolContext carrying the call id + the body's current game time. */
+    protected static ToolContext ctx(String toolCallId, NumenPlayer companion) {
+        return new ToolContext(toolCallId, companion.level().getGameTime());
+    }
+
+    /** Helper for world-action tools: hand a built task record to the companion's queue. */
+    protected static void enqueue(NumenPlayer companion, TaskRecord record) {
+        CompanionTickDispatcher.queueFor(companion.getUUID()).enqueue(record);
+    }
 }
+

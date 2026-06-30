@@ -124,16 +124,16 @@ public final class NumenCore {
         reg(combat, "shoot");
         reg(locate, "locate_structure");
         reg(locate, "locate_biome");
-        reg(inventory, "collect_items");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.CollectItemsTool());
         reg(blocks, "auto_mine");
-        reg(inventory, "equip_item");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.EquipItemTool());
         reg(blocks, "place_block");
         reg(blocks, "break_block");
         reg(blocks, "interact_at");
         reg(blocks, "interact_entity");
-        reg(inventory, "eat_item");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.EatItemTool());
         ToolRegistry.register(new com.dwinovo.numen.core.tools.WaitTool());   // SAMPLE: raw NumenTool, no @NumenAction
-        reg(inventory, "drop_items");
+        ToolRegistry.register(new com.dwinovo.numen.core.tools.DropItemsTool());
         ToolRegistry.register(new com.dwinovo.numen.core.tools.InspectGuiTool());
         reg(container, "transfer");
         ToolRegistry.register(new com.dwinovo.numen.core.tools.CloseGuiTool());

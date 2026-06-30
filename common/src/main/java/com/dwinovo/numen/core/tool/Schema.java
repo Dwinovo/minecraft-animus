@@ -65,6 +65,49 @@ public final class Schema {
             return this;
         }
 
+        /** Optional bounded integer — dropped from {@code required}. */
+        public Builder optionalInteger(String name, String desc, int min, int max) {
+            Map<String, Object> p = base("integer", desc);
+            p.put("minimum", min);
+            p.put("maximum", max);
+            props.put(name, p);
+            return this;
+        }
+
+        /** Optional enum string — dropped from {@code required}. */
+        public Builder optionalEnum(String name, String desc, String... values) {
+            Map<String, Object> p = base("string", desc);
+            p.put("enum", List.of(values));
+            props.put(name, p);
+            return this;
+        }
+
+        /** Optional array of strings — dropped from {@code required}. */
+        public Builder optionalStringArray(String name, String desc) {
+            Map<String, Object> items = new LinkedHashMap<>();
+            items.put("type", "string");
+            Map<String, Object> arr = new LinkedHashMap<>();
+            arr.put("type", "array");
+            arr.put("description", desc);
+            arr.put("items", items);
+            props.put(name, arr);
+            return this;
+        }
+
+        /** Required array of strings, with a minimum length. */
+        public Builder stringArray(String name, String desc, int minItems) {
+            Map<String, Object> items = new LinkedHashMap<>();
+            items.put("type", "string");
+            Map<String, Object> arr = new LinkedHashMap<>();
+            arr.put("type", "array");
+            arr.put("description", desc);
+            arr.put("items", items);
+            if (minItems > 0) arr.put("minItems", minItems);
+            props.put(name, arr);
+            required.add(name);
+            return this;
+        }
+
         public Builder bool(String name, String desc) {
             props.put(name, base("boolean", desc));
             required.add(name);
