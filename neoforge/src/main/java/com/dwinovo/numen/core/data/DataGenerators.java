@@ -13,9 +13,9 @@ import net.neoforged.neoforge.data.event.GatherDataEvent;
  * Outputs land in {@code neoforge/src/generated/resources/}, already wired into
  * the main resource source set by the subproject's {@code build.gradle}.
  */
-// 1.21.4 still has separate buses (1.21.5 merged them); GatherDataEvent is a mod-bus event.
-// 1.21.4 split it into Client/Server variants and dropped the ExistingFileHelper from tag providers.
-@EventBusSubscriber(modid = Constants.MOD_ID, bus = EventBusSubscriber.Bus.MOD)
+// 1.21.8: buses merged, so @EventBusSubscriber no longer takes a bus attribute (removed).
+// GatherDataEvent.Client since the 1.21.4 Client/Server split.
+@EventBusSubscriber(modid = Constants.MOD_ID)
 public final class DataGenerators {
 
     private DataGenerators() {}
