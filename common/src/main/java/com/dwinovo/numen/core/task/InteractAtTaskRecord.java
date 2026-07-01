@@ -2,7 +2,6 @@ package com.dwinovo.numen.core.task;
 
 import com.dwinovo.numen.core.task.TaskRecord;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
@@ -53,7 +52,7 @@ public final class InteractAtTaskRecord extends TaskRecord {
         if (item == null) {
             return null;
         }
-        if (item.components().has(DataComponents.FOOD)) {
+        if (item.isEdible()) {   // 1.20.4: FoodProperties-based, pre-DataComponents
             return BuiltInRegistries.ITEM.getKey(item).getPath()
                     + " is a consumable — use eat_item (using it through the world body wouldn't heal you).";
         }

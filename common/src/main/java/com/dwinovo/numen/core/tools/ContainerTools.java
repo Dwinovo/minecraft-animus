@@ -145,7 +145,7 @@ List<Move> moves,
     }
 
     private static boolean sameItem(ItemStack a, ItemStack b) {
-        return ItemStack.isSameItemSameComponents(a, b);
+        return ItemStack.isSameItemSameTags(a, b);   // 1.20.4: NBT tags, pre-DataComponents
     }
 
     private static String name(ItemStack stack) {

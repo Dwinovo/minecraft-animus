@@ -42,7 +42,7 @@ Integer radius,
         if (targets.isEmpty()) {
             throw new IllegalArgumentException("entity_ids contained no valid entity type ids");
         }
-        count = Math.clamp(count, 1, MAX_COUNT);
+        count = Math.max(1, Math.min(MAX_COUNT, count));
 
         int r = HUNT_DEFAULT_MAX_RADIUS;
         if (radius != null) {
@@ -66,7 +66,7 @@ Integer radius,
         if (targets.isEmpty()) {
             throw new IllegalArgumentException("entity_ids contained no valid entity type ids");
         }
-        count = Math.clamp(count, 1, MAX_COUNT);
+        count = Math.max(1, Math.min(MAX_COUNT, count));
 
         int r = SHOOT_DEFAULT_MAX_RADIUS;
         if (radius != null) {

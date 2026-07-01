@@ -99,7 +99,7 @@ Integer radius,
         if (targets.isEmpty()) {
             throw new IllegalArgumentException("block_ids contained no valid block ids");
         }
-        int clampedCount = Math.clamp(count, 1, MAX_COUNT);
+        int clampedCount = Math.max(1, Math.min(MAX_COUNT, count));
 
         int searchRadius = DEFAULT_MAX_RADIUS;
         if (radius != null) {

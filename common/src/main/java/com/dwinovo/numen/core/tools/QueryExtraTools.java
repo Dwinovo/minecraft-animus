@@ -52,7 +52,7 @@ public final class QueryExtraTools {
 double radius,
 String type_filter,
             NumenPlayer self) {
-        radius = Math.clamp(radius, MIN_RADIUS, MAX_RADIUS);
+        radius = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, radius));
         String filter = readEnum("type_filter", type_filter,
                 List.of("hostile", "passive", "player", "all"));
 

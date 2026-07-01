@@ -1,14 +1,15 @@
 package com.dwinovo.numen.core.data;
 
 import com.dwinovo.numen.core.Constants;
-import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.data.PackOutput;
-import net.neoforged.neoforge.common.data.BlockTagsProvider;
-import net.neoforged.neoforge.common.data.ExistingFileHelper;
+import net.minecraftforge.common.data.BlockTagsProvider;
+import net.minecraftforge.common.data.ExistingFileHelper;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
- * NeoForge-side block tag provider. Forwards to {@link ModBlockTagData} so tag
+ * Forge-side block tag provider. Forwards to {@link ModBlockTagData} so tag
  * content stays loader-agnostic in {@code common/}.
  */
 public final class ModBlockTagsProvider extends BlockTagsProvider {
@@ -16,7 +17,7 @@ public final class ModBlockTagsProvider extends BlockTagsProvider {
     public ModBlockTagsProvider(PackOutput output,
                                 CompletableFuture<HolderLookup.Provider> lookupProvider,
                                 ExistingFileHelper existingFileHelper) {
-        super(output, lookupProvider, Constants.MOD_ID, existingFileHelper);   // 1.21.1 BlockTagsProvider needs the EFH
+        super(output, lookupProvider, Constants.MOD_ID, existingFileHelper);
     }
 
     @Override

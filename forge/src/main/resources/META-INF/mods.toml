@@ -1,29 +1,29 @@
 modLoader = "javafml" #mandatory
-loaderVersion = "${neoforge_loader_version_range}" #mandatory
+loaderVersion = "${forge_loader_version_range}" #mandatory
 license = "${license}" # Review your options at https://choosealicense.com/.
 [[mods]] #mandatory
 modId = "${mod_id}" #mandatory
 version = "${version}" #mandatory
 displayName = "${mod_name}" #mandatory
-logoFile="${mod_id}.png" #optional
-credits="${credits}" #optional
+logoFile = "${mod_id}.png" #optional
+credits = "${credits}" #optional
 authors = "${mod_author}" #optional
 description = '''${description}''' #mandatory (Supports multiline text)
 [[dependencies.${mod_id}]] #optional
 modId = "numen_api" #mandatory — core supplies tools to the numen-api engine
-type="required" #mandatory
+mandatory = true #mandatory
 versionRange = "[0.0,)" #mandatory
 ordering = "AFTER" # load after the engine so its registries exist
 side = "BOTH"
 [[dependencies.${mod_id}]] #optional
-modId = "neoforge" #mandatory
-type="required" #mandatory (Can be one of "required", "optional", "incompatible" or "discouraged")
-versionRange = "[${neoforge_version},)" #mandatory
-ordering = "NONE" # The order that this dependency should load in relation to your mod, required to be either 'BEFORE' or 'AFTER' if the dependency is not mandatory
-side = "BOTH" # Side this dependency is applied on - 'BOTH', 'CLIENT' or 'SERVER'
+modId = "forge" #mandatory
+mandatory = true #mandatory
+versionRange = "${forge_version_range}" #mandatory
+ordering = "NONE" # 'BEFORE', 'AFTER' or 'NONE'
+side = "BOTH" # 'BOTH', 'CLIENT' or 'SERVER'
 [[dependencies.${mod_id}]]
 modId = "minecraft"
-type="required" #mandatory (Can be one of "required", "optional", "incompatible" or "discouraged")
+mandatory = true
 versionRange = "${minecraft_version_range}"
 ordering = "NONE"
 side = "BOTH"

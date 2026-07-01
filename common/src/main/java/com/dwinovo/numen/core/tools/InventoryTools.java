@@ -93,7 +93,7 @@ String item_id,
 int count,
             ToolContext ctx) {
         Item item = ToolArgs.parseItem(item_id);
-        count = Math.clamp(count, 1, DROP_MAX_COUNT);
+        count = Math.max(1, Math.min(DROP_MAX_COUNT, count));
         String label = BuiltInRegistries.ITEM.getKey(item).getPath();
         return new DropItemsTaskRecord(ctx.toolCallId(), ctx.deadline(DROP_TIMEOUT_TICKS),
                 item, count, label);
@@ -138,7 +138,7 @@ Integer radius,
 int seconds,
 String reason,
             ToolContext ctx) {
-        seconds = Math.clamp(seconds, 1, WAIT_MAX_SECONDS);
+        seconds = Math.max(1, Math.min(WAIT_MAX_SECONDS, seconds));
         String reasonText = reason != null ? reason : "";
         return new WaitTaskRecord(ctx.toolCallId(), ctx.deadline(seconds * 20L + WAIT_DEADLINE_MARGIN_TICKS),
                 seconds, reasonText);

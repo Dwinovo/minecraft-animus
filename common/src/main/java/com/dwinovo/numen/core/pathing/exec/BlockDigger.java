@@ -205,7 +205,7 @@ public final class BlockDigger {
     private BlockHitResult reachableHit(BlockPos pos) {
         Level level = player.level();
         Vec3 eye = player.getEyePosition();
-        double reach = player.blockInteractionRange();
+        double reach = 4.5D;   // 1.20.4: no Player#blockInteractionRange()
         VoxelShape shape = level.getBlockState(pos).getShape(level, pos);
         if (shape.isEmpty()) {
             shape = Shapes.block();
@@ -243,7 +243,7 @@ public final class BlockDigger {
     private BlockHitResult centerRaycast(BlockPos target) {
         Level level = player.level();
         Vec3 eye = player.getEyePosition();
-        double reach = player.blockInteractionRange();
+        double reach = 4.5D;   // 1.20.4: no Player#blockInteractionRange()
         VoxelShape shape = level.getBlockState(target).getShape(level, target);
         Vec3 center = shape.isEmpty()
                 ? Vec3.atCenterOf(target)

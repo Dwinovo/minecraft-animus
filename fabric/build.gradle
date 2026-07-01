@@ -1,19 +1,19 @@
 plugins {
     id 'multiloader-loader'
-    id 'net.fabricmc.fabric-loom-remap'
+    id 'fabric-loom'
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
-    // Obfuscated MC (1.21.1) → loom remaps to Mojang names to match the common source set.
+    // 1.20.4 uses official Mojang mappings to match the common source set.
     mappings loom.officialMojangMappings()
     modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
     // The numen-api engine, loaded as a mod dependency (resolved from local maven).
-    modImplementation "com.dwinovo.numen:numen-api-fabric-1.20.6:0.0.1-SNAPSHOT"
+    modImplementation "com.dwinovo.numen:numen-api-fabric-1.20.4:0.0.1-SNAPSHOT"
     // Bundle it into core's jar (Jar-in-Jar) so players install one file and get
     // both mods — exactly like including a library mod such as GeckoLib.
-    include "com.dwinovo.numen:numen-api-fabric-1.20.6:0.0.1-SNAPSHOT"
+    include "com.dwinovo.numen:numen-api-fabric-1.20.4:0.0.1-SNAPSHOT"
 }
 
 loom {
@@ -50,7 +50,7 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 // Implement mcgradleconventions loader attribute
 def loaderAttribute = Attribute.of('io.github.mcgradleconventions.loader', String)
-['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements', 'includeInternal', 'modCompileClasspath'].each { variant ->
+['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements'].each { variant ->
     configurations.named("$variant") {
         attributes {
             attribute(loaderAttribute, 'fabric')

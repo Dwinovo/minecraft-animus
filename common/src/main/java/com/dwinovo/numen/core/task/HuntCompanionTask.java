@@ -8,17 +8,17 @@ import com.dwinovo.numen.core.pathing.exec.PlayerNav;
 import com.dwinovo.numen.core.task.CompanionTask;
 import com.dwinovo.numen.task.TaskResult;
 import com.dwinovo.numen.core.task.TaskState;
+import com.google.common.collect.Multimap;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.component.ItemAttributeModifiers;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -245,14 +245,12 @@ public final class HuntCompanionTask implements CompanionTask {
      *  Sword/axe carry the largest; a block or food scores 0 so it's never chosen over a real weapon. */
     private static double weaponDamage(ItemStack stack) {
         if (stack.isEmpty()) return 0.0;
-        ItemAttributeModifiers mods = stack.getOrDefault(
-                DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY);
+        // 1.20.4: attribute modifiers come from the item's per-slot Multimap, not a component.
+        Multimap<Attribute, AttributeModifier> mods = stack.getAttributeModifiers(EquipmentSlot.MAINHAND);
         double sum = 0.0;
-        for (ItemAttributeModifiers.Entry e : mods.modifiers()) {
-            if (e.slot().test(EquipmentSlot.MAINHAND)
-                    && e.attribute().is(Attributes.ATTACK_DAMAGE)
-                    && e.modifier().operation() == AttributeModifier.Operation.ADD_VALUE) {
-                sum += e.modifier().amount();
+        for (AttributeModifier m : mods.get(Attributes.ATTACK_DAMAGE)) {
+            if (m.getOperation() == AttributeModifier.Operation.ADDITION) {
+                sum += m.getAmount();
             }
         }
         return sum;

@@ -152,5 +152,51 @@ vc.addVertex(pose,…).setColor(c).setNormal(pose,…)
 > ⚠ **NeoForge publish 需在线**:1.20.6 的 NeoForm runtime 依赖 `log4j:2.11.+`(动态版本),
 > `--offline` 解析不了 → publish 用**在线**(非 MC 下载,只拉 maven 制品)。
 
-## 1.20.6 → 1.20.4 / 1.20.4 → 1.20.2 / 1.20.2 → 1.20.1
-_待移植时填写_
+## 1.20.6 → 1.20.4 ✓（分水岭：NeoForge → **Forge** + Java 21 → **17**；双 loader 编译 + 出包通过）
+
+**这不是机械档,是加载器 + 工具链切换。** `1.20.4` 及以下用 **Forge**(不是 NeoForge)、**Java 17**。
+构建旋钮:MC `1.20.4` / range `[1.20.4, 1.21)` / Fabric `0.92.1+1.20.4` / **loader `0.15.3`** /
+`forge_version=49.0.19`(去掉 neoforge/neoform);`java_version=17`。
+
+### 构建机制（整套换掉）❗
+- **Gradle wrapper 9.2 → 8.7**(9.2 与 loom 1.14 都要 Java 21,和 1.20.4 的 Java 17 冲突)。
+- `common`:NeoForge moddev → **Sponge VanillaGradle**(`org.spongepowered.gradle.vanilla`);mixin 0.8.5 / mixinextras 0.3.5。
+- Fabric:`fabric-loom-remap` → 普通 **`fabric-loom` 1.6-SNAPSHOT** + `officialMojangMappings()`。
+- `forge/` 子项目:**ForgeGradle 6** (`net.minecraftforge.gradle [6.0,6.2)`) + Sponge mixin + `reobfJar`。
+- `settings.gradle` 加 Forge + Sponge 仓库、`include('forge')`;buildSrc expandProps neoforge→forge(`META-INF/mods.toml`)。api 那边额外保留 `apiJar`/`numen-api-*` 发布。
+- 删 `neoforge/` 子项目。**三个 build.gradle 的 api 坐标都要 → 1.20.4。**
+
+### Forge 平台层（api）❗
+NeoForge 的 4 个平台实现要重写成 Forge 版(在 api):
+- `ForgePlatformHelper`(`ModList`/`FMLPaths`/`FMLEnvironment`)、`ForgeNumenConfig`(`ForgeConfigSpec`)、
+  `ForgeBlockCapabilityReader`(`ForgeCapabilities` item/fluid/energy,null + 6 面)、
+  `ForgeNetworkChannel`(单 `SimpleChannel`,所有 payload 走一个 `(id,bytes)` 信封,靠 `payload.id()` 路由)。
+- Forge `@Mod` 入口 + client + datagen + `META-INF/mods.toml` + 4 个 `META-INF/services` provider 文件 + `*.forge.mixins.json`。
+
+### 网络层降级（api common）❗**最大的坑**
+1.20.4 **没有** `StreamCodec`/`RegistryFriendlyByteBuf`/`CustomPacketPayload.Type`/`ByteBufCodecs`。
+所有 payload(12 个)+ `INetworkChannel` + `NumenNetwork` + 两端通道重写成 1.20.4 形状:
+`ID` 常量 + `id()` + `write(FriendlyByteBuf)` + 静态 `read(FriendlyByteBuf)` 当 decoder;`ItemStack` 用 `writeItem/readItem`。
+> ⚠ 反向 delta 会漏掉这个(它是 1.20.5 引入的,不在 1.20.6↔1.20.4 老 tag diff 里,因为老 tag 本身是 1.20.4 老写法)。
+
+### Java 17 / 1.20.4 语言 + MC 降级
+```
+sealed switch(类型模式) → if/else instanceof（ConvoLog、NumenLlmClient、NumenScreen）
+Math.clamp(v,lo,hi) → Math.max(lo, Math.min(hi, v))；Mth.clamp 保留
+VertexConsumer.setColor/setNormal(pose) → color/normal(pose.normal(), …).endVertex()（Matrix3f 重载）
+CommonListenerCookie.createInitial(profile, false) → createInitial(profile)
+PlayerList.load 返回 nullable CompoundTag（不是 Optional）；SavedData save/load 去掉 HolderLookup.Provider 参
+new ResourceLocation(ns,path)（公开构造器）；recipe.getResultItem(registryAccess())
+chunk.status.ChunkStatus → chunk.ChunkStatus；player.blockInteractionRange() → 4.5D
+HuntCompanionTask getAttributeModifiers(slot) Multimap；food：getFoodProperties()/isEdible()
+ItemStack.isSameItemSameComponents → isSameItemSameTags；FakeConnection 只有 disconnect(Component)
+```
+
+### ⚠ Forge JiJ + 产物文件名
+core 内嵌 api 用 **ForgeGradle jarJar**:`jarJar.enable()` + `jarJar(group,name,version){ transitive=false; jarJar.ranged(it,'[0.0.0,)') }`。
+`transitive=false` 必须(否则把整个 Forge/MC 依赖图打进去,94MB)。
+**FG6 的 jarJar 产物带 `-all` classifier** → 可分发的 Forge 单文件是 `numen-forge-1.20.4-0.0.3-all.jar`(内嵌 api),
+plain `numen-forge-1.20.4-0.0.3.jar` 是不含 api 的 reobf jar。**发布/CI 要发 `-all.jar`。**
+
+## 1.20.4 → 1.20.2 / 1.20.2 → 1.20.1
+_待移植时填写（同为 Forge/Java17，预计更小）_

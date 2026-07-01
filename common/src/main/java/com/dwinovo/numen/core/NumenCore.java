@@ -81,11 +81,11 @@ public final class NumenCore {
      */
     private static void registerTransport() {
         Services.NETWORK.registerClientToServer(
-                ExecuteToolPayload.TYPE, ExecuteToolPayload.STREAM_CODEC, ExecuteToolPayload::handle);
+                ExecuteToolPayload.ID, ExecuteToolPayload::read, ExecuteToolPayload::handle);
         Services.NETWORK.registerServerToClient(
-                TaskResultPayload.TYPE, TaskResultPayload.STREAM_CODEC, TaskResultPayload::handle);
+                TaskResultPayload.ID, TaskResultPayload::read, TaskResultPayload::handle);
         Services.NETWORK.registerClientToServer(
-                CancelTasksPayload.TYPE, CancelTasksPayload.STREAM_CODEC, CancelTasksPayload::handle);
+                CancelTasksPayload.ID, CancelTasksPayload::read, CancelTasksPayload::handle);
 
         CompanionLifecycle.onDeath(CompanionTickDispatcher::clearActiveTask);
         CompanionLifecycle.onRemove(CompanionTickDispatcher::onCompanionRemoved);

@@ -6,7 +6,6 @@ import com.dwinovo.numen.core.task.CompanionTask;
 import com.dwinovo.numen.core.task.PlayerInv;
 import com.dwinovo.numen.task.TaskResult;
 import com.dwinovo.numen.core.task.TaskState;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
 
@@ -45,8 +44,8 @@ public final class EatCompanionTask implements CompanionTask {
             fail("no " + r.label + " in inventory to eat");
             return;
         }
-        // Native "is this consumable?" — covers food, potions, milk, and modded consumables alike.
-        if (new ItemStack(r.item).get(DataComponents.FOOD) == null) {
+        // Native "is this consumable?" — 1.20.4 FoodProperties (food/modded edibles).
+        if (r.item.getFoodProperties() == null) {
             fail(r.label + " can't be eaten or drunk");
             return;
         }

@@ -50,7 +50,7 @@ public final class WaitTool extends ServerNumenTool {
     @Override
     public void runOnServer(String toolCallId, JsonObject args, NumenPlayer companion, Consumer<String> reply) {
         Args a = GSON.fromJson(args, Args.class);
-        int seconds = Math.clamp(a.seconds(), 1, MAX_SECONDS);
+        int seconds = Math.max(1, Math.min(MAX_SECONDS, a.seconds()));
         String reason = a.reason() != null ? a.reason() : "";
         long deadline = companion.level().getGameTime() + seconds * 20L + DEADLINE_MARGIN_TICKS;
         CompanionTickDispatcher.queueFor(companion.getUUID())

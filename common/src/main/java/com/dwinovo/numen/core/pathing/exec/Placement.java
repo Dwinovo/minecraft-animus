@@ -64,7 +64,7 @@ public final class Placement {
      * angle reaches a support face nor the (replaceable) target itself from where the body stands.
      */
     public static BlockHitResult resolve(NumenPlayer player, BlockPos placeAt, boolean wouldSneak) {
-        double reach = player.blockInteractionRange();
+        double reach = 4.5D;   // 1.20.4: no Player#blockInteractionRange()
         BlockHitResult support = reachSupport(player, placeAt, reach, wouldSneak);   // preferred
         if (support != null) return support;
         return reachBlock(player, placeAt, reach, wouldSneak);                       // fallback: replace the target

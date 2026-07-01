@@ -16,7 +16,7 @@ import net.minecraft.tags.TagKey;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.ChunkGeneratorStructureState;
-import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.chunk.ChunkStatus;
 import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureCheckResult;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
@@ -280,7 +280,7 @@ public final class LocateStructureTaskGoal implements CompanionTask {
         ChunkAccess loaded = null;   // one load permit per candidate, shared by all its structures
         for (Structure structure : job.structures) {
             StructureCheckResult res = sl.structureManager()
-                    .checkStructurePresence(candidate, structure, job.placement, false);
+                    .checkStructurePresence(candidate, structure, false);   // 1.20.4: no StructurePlacement arg
             if (res == StructureCheckResult.START_NOT_PRESENT) continue;
             if (res == StructureCheckResult.START_PRESENT) return true;
             // CHUNK_LOAD_NEEDED — the expensive fallback, globally budgeted.

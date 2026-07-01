@@ -33,7 +33,7 @@ public final class ScanTools {
 int radius,
 List<String> block_ids,
             NumenPlayer self, Consumer<String> reply) {
-        int r = Math.clamp(radius, MIN_RADIUS, MAX_RADIUS);
+        int r = Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, radius));
         Set<Block> targets = readBlockIds(block_ids);
         if (targets.isEmpty()) {
             throw new IllegalArgumentException("no valid block_ids provided");

@@ -1,8 +1,8 @@
 plugins {
-    // see https://fabricmc.net/develop/ for new versions
-    // 1.21.1 is an obfuscated MC version → use the -remap loom variant (the plain
-    // net.fabricmc.fabric-loom is the unobf path used on 26.1+). Same 1.14.x line.
-    id 'net.fabricmc.fabric-loom-remap' version '1.14.10' apply false
-    // see https://projects.neoforged.net/neoforged/moddevgradle for new versions
-    id 'net.neoforged.moddev' version '2.0.141' apply false
+    // 1.20.4 toolchain runs on Java 17; the modern fabric-loom-remap 1.14.x line
+    // requires Java 21, so pin loom to the 1.6 line (Java 17-compatible, MC 1.20.4).
+    // 1.20.4 uses official Mojang mappings, so the plain fabric-loom (not -remap) is correct.
+    id 'fabric-loom' version '1.6-SNAPSHOT' apply false
+    // Forge (ForgeGradle) and common (VanillaGradle) declare their plugins inline
+    // in their own build.gradle, so nothing else is needed here.
 }

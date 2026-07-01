@@ -1,26 +1,26 @@
 plugins {
     id 'multiloader-common'
-    id 'net.neoforged.moddev'
+    id 'org.spongepowered.gradle.vanilla' version '0.2.1-SNAPSHOT'
 }
 
-neoForge {
-    neoFormVersion = neo_form_version
-    // Automatically enable AccessTransformers if the file exists
-    def at = file('src/main/resources/META-INF/accesstransformer.cfg')
-    if (at.exists()) {
-        accessTransformers.from(at.absolutePath)
+minecraft {
+    version(minecraft_version)
+    // Automatically enable AccessWideners if the file exists
+    def aw = file("src/main/resources/${mod_id}.accesswidener")
+    if (aw.exists()) {
+        accessWideners(aw)
     }
 }
 
 dependencies {
-    // The numen-api engine (composite-substituted from ../numen-api). compileOnly:
+    // The numen-api engine (published to the local maven repo). compileOnly:
     // the api classes are provided at runtime by the numen-api mod, not bundled.
-    compileOnly "com.dwinovo.numen:numen-api-common-1.20.6:0.0.1-SNAPSHOT"
+    compileOnly "com.dwinovo.numen:numen-api-common-1.20.4:0.0.1-SNAPSHOT"
 
     compileOnly group: 'org.spongepowered', name: 'mixin', version: '0.8.5'
-    // fabric and neoforge both bundle mixinextras, so it is safe to use it in common
-    compileOnly group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.3'
-    annotationProcessor group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.3'
+    // fabric and forge both bundle mixinextras, so it is safe to use it in common
+    compileOnly group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.3.5'
+    annotationProcessor group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.3.5'
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
