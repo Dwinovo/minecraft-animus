@@ -64,7 +64,7 @@ public record ExecuteToolPayload(UUID entityUuid,
     public static final int MAX_ARGUMENTS_JSON_LENGTH = 16 * 1024;
 
     public static final Type<ExecuteToolPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "execute_tool"));
+            new ResourceLocation(Constants.MOD_ID, "execute_tool"));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, ExecuteToolPayload> STREAM_CODEC =
             StreamCodec.composite(

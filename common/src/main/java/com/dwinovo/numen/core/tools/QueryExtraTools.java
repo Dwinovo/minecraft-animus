@@ -16,16 +16,13 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.AbstractCookingRecipe;
-import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.item.crafting.ShapedRecipe;
-import net.minecraft.world.item.crafting.SingleRecipeInput;
 import net.minecraft.world.item.crafting.SmithingRecipe;
-import net.minecraft.world.item.crafting.SmithingRecipeInput;
 import net.minecraft.world.item.crafting.StonecutterRecipe;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -153,7 +150,7 @@ String item_id,
                 }
                 ItemStack result;
                 try {
-                    result = cr.assemble(CraftingInput.EMPTY, level.registryAccess());   // shaped/shapeless ignore input
+                    result = cr.getResultItem(level.registryAccess());   // shaped/shapeless ignore input
                 } catch (RuntimeException inputDependent) {
                     continue;
                 }
@@ -164,7 +161,7 @@ String item_id,
             } else if (r instanceof AbstractCookingRecipe cook) {
                 ItemStack result;
                 try {
-                    result = cook.assemble(new SingleRecipeInput(ItemStack.EMPTY), level.registryAccess());   // ignores input
+                    result = cook.getResultItem(level.registryAccess());   // ignores input
                 } catch (RuntimeException inputDependent) {
                     continue;
                 }
@@ -175,7 +172,7 @@ String item_id,
             } else if (r instanceof StonecutterRecipe sc) {
                 ItemStack result;
                 try {
-                    result = sc.assemble(new SingleRecipeInput(ItemStack.EMPTY), level.registryAccess());     // ignores input
+                    result = sc.getResultItem(level.registryAccess());     // ignores input
                 } catch (RuntimeException inputDependent) {
                     continue;
                 }
@@ -187,10 +184,9 @@ String item_id,
             } else if (r instanceof SmithingRecipe sm) {
                 ItemStack result;
                 try {
-                    // Empty input: a transform recipe (netherite upgrade etc.) still yields its result
-                    // item; a cosmetic trim recipe yields the (empty) base, so it self-excludes.
-                    result = sm.assemble(new SmithingRecipeInput(
-                            ItemStack.EMPTY, ItemStack.EMPTY, ItemStack.EMPTY), level.registryAccess());
+                    // A transform recipe (netherite upgrade etc.) yields its result item; a cosmetic
+                    // trim recipe yields the (empty) base, so it self-excludes.
+                    result = sm.getResultItem(level.registryAccess());
                 } catch (RuntimeException inputDependent) {
                     continue;
                 }

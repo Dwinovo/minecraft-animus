@@ -55,11 +55,11 @@ public final class InitTag {
 
     private static TagKey<Item> item(String name) {
         return TagKey.create(Registries.ITEM,
-                ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, name));
+                new ResourceLocation(Constants.MOD_ID, name));
     }
 
     private static TagKey<Block> block(String name) {
         return TagKey.create(Registries.BLOCK,
-                ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, name));
+                new ResourceLocation(Constants.MOD_ID, name));
     }
 }

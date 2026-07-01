@@ -30,7 +30,7 @@ import java.util.UUID;
 public record CancelTasksPayload(UUID entityUuid) implements CustomPacketPayload {
 
     public static final Type<CancelTasksPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "cancel_tasks"));
+            new ResourceLocation(Constants.MOD_ID, "cancel_tasks"));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, CancelTasksPayload> STREAM_CODEC =
             StreamCodec.composite(

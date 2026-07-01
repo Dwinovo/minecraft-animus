@@ -119,4 +119,38 @@ _待移植时填写_
 _待移植时填写_
 
 ## 1.21.11 → 26.1.2
+_（升级链的完整配方在各上行分支的本文件里；本分支是从 1.21.1 向下分出的）_
+
+---
+
+# 向下移植（↓ 低于 1.21.1）
+
+新架构基线在 1.21.1;往下是把 1.21.1 的新 API **改回**旧 API。参考物同样是老架构 tag diff,
+方向取 `git diff v0.0.2-1.21.1-beta v0.0.2-1.20.x-beta` 的 `+` 侧(即 1.20.x 的写法)。
+
+## 1.21.1 → 1.20.6 ✓（已验证,双 loader 编译 + 出包通过）
+
+构建旋钮:MC `1.20.6` / range `[1.20.6, 1.21)` / NeoForm `1.20.6-20240627.102356` /
+Fabric `0.100.8+1.20.6` / **Fabric loader `0.16.10`** / NeoForge `20.6.139`。Java 仍 21;fabric/build.gradle 仍 remap loom(不动)。
+
+### 反向 MC delta
+```java
+// ResourceLocation 工厂 → 公开构造器(1.20.6 构造器是 public;工厂是 1.21+)。大量文件(payload/screen/entity)：
+ResourceLocation.fromNamespaceAndPath(ns, path) → new ResourceLocation(ns, path)
+//   注意全限定写法要修正为 new net.minecraft.resources.ResourceLocation(...)（别写成 net.minecraft.resources.new …）
+// 配方 assemble → getResultItem（1.20.6 无 CraftingInput/SingleRecipeInput/SmithingRecipeInput）：
+cr.assemble(CraftingInput.EMPTY, ra) → cr.getResultItem(ra)
+cook/sc.assemble(new SingleRecipeInput(ItemStack.EMPTY), ra) → .getResultItem(ra)
+sm.assemble(new SmithingRecipeInput(EMPTY,EMPTY,EMPTY), ra) → sm.getResultItem(ra)
+//   删掉那三个 crafting.*Input import。
+// VertexConsumer 旧链式（PathVizRenderer）：
+vc.addVertex(pose,…).setColor(c).setNormal(pose,…)
+  → vc.vertex(pose.pose(),…).color(c).normal(pose,…).endVertex()
+// FakeConnection：删 disconnect(DisconnectionDetails) 重写（1.21+ 才有）+ 其 import；保留 disconnect(Component)。
+```
+
+> ⚠ **NeoForge publish 需在线**:1.20.6 的 NeoForm runtime 依赖 `log4j:2.11.+`(动态版本),
+> `--offline` 解析不了 → publish 用**在线**(非 MC 下载,只拉 maven 制品)。
+
+## 1.20.6 → 1.20.4 / 1.20.4 → 1.20.2 / 1.20.2 → 1.20.1
 _待移植时填写_
