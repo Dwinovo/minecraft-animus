@@ -2,7 +2,7 @@ package com.dwinovo.numen.core.init;
 
 import com.dwinovo.numen.core.Constants;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
@@ -17,7 +17,7 @@ import net.minecraft.world.level.block.Block;
  *
  * <h2>Why not derive at runtime</h2>
  * Tags are referenced from pathfinder hot paths where a fresh
- * {@link ResourceLocation#fromNamespaceAndPath} per call would allocate. Caching
+ * {@link Identifier#fromNamespaceAndPath} per call would allocate. Caching
  * the {@link TagKey} as a {@code static final} field amortises that cost
  * and gives the JIT a constant pool reference.
  */
@@ -55,11 +55,11 @@ public final class InitTag {
 
     private static TagKey<Item> item(String name) {
         return TagKey.create(Registries.ITEM,
-                ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, name));
+                Identifier.fromNamespaceAndPath(Constants.MOD_ID, name));
     }
 
     private static TagKey<Block> block(String name) {
         return TagKey.create(Registries.BLOCK,
-                ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, name));
+                Identifier.fromNamespaceAndPath(Constants.MOD_ID, name));
     }
 }

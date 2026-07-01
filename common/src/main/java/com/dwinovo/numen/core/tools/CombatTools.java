@@ -5,7 +5,7 @@ import com.dwinovo.numen.core.task.TaskRecord;
 import com.dwinovo.numen.core.task.HuntTaskRecord;
 import com.dwinovo.numen.core.task.ShootTaskRecord;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EntityType;
 
 import java.util.LinkedHashSet;
@@ -85,7 +85,7 @@ Integer radius,
         Set<EntityType<?>> out = new LinkedHashSet<>();
         for (String el : entity_ids) {
             if (el == null) continue;
-            ResourceLocation id = ResourceLocation.tryParse(el);
+            Identifier id = Identifier.tryParse(el);
             if (id == null) continue;
             EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(id);
             // getValue returns the PIG default for unknown ids in some registries;
@@ -101,7 +101,7 @@ Integer radius,
         Set<EntityType<?>> out = new LinkedHashSet<>();
         for (String el : entity_ids) {
             if (el == null) continue;
-            ResourceLocation id = ResourceLocation.tryParse(el);
+            Identifier id = Identifier.tryParse(el);
             if (id == null) continue;
             if (BuiltInRegistries.ENTITY_TYPE.containsKey(id)) {
                 out.add(BuiltInRegistries.ENTITY_TYPE.getValue(id));

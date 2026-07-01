@@ -105,7 +105,7 @@ public final class ScanBlocksJob {
         ScanBlocksJob job = new ScanBlocksJob(entityUuid, level, center, radius, targets, onDone, onPartial);
         JOBS.add(job);
         Constants.LOG.info("[numen-scan] started radius-{} scan around {} in {} ({} columns)",
-                radius, center.toShortString(), level.dimension().location(), job.columnsTotal);
+                radius, center.toShortString(), level.dimension().identifier(), job.columnsTotal);
     }
 
     /** Drop pending scans for one entity (owner interrupt — client already

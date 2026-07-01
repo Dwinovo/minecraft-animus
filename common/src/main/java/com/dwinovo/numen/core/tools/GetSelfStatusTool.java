@@ -9,7 +9,7 @@ import com.google.gson.JsonObject;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
@@ -60,15 +60,15 @@ public final class GetSelfStatusTool extends ServerNumenTool {
         pos.addProperty("z", self.getZ());
         root.add("position", pos);
 
-        root.addProperty("dimension", self.level().dimension().location().toString());
+        root.addProperty("dimension", self.level().dimension().identifier().toString());
         root.addProperty("biome", self.level().getBiome(self.blockPosition())
-                .unwrapKey().map(k -> k.location().toString()).orElse("unknown"));
+                .unwrapKey().map(k -> k.identifier().toString()).orElse("unknown"));
 
         JsonArray structures = new JsonArray();
         if (self.level() instanceof ServerLevel sl) {
             Registry<Structure> reg = sl.registryAccess().lookupOrThrow(Registries.STRUCTURE);
             for (Structure s : sl.structureManager().getAllStructuresAt(self.blockPosition()).keySet()) {
-                ResourceLocation key = reg.getKey(s);
+                Identifier key = reg.getKey(s);
                 if (key != null) structures.add(key.toString());
             }
         }

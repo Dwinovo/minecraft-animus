@@ -7,7 +7,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -89,7 +89,7 @@ List<String> block_ids,
         Set<Block> out = new HashSet<>();
         for (String raw : ids) {
             if (raw == null) continue;
-            ResourceLocation id = ResourceLocation.tryParse(raw);
+            Identifier id = Identifier.tryParse(raw);
             if (id == null) continue;
             Block b = BuiltInRegistries.BLOCK.getValue(id);
             if (b != null && b != Blocks.AIR) out.add(b);

@@ -11,7 +11,7 @@ import com.dwinovo.numen.core.task.PlaceBlockTaskRecord;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
@@ -118,7 +118,7 @@ Integer radius,
         Set<Block> out = new LinkedHashSet<>();
         for (String el : blockIds) {
             if (el == null) continue;
-            ResourceLocation id = ResourceLocation.tryParse(el);
+            Identifier id = Identifier.tryParse(el);
             if (id == null) continue;
             Block b = BuiltInRegistries.BLOCK.getValue(id);
             if (b != null && b != Blocks.AIR) out.add(b);

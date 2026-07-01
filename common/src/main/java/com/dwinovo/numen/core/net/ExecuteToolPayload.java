@@ -11,7 +11,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.UUID;
@@ -49,7 +49,7 @@ import java.util.UUID;
  * running {@code move_to} would turn "what's my HP" into a minute-long wait.
  *
  * <h2>Wire format</h2>
- * Fixed-shape strings (ResourceLocation for compactness on the tool name even
+ * Fixed-shape strings (Identifier for compactness on the tool name even
  * though tools live under a single namespace; this is forward-compatible for
  * multi-namespace tool registries). The arguments arrive as the raw JSON
  * string the LLM emitted; server parses with Gson and re-validates.
@@ -64,7 +64,7 @@ public record ExecuteToolPayload(UUID entityUuid,
     public static final int MAX_ARGUMENTS_JSON_LENGTH = 16 * 1024;
 
     public static final Type<ExecuteToolPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "execute_tool"));
+            Identifier.fromNamespaceAndPath(Constants.MOD_ID, "execute_tool"));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, ExecuteToolPayload> STREAM_CODEC =
             StreamCodec.composite(

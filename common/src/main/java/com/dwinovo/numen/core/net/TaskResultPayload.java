@@ -7,7 +7,7 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.util.UUID;
 
@@ -36,7 +36,7 @@ public record TaskResultPayload(UUID entityUuid,
     public static final int MAX_RESULT_JSON_LENGTH = 16 * 1024;
 
     public static final Type<TaskResultPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(Constants.MOD_ID, "task_result"));
+            Identifier.fromNamespaceAndPath(Constants.MOD_ID, "task_result"));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, TaskResultPayload> STREAM_CODEC =
             StreamCodec.composite(

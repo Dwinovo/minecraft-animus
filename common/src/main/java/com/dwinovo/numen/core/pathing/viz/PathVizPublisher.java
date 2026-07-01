@@ -44,7 +44,7 @@ public final class PathVizPublisher {
         }
 
         Services.NETWORK.sendToPlayer(owner, new PathVizPayload(
-                player.getUUID(), player.level().dimension().location(),
+                player.getUUID(), player.level().dimension().identifier(),
                 cap(nodes), cap(toBreak), cap(toPlace), cap(targets)));
     }
 
@@ -60,7 +60,7 @@ public final class PathVizPublisher {
         ServerPlayer owner = player.resolveOwnerPlayer();
         if (owner == null) return;
         Services.NETWORK.sendToPlayer(owner, new PathVizPayload(
-                player.getUUID(), player.level().dimension().location(),
+                player.getUUID(), player.level().dimension().identifier(),
                 List.of(), List.of(), List.of(), cap(targets)));
     }
 
@@ -69,7 +69,7 @@ public final class PathVizPublisher {
         ServerPlayer owner = player.resolveOwnerPlayer();
         if (owner == null) return;
         Services.NETWORK.sendToPlayer(owner, new PathVizPayload(
-                player.getUUID(), player.level().dimension().location(),
+                player.getUUID(), player.level().dimension().identifier(),
                 List.of(), List.of(), List.of(), List.of()));
     }
 

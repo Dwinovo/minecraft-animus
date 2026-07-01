@@ -16,7 +16,7 @@ Fabric + NeoForge 同源，**api 与 core 各自同名分支**。向上移植（
 `1.20.1 → 1.20.2 → 1.20.4 → 1.20.6 → 1.21.1 → 1.21.4 → 1.21.5 → 1.21.8 → 1.21.10 → 1.21.11 → 26.1.2`
 
 新架构（numen-api 拆分 + 调度器 + raw `NumenTool` + skill 体系）基线在 **`1.21.1`**，正逐档向上移植。
-**已移植：1.21.1 → 1.21.4 → 1.21.5 → 1.21.8 → 1.21.10 ✓**
+**已移植：1.21.1 → 1.21.4 → 1.21.5 → 1.21.8 → 1.21.10 → 1.21.11 ✓**
 
 ## 每档的流程
 
@@ -285,8 +285,36 @@ IEnergyStorage + Capabilities.EnergyStorage.BLOCK → EnergyHandler + Capabiliti
 Path.of(NumenCoreNeoForge.class.getResource("/skills").toURI())   // 防御式 try/catch
 ```
 
-## 1.21.10 → 1.21.11
-_待移植时填写_
+## 1.21.10 → 1.21.11 ✓（已验证，双 loader 编译 + 出包通过）
+
+**Mojang 大改名**，量大但纯机械。构建旋钮：MC `1.21.11` / range `[1.21.11, 1.22)` /
+NeoForm `1.21.11-20251209.172050` / Fabric `0.139.5+1.21.11` / NeoForge `21.11.42`。
+
+### 全局改名 ❗（api 24 文件 + core 15 文件）
+```java
+net.minecraft.resources.ResourceLocation → net.minecraft.resources.Identifier   // 类改名
+ResourceLocation（类型/静态调用一切） → Identifier                                // 全局字符串替换即可
+ResourceKey.location()  → ResourceKey.identifier()
+   // 波及 dimension().location()、ref.key().location()、unwrapKey().map(k->k.location()) 等
+```
+> 注意:`SkillInfo.location()`（api 里我们自己的 record 访问器，返回 Path）**不是** ResourceKey，别误改。
+> 盲替 `ResourceLocation`→`Identifier` 前确认源码没有 `ResourceLocationException`（本项目源码没有；只在 build/ 的 jar 里）。
+
+### 渲染 / Button（api）❗
+```java
+net.minecraft.client.renderer.RenderType → net.minecraft.client.renderer.rendertype.RenderTypes  // 移包+复数
+RenderType.lines() → RenderTypes.lines()（PathVizRenderer）
+AbstractButton 抽象方法 renderWidget(...) → renderContents(...)（SimpleButton）
+// 顺手删掉 1.21.8 换 RenderPipelines 后残留的 RenderType 无用 import（FlatEditBox、SimpleButton），
+//   否则 1.21.11 里 RenderType 那个位置没了会直接报错。
+```
+
+### ⚠ 构建坑（core）：common/build.gradle 的 api 坐标
+之前每档只改了 `fabric/build.gradle`、`neoforge/build.gradle` 的 `numen-api-*-<mc>` 坐标，
+**漏了 `common/build.gradle` 里的 `compileOnly numen-api-common-<mc>`**——它一直停在 `1.21.1`。
+1.21.4~1.21.10 因 MC 兼容侥幸没暴露（运行期用的是 JiJ 里正确版本的 api），到 1.21.11
+`ResourceLocation→Identifier` 才炸（core 编到旧 api 的 `PathVizPayload`）。
+**每档三个 build.gradle 的 api 坐标都要一起改。**
 
 ## 1.21.11 → 26.1.2
 _待移植时填写_

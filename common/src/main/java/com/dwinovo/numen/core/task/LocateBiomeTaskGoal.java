@@ -8,7 +8,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.QuartPos;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.TagKey;
@@ -103,7 +103,7 @@ public final class LocateBiomeTaskGoal implements CompanionTask {
     private Predicate<Holder<Biome>> resolveBiomePredicate(ServerLevel sl, String arg) {
         var registry = sl.registryAccess().lookupOrThrow(Registries.BIOME);
         if (arg.startsWith("#")) {
-            ResourceLocation tagId = ResourceLocation.tryParse(arg.substring(1));
+            Identifier tagId = Identifier.tryParse(arg.substring(1));
             if (tagId == null) {
                 failReason = "invalid biome tag: " + arg;
                 return null;
@@ -119,7 +119,7 @@ public final class LocateBiomeTaskGoal implements CompanionTask {
             }
             return holder -> holder.is(tag);
         }
-        ResourceLocation id = ResourceLocation.tryParse(arg);
+        Identifier id = Identifier.tryParse(arg);
         if (id == null || registry.get(ResourceKey.create(Registries.BIOME, id)).isEmpty()) {
             if (id != null && isStructureId(sl, id)) {
                 failReason = arg + " is a STRUCTURE, not a biome — call "
@@ -127,7 +127,7 @@ public final class LocateBiomeTaskGoal implements CompanionTask {
                 return null;
             }
             String suggestion = IdSuggest.closest(
-                    registry.listElements().map(ref -> ref.key().location()), arg);
+                    registry.listElements().map(ref -> ref.key().identifier()), arg);
             failReason = "unknown biome: " + arg
                     + (suggestion != null
                             ? " — did you mean " + suggestion + "?"
@@ -140,12 +140,12 @@ public final class LocateBiomeTaskGoal implements CompanionTask {
         return holder -> holder.is(key);
     }
 
-    private static boolean isStructureId(ServerLevel sl, ResourceLocation id) {
+    private static boolean isStructureId(ServerLevel sl, Identifier id) {
         return sl.registryAccess().lookupOrThrow(Registries.STRUCTURE)
                 .get(ResourceKey.create(Registries.STRUCTURE, id)).isPresent();
     }
 
-    private static boolean isStructureTag(ServerLevel sl, ResourceLocation tagId) {
+    private static boolean isStructureTag(ServerLevel sl, Identifier tagId) {
         return sl.registryAccess().lookupOrThrow(Registries.STRUCTURE)
                 .get(TagKey.create(Registries.STRUCTURE, tagId)).isPresent();
     }
@@ -204,7 +204,7 @@ public final class LocateBiomeTaskGoal implements CompanionTask {
     public TaskResult buildResult(TaskState finalState) {
         Map<String, Object> data = new HashMap<>();
         data.put("biome", r.biome);
-        String dim = player.level().dimension().location().getPath();
+        String dim = player.level().dimension().identifier().getPath();
         if (finalState == TaskState.SUCCESS && best != null) {
             BlockPos me = player.blockPosition();
             int dx = best.getX() - me.getX();
