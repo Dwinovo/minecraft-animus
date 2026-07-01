@@ -47,11 +47,11 @@ dependencies {
     // The numen-api engine (matching-loader artifact, so the mcgradleconventions
     // loader attribute resolves). compileOnly: the api classes are provided at
     // runtime by the bundled numen-api mod, not by core's own jar.
-    compileOnly "com.dwinovo.numen:numen-api-forge-1.20.4:0.0.1-SNAPSHOT"
+    compileOnly "com.dwinovo.numen:numen-api-forge-1.20.2:0.0.1-SNAPSHOT"
     // Bundle the Forge build of the api into META-INF/jarjar/ so one file ships both mods.
     // transitive=false: only the api jar is nested — its Forge/Minecraft deps are provided
     // by the loader at runtime and must NOT be embedded (that would bloat the jar to ~94MB).
-    jarJar(group: 'com.dwinovo.numen', name: 'numen-api-forge-1.20.4', version: '0.0.1-SNAPSHOT') {
+    jarJar(group: 'com.dwinovo.numen', name: 'numen-api-forge-1.20.2', version: '0.0.1-SNAPSHOT') {
         transitive = false
         jarJar.ranged(it, '[0.0.0,)')
     }

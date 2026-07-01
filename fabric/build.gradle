@@ -10,10 +10,10 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
     // The numen-api engine, loaded as a mod dependency (resolved from local maven).
-    modImplementation "com.dwinovo.numen:numen-api-fabric-1.20.4:0.0.1-SNAPSHOT"
+    modImplementation "com.dwinovo.numen:numen-api-fabric-1.20.2:0.0.1-SNAPSHOT"
     // Bundle it into core's jar (Jar-in-Jar) so players install one file and get
     // both mods — exactly like including a library mod such as GeckoLib.
-    include "com.dwinovo.numen:numen-api-fabric-1.20.4:0.0.1-SNAPSHOT"
+    include "com.dwinovo.numen:numen-api-fabric-1.20.2:0.0.1-SNAPSHOT"
 }
 
 loom {
